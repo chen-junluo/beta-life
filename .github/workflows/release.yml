@@ -1,0 +1,95 @@
+name: Release
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles dmg
+          - platform: windows-latest
+            rustTargets: x86_64-pc-windows-msvc
+            args: --bundles nsis,msi
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify release metadata
+        run: npm run verify:release
+
+      - name: Run frontend checks
+        run: npm run check
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build and publish desktop installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: npm run tauri --
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: Beta Life ${{ env.RELEASE_TAG }}
+          releaseBody: |
+            Beta Life desktop builds.
+
+            Recommended downloads:
+            - macOS (Apple Silicon and Intel): `.dmg`
+            - Windows: `.msi` (or the NSIS `.exe` installer)
+
+            macOS note:
+            - The current macOS build is not signed or notarized by Apple.
+            - If macOS says the app is damaged or refuses to open it, drag `Beta Life.app` to `Applications` first, then run:
+
+              ```bash
+              xattr -dr com.apple.quarantine "/Applications/Beta Life.app"
+              open "/Applications/Beta Life.app"
+              ```
+
+            This macOS release path is intended for developer users and small-scale testing. It is not yet a no-warning installation path for general users.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

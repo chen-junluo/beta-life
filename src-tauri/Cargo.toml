@@ -1,0 +1,27 @@
+[package]
+name = "beta-life"
+version = "0.1.0"
+description = "A long-term life rhythm board"
+authors = ["Dylan Chen"]
+edition = "2021"
+
+[lib]
+name = "beta_life_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.9.1", features = [] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

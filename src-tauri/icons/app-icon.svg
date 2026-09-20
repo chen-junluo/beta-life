@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Beta Period Crown</title>
+  <desc id="desc">Three time-of-day cards form a colorful crown behind a central Beta planner.</desc>
+  <defs>
+    <linearGradient id="morning" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FDBA2D"/><stop offset="1" stop-color="#FB7185"/></linearGradient>
+    <linearGradient id="afternoon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2DD4BF"/><stop offset="1" stop-color="#06B6D4"/></linearGradient>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8B5CF6"/><stop offset="1" stop-color="#4F46E5"/></linearGradient>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="22" stdDeviation="19" flood-color="#475569" flood-opacity=".24"/></filter>
+  </defs>
+  <g transform="translate(92 92) scale(.82)">
+  <rect width="1024" height="1024" rx="232" fill="#FFFFFF"/>
+  <g filter="url(#shadow)">
+    <g transform="rotate(-12 311 395)"><rect x="204" y="236" width="214" height="318" rx="44" fill="url(#morning)"/><circle cx="311" cy="351" r="44" fill="#FFF7ED"/><path d="M311 282v-21M311 441v-21M242 351h-21M401 351h-21" stroke="#FFF7ED" stroke-width="13" stroke-linecap="round"/></g>
+    <rect x="405" y="190" width="214" height="346" rx="44" fill="url(#afternoon)"/>
+    <rect x="452" y="252" width="120" height="15" rx="7" fill="#CCFBF1"/><rect x="452" y="293" width="88" height="12" rx="6" fill="#A7F3D0"/><path d="M453 393l31 31 68-76" fill="none" stroke="#FFFFFF" stroke-width="21" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="rotate(12 713 395)"><rect x="606" y="236" width="214" height="318" rx="44" fill="url(#night)"/><circle cx="706" cy="351" r="53" fill="#F8FAFC"/><circle cx="730" cy="329" r="53" fill="#695CE3"/></g>
+    <rect x="323" y="422" width="378" height="436" rx="64" fill="#FFFFFF"/>
+  </g>
+  <text x="512" y="561" text-anchor="middle" fill="#4338CA" font-family="Arial Rounded MT Bold, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="-5">Beta</text>
+  <rect x="404" y="612" width="216" height="16" rx="8" fill="#CBD5E1"/><rect x="404" y="655" width="160" height="13" rx="6" fill="#E2E8F0"/>
+  <circle cx="426" cy="735" r="24" fill="#34D399"/><path d="M415 735l9 9 20-23" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><rect x="470" y="727" width="145" height="15" rx="7" fill="#CBD5E1"/>
+  <rect x="437" y="798" width="150" height="13" rx="6" fill="#EEF2FF"/>
+  </g>
+</svg>
