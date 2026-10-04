@@ -17,6 +17,21 @@
     "check": "tsc --noEmit && vitest run",
     "test": "vitest run",
     "tauri": "tauri",
+    "video:audio": "npm run video:audio:v3",
+    "video:audio:v3": "node video/scripts/generate-audio-v3.mjs",
+    "video:typecheck": "tsc -p video/tsconfig.json",
+    "video:studio": "remotion studio video/index.ts",
+    "video:preview": "npm run video:preview:v3",
+    "video:preview:v3": "remotion render video/index.ts BetaLifeReadmeV3 video/out/beta-life-readme-v3-preview.mp4 --codec=h264 --crf=22 --audio-codec=aac --scale=0.5",
+    "video:qa-stills": "npm run video:qa-stills:v3",
+    "video:qa-stills:v3": "node video/scripts/render-qa-stills-v3.mjs",
+    "video:render:v3": "remotion render video/index.ts BetaLifeReadmeV3 video/out/beta-life-readme-v3.mp4 --codec=h264 --crf=15 --audio-codec=aac --audio-bitrate=320k --pixel-format=yuv420p --scale=2",
+    "video:render:clean:v3": "remotion render video/index.ts BetaLifeReadmeV3Clean video/out/beta-life-readme-v3-clean.mp4 --codec=h264 --crf=15 --pixel-format=yuv420p --scale=2",
+    "video:poster:v3": "remotion still video/index.ts BetaLifeReadmeV3 video/out/beta-life-readme-v3-poster.png --frame=1015 --scale=2",
+    "video:render": "npm run video:render:v3",
+    "video:render:clean": "npm run video:render:clean:v3",
+    "video:poster": "npm run video:poster:v3",
+    "video:edit-package": "node video/scripts/prepare-edit-package-v3.mjs",
     "verify:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
@@ -29,11 +44,14 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@remotion/cli": "^4.0.526",
+    "@remotion/renderer": "^4.0.526",
     "@tauri-apps/cli": "^2.8.4",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^27.0.0",
+    "remotion": "^4.0.526",
     "typescript": "~5.9.3",
     "vite": "^7.1.7",
     "vitest": "^3.2.4"

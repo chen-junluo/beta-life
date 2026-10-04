@@ -10,3 +10,17 @@ src-tauri/target/
 .env.local
 .idea/
 .vscode/
+
+# Local video work-in-progress and source media
+/video/
+/public/video/
+/beta-life-video-*/
+README_VIDEO_SCRIPT.md
+REMOTION_PREFERENCES.md
+*.zip
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.wav
+*.mp3
