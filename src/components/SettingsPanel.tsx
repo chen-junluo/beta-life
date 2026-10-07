@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, ChevronDown, Database, KeyRound, Palette, RotateCcw, Settings2, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_EXTRACTION_PROMPT } from "../defaults";
+import { DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { AppSettings, BoardFile, PeriodId } from "../types";
 
 type SettingsSection = "timeline" | "appearance" | "provider" | "prompt" | "data";
@@ -459,12 +459,12 @@ export function SettingsPanel({
               <div className="settings-section form-grid prompt-settings">
                 <div className="section-heading">
                   <Sparkles size={21} />
-                  <div><h3>提取偏好</h3><p>可修改提取风格。JSON 协议与安全规则由应用管理，不会被这里覆盖。</p></div>
+                  <div><h3>AI Prompt</h3><p>统一管理四类 AI 辅助任务的语言和风格。JSON 协议与安全规则由应用管理，不会被这里覆盖。</p></div>
                 </div>
-                <textarea rows={18} value={draft.ai.extractionPrompt} onChange={(event) => updateAi({ extractionPrompt: event.target.value })} />
-                <button className="secondary-button align-start" onClick={() => updateAi({ extractionPrompt: DEFAULT_EXTRACTION_PROMPT })}>
-                  <RotateCcw size={16} /> 恢复默认 Prompt
-                </button>
+                <label className="prompt-field-card"><span>习惯提取</span><small>从文字、对话或图片中提取时间板习惯。</small><textarea rows={9} value={draft.ai.extractionPrompt} onChange={(event) => updateAi({ extractionPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ extractionPrompt: DEFAULT_EXTRACTION_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
+                <label className="prompt-field-card"><span>知识识别与标签推荐</span><small>粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。</small><textarea rows={9} value={draft.ai.knowledgeImportPrompt} onChange={(event) => updateAi({ knowledgeImportPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ knowledgeImportPrompt: DEFAULT_KNOWLEDGE_IMPORT_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
+                <label className="prompt-field-card"><span>抽查点起草</span><small>根据知识正文生成 framework、mechanism、relationship 抽查点。</small><textarea rows={9} value={draft.ai.recallPointsPrompt} onChange={(event) => updateAi({ recallPointsPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ recallPointsPrompt: DEFAULT_RECALL_POINTS_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
+                <label className="prompt-field-card"><span>抽查评价与反馈</span><small>评价关键点覆盖、事实正确性和机制/关系，并生成待确认反馈。</small><textarea rows={9} value={draft.ai.recallEvaluationPrompt} onChange={(event) => updateAi({ recallEvaluationPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
               </div>
             )}
 

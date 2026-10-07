@@ -9,6 +9,10 @@ describe("parseSimpleMarkdown", () => {
       { kind: "ordered-list", items: ["记录", "复盘"] },
     ]);
   });
+
+  it("parses headings as structured blocks", () => {
+    expect(parseSimpleMarkdown("## 核心概念")).toEqual([{ kind: "heading", level: 2, text: "核心概念" }]);
+  });
 });
 
 describe("splitTags", () => {

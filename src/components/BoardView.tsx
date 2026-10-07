@@ -108,6 +108,9 @@ function HabitTitle({ title }: { title: string }) {
         if (block.kind === "ordered-list") {
           return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ol>;
         }
+        if (block.kind === "heading") {
+          return <p key={index}><strong>{block.text}</strong></p>;
+        }
         return (
           <p key={index}>
             {block.lines.map((line, lineIndex) => (

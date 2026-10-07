@@ -1,5 +1,6 @@
 export type SimpleMarkdownBlock =
   | { kind: "text"; lines: string[] }
+  | { kind: "heading"; level: number; text: string }
   | { kind: "unordered-list"; items: string[] }
   | { kind: "ordered-list"; items: string[] };
 
@@ -12,6 +13,11 @@ export function parseSimpleMarkdown(value: string): SimpleMarkdownBlock[] {
 
     const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
     const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    if (heading) {
+      blocks.push({ kind: "heading", level: heading[1].length, text: heading[2].trim() });
+      continue;
+    }
     const kind = unordered ? "unordered-list" : ordered ? "ordered-list" : "text";
     const content = unordered?.[1] ?? ordered?.[1] ?? line.trimStart();
     const previous = blocks.at(-1);

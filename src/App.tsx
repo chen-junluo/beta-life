@@ -6,6 +6,7 @@ import { containerForPlacement, reindexItems } from "./boardLogic";
 import { AiPanel } from "./components/AiPanel";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
+import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
 import type {
@@ -75,6 +76,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
+  const [activeSection, setActiveSection] = useState<"board" | "recall">("board");
   const [undoStack, setUndoStack] = useState<BoardFile[]>([]);
   const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -272,7 +274,7 @@ export default function App() {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const typing = target?.matches("input, textarea, select, [contenteditable='true']");
-      if (!typing && event.key.toLowerCase() === "n" && !showEditor && !showAi && !showSettings) {
+      if (!typing && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showAi && !showSettings) {
         event.preventDefault();
         openCreate();
       }
@@ -283,6 +285,7 @@ export default function App() {
       }
       if (
         !typing &&
+        activeSection === "board" &&
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === "k" &&
         !showEditor &&
@@ -302,7 +305,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  });
+  }, [activeSection, showEditor, showAi, showSettings]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
@@ -350,28 +353,35 @@ export default function App() {
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark">β</div>
-          <div><h1>Beta Life</h1><span>{board?.name ?? "My Life"} · {count} 个习惯</span></div>
+          <div><h1>Beta Life</h1><span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : "Recall Space · 本地知识"}</span></div>
         </div>
 
+        <nav className="workspace-nav" aria-label="工作空间">
+          <button type="button" className={activeSection === "board" ? "active" : ""} aria-current={activeSection === "board" ? "page" : undefined} onClick={() => setActiveSection("board")}>时间板</button>
+          <button type="button" className={activeSection === "recall" ? "active" : ""} aria-current={activeSection === "recall" ? "page" : undefined} onClick={() => setActiveSection("recall")}>回想</button>
+        </nav>
+
         <div className="topbar-actions">
-          <div className="history-actions">
-            <button className="icon-button" onClick={undo} disabled={undoStack.length === 0} title="撤销 ⌘Z"><Undo2 size={18} /></button>
-            <button className="icon-button" onClick={redo} disabled={redoStack.length === 0} title="重做 ⇧⌘Z"><Redo2 size={18} /></button>
-          </div>
-          <span className={`save-state ${saveState}`}>
-            {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
-          </span>
-          <button className="secondary-button" onClick={() => setShowAi(true)}>
-            <Sparkles size={16} /> AI 提取 <kbd>⌘K</kbd>
-          </button>
-          <button className="primary-button" onClick={() => openCreate()}>
-            <Plus size={16} /> 新习惯 <kbd>N</kbd>
-          </button>
+          {activeSection === "board" && <>
+            <div className="history-actions">
+              <button className="icon-button" onClick={undo} disabled={undoStack.length === 0} title="撤销 ⌘Z"><Undo2 size={18} /></button>
+              <button className="icon-button" onClick={redo} disabled={redoStack.length === 0} title="重做 ⇧⌘Z"><Redo2 size={18} /></button>
+            </div>
+            <span className={`save-state ${saveState}`}>
+              {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
+            </span>
+            <button className="secondary-button" onClick={() => setShowAi(true)}>
+              <Sparkles size={16} /> AI 提取 <kbd>⌘K</kbd>
+            </button>
+            <button className="primary-button" onClick={() => openCreate()}>
+              <Plus size={16} /> 新习惯 <kbd>N</kbd>
+            </button>
+          </>}
           <button className="icon-button settings-button" onClick={() => setShowSettings(true)} aria-label="设置"><Settings size={19} /></button>
         </div>
       </header>
 
-      <main className="workspace-scroll">
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
         <div className="board-intro">
           <div><span className="eyebrow">LIFE TEMPLATE</span><h2>一天，不必精确到每一分钟。</h2></div>
           <nav className="view-mode-switch" aria-label="时间板视图模式">
@@ -399,7 +409,7 @@ export default function App() {
           onEdit={openEdit}
           onSloganChange={savePeriodSlogan}
         />
-      </main>
+      </main>}
 
       {loadError && !window.__TAURI_INTERNALS__ && (
         <div className="browser-warning">当前是浏览器预览模式；数据不会写入本地文件。请使用 <code>npm run tauri dev</code> 测试桌面能力。</div>
