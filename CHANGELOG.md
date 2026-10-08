@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-10-09
+
+- Added the slide-out workspace drawer for switching between the time board and Recall.
+- Added 20 standalone logo concepts and a comparison gallery.
+
 ## 0.2.0 - 2026-10-09
 
 - Added Markdown-based Recall notes, checkpoint review, confirmed feedback, and hierarchical tags.

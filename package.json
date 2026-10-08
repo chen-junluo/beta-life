@@ -1,7 +1,7 @@
 {
   "name": "beta-life",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local-first desktop board for arranging habits around the rhythm of a day.",
   "author": "Dylan Chen",
   "repository": {
