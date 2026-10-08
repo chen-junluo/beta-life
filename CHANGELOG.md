@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 - 2026-10-09
+
+- Replaced the app icon with the centered four-panel life-window mark.
+
 ## 0.2.1 - 2026-10-09
 
 - Added the slide-out workspace drawer for switching between the time board and Recall.
