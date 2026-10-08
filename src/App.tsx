@@ -8,6 +8,7 @@ import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { WorkspaceDrawer, type WorkspaceSection } from "./components/WorkspaceDrawer";
 import { DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
 import type {
   AiProposalItem,
@@ -76,9 +77,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
-  const [activeSection, setActiveSection] = useState<"board" | "recall">("board");
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
+  const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
   const [undoStack, setUndoStack] = useState<BoardFile[]>([]);
   const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
+  const workspaceDrawerTrigger = useRef<HTMLButtonElement>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const settingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const stateRef = useRef<LoadedAppState | null>(null);
@@ -351,15 +354,25 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark">β</div>
-          <div><h1>Beta Life</h1><span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : "Recall Space · 本地知识"}</span></div>
+        <div className="brand-area">
+          <button
+            ref={workspaceDrawerTrigger}
+            type="button"
+            className="beta-menu-button"
+            aria-label={showWorkspaceDrawer ? "关闭面板导航" : "打开面板导航"}
+            aria-expanded={showWorkspaceDrawer}
+            aria-controls="workspace-drawer"
+            onClick={() => setShowWorkspaceDrawer((open) => !open)}
+          >
+            <span aria-hidden="true">β</span>
+          </button>
+          <div className="brand-lockup">
+            <div className="brand-copy">
+              <h1>Beta Life</h1>
+              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : "Recall Space · 本地知识"}</span>
+            </div>
+          </div>
         </div>
-
-        <nav className="workspace-nav" aria-label="工作空间">
-          <button type="button" className={activeSection === "board" ? "active" : ""} aria-current={activeSection === "board" ? "page" : undefined} onClick={() => setActiveSection("board")}>时间板</button>
-          <button type="button" className={activeSection === "recall" ? "active" : ""} aria-current={activeSection === "recall" ? "page" : undefined} onClick={() => setActiveSection("recall")}>回想</button>
-        </nav>
 
         <div className="topbar-actions">
           {activeSection === "board" && <>
@@ -380,6 +393,14 @@ export default function App() {
           <button className="icon-button settings-button" onClick={() => setShowSettings(true)} aria-label="设置"><Settings size={19} /></button>
         </div>
       </header>
+
+      <WorkspaceDrawer
+        activeSection={activeSection}
+        open={showWorkspaceDrawer}
+        onOpenChange={setShowWorkspaceDrawer}
+        onSectionChange={setActiveSection}
+        triggerRef={workspaceDrawerTrigger}
+      />
 
       {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
         <div className="board-intro">
