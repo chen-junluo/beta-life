@@ -73,6 +73,14 @@ npm run build:mac
 npm run build:windows
 ```
 
+macOS 本地开发测试如果希望清理生成缓存、重新构建并自动打开拖拽安装窗口，可以运行：
+
+```bash
+npm run build:mac:clean
+```
+
+该命令只清理项目生成的 `dist`、Vite 缓存和 Cargo 构建目录，不会删除依赖或应用数据。构建完成后会自动打开 DMG；将 `Beta Life.app` 拖到 `Applications` 即可安装。
+
 `build:mac` 只能在 macOS 上运行，`build:windows` 只能在 Windows 上运行。推送形如 `v0.1.0` 的 tag 后，GitHub Actions 会构建通用 macOS DMG 以及 Windows MSI/NSIS 安装包，并发布到 Releases。
 
 ## 技术栈

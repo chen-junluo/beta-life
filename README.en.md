@@ -73,6 +73,14 @@ npm run build:mac
 npm run build:windows
 ```
 
+For local macOS testing, clean generated caches, rebuild, and open the drag-to-Applications installer window automatically with:
+
+```bash
+npm run build:mac:clean
+```
+
+This command only removes generated `dist`, Vite, and Cargo build output. It does not remove dependencies or application data. When the build finishes, Finder opens the DMG so you can drag `Beta Life.app` to `Applications`.
+
 `build:mac` runs only on macOS, and `build:windows` runs only on Windows. Pushing a tag such as `v0.1.0` triggers GitHub Actions to build a universal macOS DMG plus Windows MSI and NSIS installers and publish them to Releases.
 
 ## Stack

@@ -17,6 +17,7 @@
     "check": "tsc --noEmit && vitest run",
     "test": "vitest run",
     "tauri": "tauri",
+    "build:mac:clean": "bash ./scripts/build-mac-clean.sh",
     "video:audio": "npm run video:audio:v3",
     "video:audio:v3": "node video/scripts/generate-audio-v3.mjs",
     "video:typecheck": "tsc -p video/tsconfig.json",
