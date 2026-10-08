@@ -1,3 +1,5 @@
+import type { FSRSParameters } from "ts-fsrs";
+
 export type PeriodId = "morning" | "noon" | "evening" | "sleep";
 
 export type BoardViewMode = "global" | PeriodId;
@@ -63,10 +65,15 @@ export interface AppearanceSettings {
   tagFontSize: number;
 }
 
+export interface RecallSettings {
+  desiredRetention: number;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   periods: PeriodSetting[];
   appearance: AppearanceSettings;
+  recall: RecallSettings;
   ai: AiSettings;
 }
 
@@ -120,6 +127,8 @@ export type RecallStatus = "wrong" | "omitted" | "incomplete" | "misunderstood" 
 export type RecallMode = "framework" | "point" | "full";
 export type RecallSource = "manual" | "ai";
 
+export type FsrsGrade = "Again" | "Hard" | "Good" | "Easy";
+
 export interface KnowledgeRecord {
   id: string;
   title: string;
@@ -146,6 +155,7 @@ export interface ReviewItem {
   status: RecallStatus;
   evidence?: string;
   feedback: string;
+  grade?: FsrsGrade;
   accepted?: boolean;
 }
 
@@ -162,6 +172,40 @@ export interface ReviewRecord {
   nextReviewAt: string;
   source: RecallSource;
   selectionReason?: string;
+  grade?: FsrsGrade;
+  algorithm?: string;
+  fsrsVersion?: string;
+  parameters?: FSRSParameters;
+}
+
+export interface FsrsCardSnapshot {
+  due: string;
+  stability: number;
+  difficulty: number;
+  elapsedDays: number;
+  scheduledDays: number;
+  learningSteps: number;
+  reps: number;
+  lapses: number;
+  lastRetrievability: number;
+  state: "New" | "Learning" | "Review" | "Relearning";
+  lastReview?: string;
+}
+
+export interface FsrsSchedulerSnapshot {
+  schemaVersion: 1;
+  knowledgeId: string;
+  algorithm: "ts-fsrs";
+  fsrsVersion: string;
+  parameters: FSRSParameters;
+  desiredRetention: number;
+  cards: Record<string, FsrsCardSnapshot>;
+  updatedAt: string;
+  migration?: {
+    complete: boolean;
+    migratedAt: string;
+    warning?: string;
+  };
 }
 
 export interface RecallEvaluationDraft {

@@ -2,7 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{BufRead, BufReader, Write},
     fs::OpenOptions,
@@ -113,7 +113,16 @@ struct AppSettings {
     periods: Vec<PeriodSetting>,
     #[serde(default = "default_appearance")]
     appearance: AppearanceSettings,
+    #[serde(default = "default_recall")]
+    recall: RecallSettings,
     ai: AiSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecallSettings {
+    #[serde(default = "default_desired_retention")]
+    desired_retention: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,6 +244,8 @@ struct ReviewItem {
     evidence: String,
     #[serde(default)]
     feedback: String,
+    #[serde(default)]
+    grade: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +265,56 @@ struct ReviewRecord {
     source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grade: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    algorithm: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fsrs_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parameters: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FsrsCardSnapshot {
+    due: String,
+    stability: f64,
+    difficulty: f64,
+    elapsed_days: f64,
+    scheduled_days: f64,
+    learning_steps: f64,
+    reps: u32,
+    lapses: u32,
+    #[serde(default)]
+    last_retrievability: f64,
+    state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_review: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FsrsMigration {
+    complete: bool,
+    migrated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FsrsSchedulerSnapshot {
+    schema_version: u8,
+    knowledge_id: String,
+    algorithm: String,
+    fsrs_version: String,
+    parameters: Value,
+    desired_retention: f64,
+    cards: HashMap<String, FsrsCardSnapshot>,
+    updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    migration: Option<FsrsMigration>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,6 +489,7 @@ fn default_settings() -> AppSettings {
             },
         ],
         appearance: default_appearance(),
+        recall: default_recall(),
         ai: AiSettings {
             provider: AiProvider::Deepseek,
             base_url: "https://api.deepseek.com".into(),
@@ -471,6 +533,14 @@ fn default_appearance() -> AppearanceSettings {
     }
 }
 
+fn default_recall() -> RecallSettings {
+    RecallSettings { desired_retention: 0.9 }
+}
+
+fn default_desired_retention() -> f64 {
+    0.9
+}
+
 fn default_card_min_width() -> u16 {
     140
 }
@@ -510,7 +580,7 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn knowledge_root(app: &AppHandle) -> Result<PathBuf, String> {
     let root = app_data_dir(app)?.join("knowledge");
-    for directory in ["notes", "points", "reviews"] {
+    for directory in ["notes", "points", "reviews", "scheduler"] {
         fs::create_dir_all(root.join(directory))
             .map_err(|error| format!("无法创建知识目录：{error}"))?;
     }
@@ -531,6 +601,10 @@ fn knowledge_points_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
 
 fn knowledge_reviews_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(knowledge_root(app)?.join("reviews").join(format!("{id}.jsonl")))
+}
+
+fn knowledge_scheduler_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    Ok(knowledge_root(app)?.join("scheduler").join(format!("{id}.json")))
 }
 
 fn knowledge_index_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -731,6 +805,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if !(7..=18).contains(&settings.appearance.tag_font_size) {
         return Err("Tags 字号必须在 7 到 18 像素之间".into());
     }
+    if !settings.recall.desired_retention.is_finite() || !(0.5..=0.99).contains(&settings.recall.desired_retention) {
+        return Err("回想目标记忆率必须在 50% 到 99% 之间".into());
+    }
     if !(0.0..=2.0).contains(&settings.ai.temperature) {
         return Err("Temperature 必须在 0 到 2 之间".into());
     }
@@ -922,6 +999,7 @@ fn list_knowledge(app: AppHandle) -> Result<Vec<KnowledgeRecord>, String> {
 fn save_knowledge(app: AppHandle, knowledge: KnowledgeRecord) -> Result<(), String> {
     if !valid_knowledge_id(&knowledge.id) || knowledge.title.trim().is_empty() { return Err("知识 ID 和标题不能为空或包含非法字符".into()); }
     if knowledge.markdown.trim().is_empty() { return Err("Markdown 正文不能为空".into()); }
+    if knowledge.created_at.trim().is_empty() { return Err("知识加入时间不能为空".into()); }
     atomic_write_text(&knowledge_note_path(&app, &knowledge.id)?, &serialize_knowledge(&knowledge))?;
     let mut index = read_knowledge_index(&app)?;
     if !index.iter().any(|item| item.id == knowledge.id) { index.push(KnowledgeIndexEntry { id: knowledge.id, next_review_at: knowledge.next_review_at }); }
@@ -931,7 +1009,7 @@ fn save_knowledge(app: AppHandle, knowledge: KnowledgeRecord) -> Result<(), Stri
 #[tauri::command]
 fn delete_knowledge(app: AppHandle, knowledge_id: String) -> Result<(), String> {
     if !valid_knowledge_id(&knowledge_id) { return Err("知识 ID 无效".into()); }
-    for path in [knowledge_note_path(&app, &knowledge_id)?, knowledge_points_path(&app, &knowledge_id)?, knowledge_reviews_path(&app, &knowledge_id)?] {
+    for path in [knowledge_note_path(&app, &knowledge_id)?, knowledge_points_path(&app, &knowledge_id)?, knowledge_reviews_path(&app, &knowledge_id)?, knowledge_scheduler_path(&app, &knowledge_id)?] {
         if path.exists() { fs::remove_file(path).map_err(|error| format!("无法删除知识文件：{error}"))?; }
     }
     let index = read_knowledge_index(&app)?.into_iter().filter(|item| item.id != knowledge_id).collect::<Vec<_>>();
@@ -968,6 +1046,7 @@ fn load_recall_reviews(app: AppHandle, knowledge_id: String) -> Result<Vec<Revie
 #[tauri::command]
 fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), String> {
     if !valid_knowledge_id(&review.knowledge_id) || !valid_knowledge_id(&review.review_id) { return Err("评价记录缺少有效稳定 ID".into()); }
+    if review.grade.as_deref().is_some_and(|grade| !matches!(grade, "Again" | "Hard" | "Good" | "Easy")) { return Err("评价记录包含无效的 FSRS Grade".into()); }
     let path = knowledge_reviews_path(&app, &review.knowledge_id)?;
     let mut file = OpenOptions::new().create(true).append(true).open(&path).map_err(|error| format!("无法打开评价记录：{error}"))?;
     let line = serde_json::to_string(&review).map_err(|error| format!("无法生成评价记录：{error}"))?;
@@ -976,6 +1055,94 @@ fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), Stri
     let mut index = read_knowledge_index(&app)?;
     if let Some(entry) = index.iter_mut().find(|item| item.id == review.knowledge_id) { entry.next_review_at = Some(review.next_review_at); }
     else { index.push(KnowledgeIndexEntry { id: review.knowledge_id, next_review_at: Some(review.next_review_at) }); }
+    write_knowledge_index(&app, &index)
+}
+
+#[tauri::command]
+fn delete_recall_review(app: AppHandle, knowledge_id: String, review_id: String) -> Result<(), String> {
+    if !valid_knowledge_id(&knowledge_id) || !valid_knowledge_id(&review_id) {
+        return Err("评价记录 ID 无效".into());
+    }
+    let path = knowledge_reviews_path(&app, &knowledge_id)?;
+    if !path.exists() {
+        return Err("找不到评价记录文件".into());
+    }
+    let content = fs::read_to_string(&path).map_err(|error| format!("无法读取评价记录：{error}"))?;
+    let (remaining, removed) = remove_review_from_jsonl(&content, &knowledge_id, &review_id)?;
+    if !removed {
+        return Err("找不到这条历史结果，可能已经被删除。".into());
+    }
+    let backup_path = path.with_extension("jsonl.fsrs-backup");
+    if backup_path.exists() {
+        let backup = fs::read_to_string(&backup_path).map_err(|error| format!("无法读取评价记录备份：{error}"))?;
+        let (backup_remaining, backup_removed) = remove_review_from_jsonl(&backup, &knowledge_id, &review_id)?;
+        if backup_removed {
+            atomic_write_text(&backup_path, &backup_remaining)?;
+        }
+    }
+    let scheduler_path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    if scheduler_path.exists() {
+        fs::remove_file(&scheduler_path).map_err(|error| format!("无法清除旧的 FSRS 调度快照：{error}"))?;
+    }
+    atomic_write_text(&path, &remaining)?;
+    let mut index = read_knowledge_index(&app)?;
+    if let Some(entry) = index.iter_mut().find(|item| item.id == knowledge_id) {
+        entry.next_review_at = remaining
+            .lines()
+            .filter_map(|line| serde_json::from_str::<ReviewRecord>(line).ok().map(|item| item.next_review_at))
+            .min();
+    }
+    write_knowledge_index(&app, &index)
+}
+
+fn remove_review_from_jsonl(content: &str, knowledge_id: &str, review_id: &str) -> Result<(String, bool), String> {
+    let mut kept = Vec::new();
+    let mut removed = false;
+    for line in content.lines() {
+        let value: Value = serde_json::from_str(line).map_err(|error| format!("评价记录 JSON 无效：{error}"))?;
+        let record_knowledge_id = value.get("knowledgeId").and_then(Value::as_str).or_else(|| value.get("knowledge_id").and_then(Value::as_str));
+        let record_review_id = value.get("reviewId").and_then(Value::as_str).or_else(|| value.get("review_id").and_then(Value::as_str));
+        if record_knowledge_id == Some(knowledge_id) && record_review_id == Some(review_id) {
+            removed = true;
+        } else {
+            kept.push(line);
+        }
+    }
+    let remaining = if kept.is_empty() { String::new() } else { format!("{}\n", kept.join("\n")) };
+    Ok((remaining, removed))
+}
+
+#[tauri::command]
+fn load_recall_scheduler(app: AppHandle, knowledge_id: String) -> Result<Option<FsrsSchedulerSnapshot>, String> {
+    if !valid_knowledge_id(&knowledge_id) { return Err("知识 ID 无效".into()); }
+    let path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    if !path.exists() { return Ok(None); }
+    let snapshot: FsrsSchedulerSnapshot = read_json(&path)?;
+    if snapshot.knowledge_id != knowledge_id { return Err("调度快照的知识 ID 不匹配".into()); }
+    Ok(Some(snapshot))
+}
+
+#[tauri::command]
+fn save_recall_scheduler(app: AppHandle, snapshot: FsrsSchedulerSnapshot) -> Result<(), String> {
+    if !valid_knowledge_id(&snapshot.knowledge_id) { return Err("知识 ID 无效".into()); }
+    if snapshot.schema_version != 1 || snapshot.algorithm != "ts-fsrs" || snapshot.fsrs_version.trim().is_empty() { return Err("FSRS 调度快照版本无效".into()); }
+    let reviews = knowledge_reviews_path(&app, &snapshot.knowledge_id)?;
+    let backup = reviews.with_extension("jsonl.fsrs-backup");
+    if reviews.exists() && !backup.exists() {
+        fs::copy(&reviews, &backup).map_err(|error| format!("无法创建 FSRS 迁移备份：{error}"))?;
+    }
+    atomic_write(&knowledge_scheduler_path(&app, &snapshot.knowledge_id)?, &snapshot)?;
+    let mut index = read_knowledge_index(&app)?;
+    let next_review_at = if snapshot.cards.is_empty() {
+        index.iter().find(|item| item.id == snapshot.knowledge_id).and_then(|item| item.next_review_at.clone())
+    } else {
+        snapshot.cards.values().map(|card| card.due.clone()).min()
+    };
+    if let Some(entry) = index.iter_mut().find(|item| item.id == snapshot.knowledge_id) {
+        entry.next_review_at = next_review_at;
+    } else {
+        index.push(KnowledgeIndexEntry { id: snapshot.knowledge_id, next_review_at });
+    }
     write_knowledge_index(&app, &index)
 }
 
@@ -1188,11 +1355,11 @@ async fn draft_recall_points(app: AppHandle, request: RecallPointDraftRequest) -
 
 fn recall_system_prompt(points: &[RecallPoint], preferences: &str) -> String {
     let point_schema = points.iter().map(|point| format!("{} | {} | {}", point.point_id, point.point_type, point.prompt)).collect::<Vec<_>>().join("\\n");
-    format!(r#"You are a careful study-feedback assistant inside Beta Life. The Markdown is the source of truth. Evaluate only the user's answer against the listed checkpoints. Do not use literal similarity percentages. If evidence cannot be located reliably, leave evidence empty and classify the whole checkpoint. User-editable preferences follow; use them for language and feedback style but never override the JSON protocol or the source-of-truth rule:
+    format!(r#"You are a careful study-feedback assistant inside Beta Life. The Markdown is the source of truth. Evaluate only the user's answer against the listed checkpoints. Do not use literal similarity percentages. If evidence cannot be located reliably, leave evidence empty and classify the whole checkpoint. Suggest one FSRS grade (Again, Hard, Good, or Easy), but treat it as a user-editable suggestion rather than a confirmed schedule. User-editable preferences follow; use them for language and feedback style but never override the JSON protocol or the source-of-truth rule:
 
 {}
 
-Return exactly one JSON object with no markdown: {{"items":[{{"pointId":"stable-id-or-null","status":"wrong|omitted|incomplete|misunderstood|correct","evidence":"short exact phrase or empty","feedback":"one short sentence"}}],"nextReviewAt":"ISO-8601 timestamp","message":"short note"}}. A correct and complete checkpoint should use status correct. Use omitted only when the answer does not address it; wrong for a fact or direction that conflicts; incomplete for a partially covered point; misunderstood for a mentioned mechanism or relationship that is interpreted incorrectly. Keep one item per supplied point. Checkpoints: {}"#, preferences, point_schema)
+Return exactly one JSON object with no markdown: {{"items":[{{"pointId":"stable-id-or-null","status":"wrong|omitted|incomplete|misunderstood|correct","grade":"Again|Hard|Good|Easy","evidence":"short exact phrase or empty","feedback":"one short sentence"}}],"nextReviewAt":"ISO-8601 timestamp","message":"short note"}}. A correct and complete checkpoint should use status correct and Good unless the user explicitly indicates it was effortless, in which case Easy. Use omitted only when the answer does not address it; wrong for a fact or direction that conflicts; incomplete for a partially covered point; misunderstood for a mentioned mechanism or relationship that is interpreted incorrectly. Keep one item per supplied point. Checkpoints: {}"#, preferences, point_schema)
 }
 
 fn validate_recall_draft(draft: &RecallEvaluationDraft, points: &[RecallPoint], mode: RecallMode) -> Result<(), String> {
@@ -1203,6 +1370,7 @@ fn validate_recall_draft(draft: &RecallEvaluationDraft, points: &[RecallPoint], 
             if !ids.contains(point_id.as_str()) { return Err("AI 返回了未知 pointId".into()); }
         } else if !matches!(mode, RecallMode::Full) { return Err("非完整复述评价必须包含 pointId".into()); }
         if item.feedback.trim().is_empty() { return Err("AI 评价反馈不能为空".into()); }
+        if item.grade.as_deref().is_some_and(|grade| !matches!(grade, "Again" | "Hard" | "Good" | "Easy")) { return Err("AI 返回了无效的 FSRS Grade".into()); }
     }
     Ok(())
 }
@@ -1369,6 +1537,9 @@ pub fn run() {
             save_recall_points,
             load_recall_reviews,
             append_recall_review,
+            delete_recall_review,
+            load_recall_scheduler,
+            save_recall_scheduler,
             parse_knowledge_content,
             draft_recall_points,
             generate_recall_evaluation,
@@ -1381,6 +1552,55 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_review(review_id: &str, knowledge_id: &str) -> ReviewRecord {
+        ReviewRecord {
+            review_id: review_id.into(),
+            knowledge_id: knowledge_id.into(),
+            point_id: Some("point-1".into()),
+            mode: RecallMode::Point,
+            answer: "answer".into(),
+            status: RecallStatus::Correct,
+            feedback: "ok".into(),
+            evidence: String::new(),
+            confirmed_at: "2026-01-01T00:00:00.000Z".into(),
+            next_review_at: "2026-01-02T00:00:00.000Z".into(),
+            source: "manual".into(),
+            selection_reason: None,
+            grade: Some("Good".into()),
+            algorithm: None,
+            fsrs_version: None,
+            parameters: None,
+        }
+    }
+
+    #[test]
+    fn removes_only_the_matching_review_record_from_jsonl() {
+        let first = serde_json::to_string(&sample_review("review-1", "knowledge-1")).unwrap();
+        let second = serde_json::to_string(&sample_review("review-2", "knowledge-1")).unwrap();
+        let other_knowledge = serde_json::to_string(&sample_review("review-1", "knowledge-2")).unwrap();
+        let input = format!("{first}\n{second}\n{other_knowledge}\n");
+
+        let (remaining, removed) = remove_review_from_jsonl(&input, "knowledge-1", "review-1").unwrap();
+
+        assert!(removed);
+        assert_eq!(remaining, format!("{second}\n{other_knowledge}\n"));
+        let (unchanged, removed_again) = remove_review_from_jsonl(&remaining, "knowledge-1", "review-1").unwrap();
+        assert!(!removed_again);
+        assert_eq!(unchanged, remaining);
+    }
+
+    #[test]
+    fn removes_legacy_review_without_fsrs_fields() {
+        let legacy = r#"{"reviewId":"legacy-review","knowledgeId":"knowledge-1","mode":"framework","answer":"old","status":"correct","feedback":"ok","evidence":"","confirmedAt":"2026-01-01T00:00:00.000Z","nextReviewAt":"2026-01-02T00:00:00.000Z","source":"manual","legacyField":"kept-on-other-records"}"#;
+        let current = serde_json::to_string(&sample_review("review-2", "knowledge-1")).unwrap();
+        let input = format!("{legacy}\n{current}\n");
+
+        let (remaining, removed) = remove_review_from_jsonl(&input, "knowledge-1", "legacy-review").unwrap();
+
+        assert!(removed);
+        assert_eq!(remaining, format!("{current}\n"));
+    }
 
     #[test]
     fn migrates_legacy_frequency_to_tags() {

@@ -50,6 +50,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     habitFontSize: 11,
     tagFontSize: 8,
   },
+  recall: {
+    desiredRetention: 0.9,
+  },
   ai: {
     provider: "deepseek",
     baseUrl: "https://api.deepseek.com",

@@ -1,7 +1,7 @@
 {
   "name": "beta-life",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local-first desktop board for arranging habits around the rhythm of a day.",
   "author": "Dylan Chen",
   "repository": {
@@ -42,7 +42,8 @@
     "@tauri-apps/api": "2.9.1",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "ts-fsrs": "5.4.2"
   },
   "devDependencies": {
     "@remotion/cli": "^4.0.526",

@@ -42,6 +42,22 @@ describe("recall selection", () => {
     expect(result.candidate?.knowledge.id).toBe("b");
     expect(result.reason).toContain("均匀随机");
   });
+
+  it("uses FSRS due dates before the legacy knowledge-level date", () => {
+    const records = [
+      { knowledge: note("a", "x", "2026-01-01T00:00:00Z"), schedulerCard: { due: "2026-01-10T00:00:00Z", stability: 3, difficulty: 5, elapsedDays: 0, scheduledDays: 3, learningSteps: 0, reps: 1, lapses: 0, state: "Review" as const, lastRetrievability: 0.9 } },
+      { knowledge: note("b", "x", "2026-01-10T00:00:00Z"), schedulerCard: { due: "2026-01-01T00:00:00Z", stability: 3, difficulty: 5, elapsedDays: 0, scheduledDays: 3, learningSteps: 0, reps: 1, lapses: 0, state: "Review" as const, lastRetrievability: 0.4 } },
+    ];
+    expect(chooseCandidate(records, { now: new Date("2026-01-02T00:00:00Z") }).candidate?.knowledge.id).toBe("b");
+  });
+
+  it("keeps the target-trigger pool even when the user asks for a random item", () => {
+    const records = [
+      { knowledge: note("above", "x"), schedulerCard: { due: "2026-02-01T00:00:00Z", stability: 5, difficulty: 5, elapsedDays: 0, scheduledDays: 5, learningSteps: 0, reps: 2, lapses: 0, state: "Review" as const, lastRetrievability: 0.95 } },
+      { knowledge: note("below", "x"), schedulerCard: { due: "2026-02-01T00:00:00Z", stability: 2, difficulty: 5, elapsedDays: 0, scheduledDays: 2, learningSteps: 0, reps: 1, lapses: 0, state: "Review" as const, lastRetrievability: 0.7 } },
+    ];
+    expect(chooseCandidate(records, { random: true, randomValue: 0.99, targetRetention: 0.9 }).candidate?.knowledge.id).toBe("below");
+  });
 });
 
 it("provides accessible status hints", () => {

@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, KeyRound, Palette, RotateCcw, Settings2, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Check, ChevronDown, Database, KeyRound, Palette, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { AppSettings, BoardFile, PeriodId } from "../types";
 
-type SettingsSection = "timeline" | "appearance" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "provider" | "prompt" | "data";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -165,6 +165,13 @@ export function SettingsPanel({
     }));
   }
 
+  function updateRecall(patch: Partial<AppSettings["recall"]>) {
+    setDraft((current) => ({
+      ...current,
+      recall: { ...current.recall, ...patch },
+    }));
+  }
+
   async function save() {
     const validationError = validatePeriodStarts(draft);
     if (validationError) {
@@ -220,6 +227,7 @@ export function SettingsPanel({
   const navItems: Array<{ id: SettingsSection; label: string; icon: React.ReactNode }> = [
     { id: "timeline", label: "时间与颜色", icon: <Palette size={17} /> },
     { id: "appearance", label: "布局与字号", icon: <SlidersHorizontal size={17} /> },
+    { id: "recall", label: "回想与记忆", icon: <Target size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
     { id: "data", label: "数据", icon: <Database size={17} /> },
@@ -452,6 +460,32 @@ export function SettingsPanel({
                   <span><strong>此模型接受图片</strong><small>只有确认当前模型支持 OpenAI-compatible 图片消息时才开启。</small></span>
                 </label>
                 {hasApiKey && <button className="danger-button align-start" onClick={() => void clearApiKey()}>清除已保存的 API key</button>}
+              </div>
+            )}
+
+            {section === "recall" && (
+              <div className="settings-section">
+                <div className="section-heading">
+                  <Target size={21} />
+                  <div><h3>回想与记忆</h3><p>目标记忆率决定 FSRS 何时把知识点视为需要抽查，并同步显示在记忆曲线中。</p></div>
+                </div>
+                <div className="range-setting">
+                  <div className="range-setting-header">
+                    <strong>目标触发线 R</strong>
+                    <output>{Math.round(draft.recall.desiredRetention * 100)}%</output>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="0.99"
+                    step="0.01"
+                    value={draft.recall.desiredRetention}
+                    onChange={(event) => updateRecall({ desiredRetention: Number(event.target.value) })}
+                    aria-label="目标触发线 R"
+                  />
+                  <p>当前 R 达到或低于此值的知识点会进入优先抽查池；修改后会按新目标重建 FSRS 调度。</p>
+                </div>
+                <div className="settings-note">这条线表示模型的目标保留率，不是对真实脑内记忆率的直接测量。</div>
               </div>
             )}
 

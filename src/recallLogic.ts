@@ -1,4 +1,4 @@
-import type { KnowledgeRecord, RecallPoint, RecallStatus, ReviewRecord } from "./types";
+import type { FsrsCardSnapshot, KnowledgeRecord, RecallPoint, RecallStatus, ReviewRecord } from "./types";
 
 export interface TagTreeNode {
   path: string;
@@ -53,6 +53,8 @@ export interface SelectionCandidate {
   knowledge: KnowledgeRecord;
   point?: RecallPoint;
   lastReview?: ReviewRecord;
+  schedulerCard?: FsrsCardSnapshot;
+  currentRetrievability?: number;
 }
 
 function weakRank(status?: RecallStatus): number {
@@ -68,16 +70,68 @@ function isDue(knowledge: KnowledgeRecord, now: Date): boolean {
   return !knowledge.nextReviewAt || new Date(knowledge.nextReviewAt).getTime() <= now.getTime();
 }
 
+export const DEFAULT_SELECTION_WEIGHTS = {
+  dueBoost: 100,
+  weaknessBoost: 12,
+  overdueBoostPerDay: 2,
+  randomJitter: 0.25,
+};
+
+function schedulerDue(candidate: SelectionCandidate, now: Date, targetRetention: number): boolean {
+  if (candidate.currentRetrievability !== undefined) return candidate.currentRetrievability <= targetRetention;
+  return Boolean(candidate.schedulerCard && new Date(candidate.schedulerCard.due).getTime() <= now.getTime());
+}
+
+function schedulerWeakness(candidate: SelectionCandidate): number {
+  const status = candidate.lastReview?.status;
+  const statusScore = status === "wrong" || status === "omitted" ? 4 : status === "misunderstood" || status === "incomplete" ? 2 : status === "correct" ? 0 : 1;
+  const r = candidate.schedulerCard && candidate.schedulerCard.stability > 0 && candidate.schedulerCard.lastReview
+    ? Math.max(0, 1 - Math.min(1, Math.max(0, candidate.schedulerCard.lastRetrievability)))
+    : 1;
+  return statusScore + r;
+}
+
+export function selectionPriority(
+  candidate: SelectionCandidate,
+  now: Date,
+  randomValue = 0,
+  weights = DEFAULT_SELECTION_WEIGHTS,
+  targetRetention = 0.9,
+): number {
+  const due = schedulerDue(candidate, now, targetRetention) || isDue(candidate.knowledge, now);
+  const dueAt = candidate.schedulerCard?.due ?? candidate.knowledge.nextReviewAt;
+  const overdueDays = dueAt && due ? Math.max(0, (now.getTime() - new Date(dueAt).getTime()) / 86400000) : 0;
+  return (due ? weights.dueBoost : 0) + schedulerWeakness(candidate) * weights.weaknessBoost + overdueDays * weights.overdueBoostPerDay + randomValue * weights.randomJitter;
+}
+
 export function chooseCandidate(
   candidates: SelectionCandidate[],
-  options: { random?: boolean; now?: Date; randomValue?: number } = {},
+  options: { random?: boolean; now?: Date; randomValue?: number; targetRetention?: number } = {},
 ): { candidate?: SelectionCandidate; reason: string } {
   if (candidates.length === 0) return { reason: "当前筛选范围没有可抽查内容" };
+  const now = options.now ?? new Date();
+  const targetRetention = options.targetRetention ?? 0.9;
+  const hasScheduler = candidates.some((item) => item.schedulerCard);
+  if (hasScheduler) {
+    const due = candidates.filter((item) => schedulerDue(item, now, targetRetention));
+    if (due.length > 0) {
+      const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
+      return { candidate: due[Math.floor(value * due.length)], reason: "优先选择达到目标触发线的项目，再在其中均匀随机" };
+    }
+    if (options.random) {
+      const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
+      return { candidate: candidates[Math.floor(value * candidates.length)], reason: "没有达到目标触发线的项目，当前标签范围内均匀随机" };
+    }
+    const ranked = candidates.map((candidate, index) => ({ candidate, score: selectionPriority(candidate, now, (options.randomValue ?? Math.random()) + index * 0.000001, DEFAULT_SELECTION_WEIGHTS, targetRetention) })).sort((a, b) => b.score - a.score);
+    return {
+      candidate: ranked[0]?.candidate,
+      reason: "没有达到目标触发线的项目，选择当前最需要复习的考点",
+    };
+  }
   if (options.random) {
     const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
     return { candidate: candidates[Math.floor(value * candidates.length)], reason: "当前标签范围内均匀随机" };
   }
-  const now = options.now ?? new Date();
   const due = candidates.filter((item) => isDue(item.knowledge, now));
   if (due.length === 0) {
     const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
