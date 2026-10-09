@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-10-09
+
+- Fixed Rust formatting validation so release workflows can proceed to tests and packaging.
+
 ## 0.2.3 - 2026-10-09
 
 - Refined the app icon spacing so the four-panel mark fills more of its white canvas.
