@@ -7,7 +7,9 @@
     <linearGradient id="evening" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8EE8C1"/><stop offset="1" stop-color="#37C5B4"/></linearGradient>
     <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#B8A4FF"/><stop offset="1" stop-color="#7068E9"/></linearGradient>
   </defs>
+  <g transform="translate(256 256) scale(.9) translate(-256 -256)">
   <rect x="20" y="20" width="472" height="472" rx="120" fill="#FFFFFF"/>
+  <g transform="translate(256 256) scale(1.319444) translate(-256 -256)">
   <rect x="112" y="112" width="288" height="288" rx="66" fill="#F5F8FC"/>
   <rect x="132" y="132" width="112" height="112" rx="34" fill="url(#morning)"/>
   <circle cx="188" cy="188" r="24" fill="#FFF8E9"/>
@@ -19,4 +21,6 @@
   <rect x="268" y="268" width="112" height="112" rx="34" fill="url(#night)"/>
   <circle cx="324" cy="324" r="30" fill="#F5F2FF"/>
   <circle cx="337" cy="314" r="28" fill="url(#night)"/>
+  </g>
+  </g>
 </svg>

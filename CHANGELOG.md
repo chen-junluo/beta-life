@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 - 2026-10-09
+
+- Refined the app icon spacing so the four-panel mark fills more of its white canvas.
+
 ## 0.2.2 - 2026-10-09
 
 - Replaced the app icon with the centered four-panel life-window mark.
