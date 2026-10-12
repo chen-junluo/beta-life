@@ -33,10 +33,10 @@ function demoData(): RecallData {
       { pointId: "demo-point-relationship", knowledgeId: knowledge.id, type: "relationship", prompt: "三种同形化机制的共同点和区别是什么？", reference: "共同点是带来趋同，区别在于压力来源不同。", order: 2 },
   ];
   const reviews: ReviewRecord[] = [
-    { reviewId: "demo-review-1", knowledgeId: knowledge.id, mode: "full", answer: "强制、模仿、规范。", status: "correct", feedback: "三个来源都回忆到了。", evidence: "强制、模仿、规范", confirmedAt: isoDaysAgo(27), nextReviewAt: isoDaysAgo(26), source: "manual", grade: "Good" },
-    { reviewId: "demo-review-2", knowledgeId: knowledge.id, mode: "full", answer: "大致记得三种机制，但区别不清楚。", status: "incomplete", feedback: "框架还在，但机制区别需要再巩固。", evidence: "三种机制", confirmedAt: isoDaysAgo(20), nextReviewAt: isoDaysAgo(19), source: "manual", grade: "Hard" },
-    { reviewId: "demo-review-3", knowledgeId: knowledge.id, mode: "full", answer: "三种机制都会带来趋同，来源不同。", status: "correct", feedback: "共同点和区别都回忆到了。", evidence: "带来趋同，来源不同", confirmedAt: isoDaysAgo(13), nextReviewAt: isoDaysAgo(12), source: "manual", grade: "Good" },
-    { reviewId: "demo-review-4", knowledgeId: knowledge.id, mode: "full", answer: "把强制和规范的来源混在了一起。", status: "wrong", feedback: "来源方向记错了，需要重新回忆。", evidence: "来源混淆", confirmedAt: isoDaysAgo(6), nextReviewAt: isoDaysAgo(5), source: "manual", grade: "Again" },
+    { reviewId: "demo-review-1", knowledgeId: knowledge.id, mode: "full", answer: "强制、模仿、规范。", status: "Good", feedback: "三个来源都回忆到了。", evidence: "强制、模仿、规范", confirmedAt: isoDaysAgo(27), nextReviewAt: isoDaysAgo(26), source: "manual", grade: "Good" },
+    { reviewId: "demo-review-2", knowledgeId: knowledge.id, mode: "full", answer: "大致记得三种机制，但区别不清楚。", status: "Hard", feedback: "框架还在，但机制区别需要再巩固。", evidence: "三种机制", confirmedAt: isoDaysAgo(20), nextReviewAt: isoDaysAgo(19), source: "manual", grade: "Hard" },
+    { reviewId: "demo-review-3", knowledgeId: knowledge.id, mode: "full", answer: "三种机制都会带来趋同，来源不同。", status: "Good", feedback: "共同点和区别都回忆到了。", evidence: "带来趋同，来源不同", confirmedAt: isoDaysAgo(13), nextReviewAt: isoDaysAgo(12), source: "manual", grade: "Good" },
+    { reviewId: "demo-review-4", knowledgeId: knowledge.id, mode: "full", answer: "把强制和规范的来源混在了一起。", status: "Again", feedback: "来源方向记错了，需要重新回忆。", evidence: "来源混淆", confirmedAt: isoDaysAgo(6), nextReviewAt: isoDaysAgo(5), source: "manual", grade: "Again" },
   ];
   const scheduler = replayReviewLog(knowledge.id, points.map((point) => point.pointId), reviews, { createdAt: new Date(createdAt), now }).snapshot;
   return {

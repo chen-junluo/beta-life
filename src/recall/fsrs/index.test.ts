@@ -23,7 +23,11 @@ function review(overrides: Partial<ReviewRecord> = {}): ReviewRecord {
 }
 
 describe("FSRS adapter", () => {
-  it("keeps the documented feedback-to-grade defaults", () => {
+  it("uses the rating itself as the FSRS grade and maps legacy feedback states", () => {
+    expect(gradeForStatus("Again")).toBe("Again");
+    expect(gradeForStatus("Hard")).toBe("Hard");
+    expect(gradeForStatus("Good")).toBe("Good");
+    expect(gradeForStatus("Easy")).toBe("Easy");
     expect(gradeForStatus("wrong")).toBe("Again");
     expect(gradeForStatus("omitted")).toBe("Again");
     expect(gradeForStatus("incomplete")).toBe("Hard");

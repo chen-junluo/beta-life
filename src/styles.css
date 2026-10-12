@@ -1703,11 +1703,10 @@ select {
 .review-item-fields { display: grid; grid-template-columns: 112px 1fr 1fr; gap: 7px; }
 .review-item-fields select, .review-item-fields input { height: 32px; font-size: 10px; }
 .review-status { width: 9px; height: 9px; flex: 0 0 auto; display: inline-flex; border-radius: 50%; }
-.status-wrong { background: #FDE8E7; color: #a83d35; }
-.status-omitted { background: #FFF1D6; color: #956722; }
-.status-incomplete { background: #E8F1FF; color: #3568a9; }
-.status-misunderstood { background: #E8F5E9; color: #367343; }
-.status-correct { background: transparent; color: #4b5563; }
+.status-Again { background: #FDE8E7; color: #a83d35; }
+.status-Hard { background: #FFF1D6; color: #956722; }
+.status-Good { background: #E8F5E9; color: #367343; }
+.status-Easy { background: #E8F1FF; color: #3568a9; }
 .review-confirm-actions { margin-top: 18px; padding-top: 13px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
 
 @media (max-width: 980px) {

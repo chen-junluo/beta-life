@@ -12,6 +12,7 @@ import type {
   FsrsCardSnapshot,
   FsrsGrade,
   FsrsSchedulerSnapshot,
+  LegacyRecallStatus,
   RecallStatus,
   ReviewRecord,
 } from "../../types";
@@ -40,19 +41,13 @@ const GRADE_RATINGS: Record<FsrsGrade, Rating> = {
   Easy: Rating.Easy,
 };
 
-export const STATUS_GRADE_DEFAULTS: Record<RecallStatus, FsrsGrade> = {
-  wrong: "Again",
-  omitted: "Again",
-  incomplete: "Hard",
-  misunderstood: "Hard",
-  correct: "Good",
-};
-
 const GRADE_SEVERITY: Record<FsrsGrade, number> = { Again: 0, Hard: 1, Good: 2, Easy: 3 };
-const STATUS_SEVERITY: Record<RecallStatus, number> = { wrong: 0, omitted: 1, misunderstood: 2, incomplete: 3, correct: 4 };
 
-export function gradeForStatus(status: RecallStatus): FsrsGrade {
-  return STATUS_GRADE_DEFAULTS[status];
+export function gradeForStatus(status: RecallStatus | LegacyRecallStatus): FsrsGrade {
+  if (status === "Again" || status === "Hard" || status === "Good" || status === "Easy") return status;
+  if (status === "wrong" || status === "omitted") return "Again";
+  if (status === "incomplete" || status === "misunderstood") return "Hard";
+  return "Good";
 }
 
 export function serializeCard(card: Card): FsrsCardSnapshot {
@@ -169,8 +164,8 @@ function reviewGrade(review: ReviewRecord): FsrsGrade {
   return review.grade ?? gradeForStatus(review.status);
 }
 
-function observationValue(status: RecallStatus): number {
-  return { wrong: 0, omitted: 0, misunderstood: 0.25, incomplete: 0.5, correct: 1 }[status];
+function observationValue(grade: FsrsGrade): number {
+  return { Again: 0, Hard: 0.5, Good: 1, Easy: 1 }[grade];
 }
 
 function validDate(value: string): Date | undefined {
@@ -199,8 +194,6 @@ export interface DailyReviewEvent extends ReviewRecord {
 function compareReviews(a: ReviewRecord, b: ReviewRecord): number {
   const grade = GRADE_SEVERITY[reviewGrade(b)] - GRADE_SEVERITY[reviewGrade(a)];
   if (grade !== 0) return grade;
-  const status = STATUS_SEVERITY[b.status] - STATUS_SEVERITY[a.status];
-  if (status !== 0) return status;
   return timestamp(b.confirmedAt) - timestamp(a.confirmedAt);
 }
 
@@ -343,14 +336,15 @@ export interface KnowledgeCurveOptions {
 }
 
 function observationFor(event: DailyReviewEvent): CurveObservation {
+  const grade = reviewGrade(event);
   return {
     dayKey: event.dayKey,
     reviewId: event.reviewId,
     rawReviewIds: event.rawReviewIds,
-    grade: reviewGrade(event),
-    status: event.status,
+    grade,
+    status: grade,
     confirmedAt: event.confirmedAt,
-    value: observationValue(event.status),
+    value: observationValue(grade),
   };
 }
 

@@ -5,7 +5,7 @@ import { parseSimpleMarkdown } from "../simpleMarkdown";
 import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
 import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnowledge, statusHint, statusLabel } from "../recallLogic";
 import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, isAtOrBelowTarget, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
-import type { AppSettings, FsrsGrade, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
+import type { AppSettings, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
 
 interface RecallViewProps {
   settings: AppSettings;
@@ -29,7 +29,7 @@ type RecallSessionState = {
   submittedAt?: string;
 };
 
-const STATUS_OPTIONS: RecallStatus[] = ["correct", "wrong", "omitted", "incomplete", "misunderstood"];
+const STATUS_OPTIONS: RecallStatus[] = ["Again", "Hard", "Good", "Easy"];
 const POINT_TYPES: RecallPointType[] = ["framework", "mechanism", "relationship"];
 const MODE_LABELS: Record<RecallMode, string> = { framework: "框架回忆", point: "定点提问", full: "完整复述" };
 const TYPE_LABELS: Record<RecallPointType, string> = { framework: "框架", mechanism: "机制", relationship: "关系" };
@@ -366,17 +366,21 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
   function submitAnswer() {
     if (!session?.answer.trim()) return;
     const target = session.mode === "point" && session.point ? [session.point] : session.mode === "full" ? [] : pointsForKnowledge(points, session.knowledge.id);
-    const items = target.length > 0 ? target.map((point) => ({ pointId: point.pointId, status: "omitted" as RecallStatus, grade: "Again" as FsrsGrade, evidence: "", feedback: "", accepted: true })) : [{ status: "omitted" as RecallStatus, grade: "Again" as FsrsGrade, evidence: "", feedback: "", accepted: true }];
+    const items = target.length > 0 ? target.map((point) => ({ pointId: point.pointId, status: "Again" as RecallStatus, evidence: "", feedback: "", accepted: true })) : [{ status: "Again" as RecallStatus, evidence: "", feedback: "", accepted: true }];
     setSession({ ...session, submitted: true, submittedAt: new Date().toISOString(), items });
   }
 
   async function evaluateWithAi() {
     if (!session) return;
     try {
+      const knowledgePoints = pointsForKnowledge(points, session.knowledge.id);
+      const evaluationPoints = session.mode === "point"
+        ? session.point ? [session.point] : knowledgePoints.slice(0, 1)
+        : knowledgePoints;
       const draft = await invoke<RecallEvaluationDraft>("generate_recall_evaluation", { request: {
-        knowledgeId: session.knowledge.id, title: session.knowledge.title, markdown: session.knowledge.markdown, answer: session.answer, mode: session.mode, points: pointsForKnowledge(points, session.knowledge.id),
+        knowledgeId: session.knowledge.id, title: session.knowledge.title, markdown: session.knowledge.markdown, answer: session.answer, mode: session.mode, points: evaluationPoints,
       }});
-      setSession({ ...session, submitted: true, submittedAt: new Date().toISOString(), source: "ai", items: draft.items.map((item) => ({ ...item, grade: item.grade ?? gradeForStatus(item.status), accepted: false })), nextReviewAt: draft.nextReviewAt, aiMessage: draft.message });
+      setSession({ ...session, submitted: true, submittedAt: new Date().toISOString(), source: "ai", items: draft.items.map((item) => ({ ...item, accepted: false })), nextReviewAt: draft.nextReviewAt, aiMessage: draft.message });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -384,14 +388,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
 
   function updateReviewItem(index: number, field: keyof ReviewItem, value: string | boolean) {
     if (!session) return;
-    setSession({ ...session, items: session.items.map((item, itemIndex) => {
-      if (itemIndex !== index) return item;
-      if (field === "status") {
-        const status = value as RecallStatus;
-        return { ...item, status, grade: gradeForStatus(status) };
-      }
-      return { ...item, [field]: value };
-    }) });
+    setSession({ ...session, items: session.items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item) });
   }
 
   function acceptAllReviewItems() {
@@ -414,7 +411,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
     const records: ReviewRecord[] = [];
     const nextCards = { ...scheduler.cards };
     for (const item of acceptedItems) {
-      const grade = item.grade ?? gradeForStatus(item.status);
+      const grade = item.status;
       let nextReviewAt = session.nextReviewAt || defaultNextReviewAt();
       if (item.pointId) {
         const result = applyGrade(cardForPoint(scheduler, item.pointId, new Date(confirmedAt)), grade, new Date(confirmedAt), scheduler.parameters);
@@ -597,7 +594,7 @@ function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, 
         const pending = pendingReviewIds.has(observation.reviewId);
         return <g key={`${observation.dayKey}-${observation.reviewId}`} role="button" tabIndex={0} aria-label={`${observation.dayKey} ${gradeLabel(observation.grade)} 复习记录`} className="curve-observation-hit" onClick={() => selectObservation(observation.dayKey)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectObservation(observation.dayKey); } }}>
           <circle cx={x(item.day)} cy={y(observation.value)} r="5" className={`curve-observation curve-${observation.grade}${pending ? " curve-observation-pending" : ""}${selectedDayKey === observation.dayKey ? " curve-observation-selected" : ""}`} />
-          <title>{observation.dayKey} · {gradeLabel(observation.grade)} · {statusLabel(observation.status)}{pending ? " · 尚未确认" : " · 点击查看详情"}</title>
+          <title>{observation.dayKey} · {gradeLabel(observation.grade)}{pending ? " · 尚未确认" : " · 点击查看详情"}</title>
         </g>;
       })}
       <line x1={x(Math.min(maxDay, Math.max(0, (now.getTime() - new Date(startDate).getTime()) / 86400000)))} x2={x(Math.min(maxDay, Math.max(0, (now.getTime() - new Date(startDate).getTime()) / 86400000)))} y1={padding.top} y2={height - padding.bottom} className="curve-today" />
@@ -609,7 +606,7 @@ function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, 
     <div className="memory-curve-legend"><span><i className="legend-reference" />参考曲线</span><span><i className="legend-model" />模型估计</span><span><i className="legend-target" />目标触发线 R={Math.round(targetRetention * 100)}%</span><span><i className="legend-again" />Again · 错误/遗漏</span><span><i className="legend-hard" />Hard · 不完整/理解偏差</span><span><i className="legend-good" />Good · 正确</span><span><i className="legend-easy" />Easy · 轻松</span><span className="memory-curve-note">网格按日期刻度显示；点击复习点查看题目、状态和当前模型参数。每个自然日只显示当天最好结果，但原始记录仍完整保留。</span></div>
     <div className="memory-curve-equation"><span>FSRS-6.0</span><code>R(t,S) = (1 + {formatMetric(factor, 4)} × t / S)<sup>−{formatMetric(decay, 4)}</sup></code><small>t：距上次复习的天数　S：稳定性（R=90%时的时间尺度）</small></div>
     <details className="memory-curve-explanation"><summary>目标触发线、题目难度与调度计算</summary><p>90% 是复习触发目标，不是每天固定减少 10%。首次 Good 的 S 约为 2.3 天，所以模型估计大约 2–3 天降到 90%。</p><p>难度 <code>D</code>（1–10）会随 Again / Hard / Good / Easy 更新，影响下一次稳定性；它不等于当前 R。调度器按已完成的整天计算 t，未满 24 小时时 t=0，因此复习后短时间内调度 R 会保持 100%。图上的曲线则用同一公式按连续天数插值，让下降趋势更容易看清。</p><div className="curve-card-summary"><strong>当前抽查点模型（D / S / 调度器 R）</strong>{points.map((point) => { const card = scheduler?.cards[point.pointId]; return <span key={point.pointId} title={point.prompt}>{TYPE_LABELS[point.type]} · {card?.lastReview ? `D ${formatMetric(card.difficulty, 1)}/10 · S ${formatMetric(card.stability, 2)} 天 · R（整日）${Math.round(retrievability(card, now, scheduler?.parameters) * 100)}%` : "尚未复习"}</span>; })}</div></details>
-    {selectedDayKey && <div className="curve-review-detail" aria-live="polite"><div className="curve-review-detail-heading"><div><span className="eyebrow">REVIEW DETAILS</span><h5>{selectedDayKey} · 当日最好结果 {selectedBest ? gradeLabel(selectedBest.grade) : ""}</h5></div><button type="button" className="icon-button" onClick={() => { setSelectedDayKey(null); setDeleteArmedReviewId(null); }} aria-label="关闭复习详情">×</button></div>{selectedReviews.length === 0 ? <p className="memory-curve-empty">这条记录只存在于当前预览中，尚未写入已确认日志。</p> : <div className="curve-review-list">{selectedReviews.map((review) => { const point = review.pointId ? points.find((candidate) => candidate.pointId === review.pointId) : undefined; const observation = curve.find((item) => item.observation?.reviewId === review.reviewId || item.observation?.rawReviewIds.includes(review.reviewId))?.observation; const summary = currentCardSummary(review.pointId); const armed = deleteArmedReviewId === review.reviewId; return <article key={review.reviewId} className="curve-review-record"><div className="curve-review-record-meta"><strong>{reviewPrompt(knowledgeTitle, review, point)}</strong><span>{formatReviewDate(review.confirmedAt)}</span></div><p className="curve-review-answer"><span>回答：</span>{review.answer || "（空）"}</p>{point?.reference && <p className="curve-review-answer"><span>参考：</span>{point.reference}</p>}{review.evidence && <p className="curve-review-answer"><span>答案证据：</span>{review.evidence}</p>}<div className="curve-review-status"><span className={`curve-status-dot curve-${review.grade ?? "Good"}`} />{statusLabel(review.status)} · {review.grade ? gradeLabel(review.grade) : gradeLabel(gradeForStatus(review.status))}{review.feedback ? ` · ${review.feedback}` : ""}</div>{observation && <div className="curve-review-status">观察值 {Math.round(observation.value * 100)}% · 当时模型 {Math.round((curve.find((item) => item.observation?.reviewId === observation.reviewId)?.model ?? 0) * 100)}%</div>}{summary && <div className="curve-review-status">当前模型：{summary}</div>}<div className="curve-review-status">下次计划：{formatReviewDate(review.nextReviewAt)}</div>{!pendingReviewIds.has(review.reviewId) && onReviewDeleted && <button type="button" className={armed ? "text-button curve-review-delete armed" : "text-button curve-review-delete"} disabled={deletingReviewId === review.reviewId} onClick={() => void handleDeleteReview(review.reviewId)}><Trash2 size={12} /> {deletingReviewId === review.reviewId ? "删除中…" : armed ? "再次点击确认删除" : "删除这条历史结果"}</button>}</article>; })}</div>}</div>}
+    {selectedDayKey && <div className="curve-review-detail" aria-live="polite"><div className="curve-review-detail-heading"><div><span className="eyebrow">REVIEW DETAILS</span><h5>{selectedDayKey} · 当日最好结果 {selectedBest ? gradeLabel(selectedBest.grade) : ""}</h5></div><button type="button" className="icon-button" onClick={() => { setSelectedDayKey(null); setDeleteArmedReviewId(null); }} aria-label="关闭复习详情">×</button></div>{selectedReviews.length === 0 ? <p className="memory-curve-empty">这条记录只存在于当前预览中，尚未写入已确认日志。</p> : <div className="curve-review-list">{selectedReviews.map((review) => { const point = review.pointId ? points.find((candidate) => candidate.pointId === review.pointId) : undefined; const observation = curve.find((item) => item.observation?.reviewId === review.reviewId || item.observation?.rawReviewIds.includes(review.reviewId))?.observation; const summary = currentCardSummary(review.pointId); const armed = deleteArmedReviewId === review.reviewId; const grade = review.grade ?? gradeForStatus(review.status); return <article key={review.reviewId} className="curve-review-record"><div className="curve-review-record-meta"><strong>{reviewPrompt(knowledgeTitle, review, point)}</strong><span>{formatReviewDate(review.confirmedAt)}</span></div><p className="curve-review-answer"><span>回答：</span>{review.answer || "（空）"}</p>{point?.reference && <p className="curve-review-answer"><span>参考：</span>{point.reference}</p>}{review.evidence && <p className="curve-review-answer"><span>答案证据：</span>{review.evidence}</p>}<div className="curve-review-status"><span className={`curve-status-dot curve-${grade}`} />{gradeLabel(grade)}{review.feedback ? ` · ${review.feedback}` : ""}</div>{observation && <div className="curve-review-status">观察值 {Math.round(observation.value * 100)}% · 当时模型 {Math.round((curve.find((item) => item.observation?.reviewId === observation.reviewId)?.model ?? 0) * 100)}%</div>}{summary && <div className="curve-review-status">当前模型：{summary}</div>}<div className="curve-review-status">下次计划：{formatReviewDate(review.nextReviewAt)}</div>{!pendingReviewIds.has(review.reviewId) && onReviewDeleted && <button type="button" className={armed ? "text-button curve-review-delete armed" : "text-button curve-review-delete"} disabled={deletingReviewId === review.reviewId} onClick={() => void handleDeleteReview(review.reviewId)}><Trash2 size={12} /> {deletingReviewId === review.reviewId ? "删除中…" : armed ? "再次点击确认删除" : "删除这条历史结果"}</button>}</article>; })}</div>}</div>}
   </section>;
 }
 
@@ -638,7 +635,7 @@ function ReviewSession({ session, points, reviews, scheduler, desiredRetention, 
   const previewReviews = useMemo<ReviewRecord[]>(() => {
     if (!session.submitted) return [];
     const confirmedAt = session.submittedAt ?? new Date().toISOString();
-    return session.items.map((item, index) => ({ reviewId: `pending-${session.knowledge.id}-${index}`, knowledgeId: session.knowledge.id, pointId: item.pointId, mode: session.mode, answer: session.answer, status: item.status, feedback: item.feedback, evidence: item.evidence ?? "", confirmedAt, nextReviewAt: session.nextReviewAt, source: session.source, grade: item.grade ?? gradeForStatus(item.status) }));
+    return session.items.map((item, index) => ({ reviewId: `pending-${session.knowledge.id}-${index}`, knowledgeId: session.knowledge.id, pointId: item.pointId, mode: session.mode, answer: session.answer, status: item.status, feedback: item.feedback, evidence: item.evidence ?? "", confirmedAt, nextReviewAt: session.nextReviewAt, source: session.source, grade: item.status }));
   }, [session]);
   const pendingReviewIds = useMemo(() => new Set(previewReviews.map((review) => review.reviewId)), [previewReviews]);
   return <div className="review-session"><div className="review-session-header"><button className="icon-button" type="button" onClick={onBack} aria-label="返回知识列表"><ArrowLeft size={17} /></button><div><span className="eyebrow">{MODE_LABELS[session.mode]}</span><h3>{session.knowledge.title}</h3></div><span className="review-session-lock" title={session.selectionReason}>本轮范围已固定 · {session.selectionReason ?? "按当前范围选择"}</span></div><div className="review-mode-switch" role="tablist" aria-label="抽查模式">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <button key={mode} type="button" role="tab" aria-selected={session.mode === mode} className={session.mode === mode ? "active" : ""} onClick={() => onModeChange(mode)}>{MODE_LABELS[mode]}</button>)}</div>{session.mode === "point" && <label className="review-point-select"><span>抽查点</span><select value={currentPoint?.pointId ?? ""} onChange={(event) => onPointChange(event.target.value)}>{points.map((point) => <option key={point.pointId} value={point.pointId}>{point.prompt}</option>)}</select></label>}<div className="review-question"><span className="eyebrow">QUESTION</span><h4>{prompt}</h4><p>提交前不会显示标准答案；你可以先写下不完整的回忆。</p></div><textarea className="review-answer" value={session.answer} onChange={(event) => onAnswerChange(event.target.value)} disabled={session.submitted} placeholder="写下你的回答…" />{!session.submitted ? <div className="review-submit-actions"><button className="primary-button" type="button" onClick={onSubmit} disabled={!session.answer.trim()}>提交回答</button><button className="secondary-button" type="button" onClick={onAi} disabled={!session.answer.trim() || !hasApiKey}><Sparkles size={14} /> AI 生成评价草稿</button>{!hasApiKey && <button type="button" className="text-button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <ReviewResult session={session} points={points} hasApiKey={hasApiKey} onAi={onAi} onItemChange={onItemChange} onAcceptAll={onAcceptAll} onConfirm={onConfirm} onReject={onReject} />}<MemoryCurve knowledgeId={session.knowledge.id} knowledgeTitle={session.knowledge.title} createdAt={session.knowledge.createdAt} points={points} reviews={[...reviews, ...previewReviews]} scheduler={scheduler} desiredRetention={desiredRetention} pendingReviewIds={pendingReviewIds} onReviewDeleted={onReviewDeleted} /></div>;
@@ -724,15 +721,9 @@ function ReviewResult({ session, points, hasApiKey, onAi, onItemChange, onAccept
             {activePoint && <p className="review-reference">参考要点：{activePoint.reference}</p>}
             <div className="review-item-fields">
               <label>
-                <span>状态</span>
+                <span>FSRS 评价</span>
                 <select value={activeItem.status} onChange={(event) => onItemChange(activeIndex, "status", event.target.value)}>
                   {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>FSRS Grade</span>
-                <select value={activeItem.grade ?? gradeForStatus(activeItem.status)} onChange={(event) => onItemChange(activeIndex, "grade", event.target.value)}>
-                  {(["Again", "Hard", "Good", "Easy"] as FsrsGrade[]).map((grade) => <option key={grade} value={grade}>{gradeLabel(grade)}</option>)}
                 </select>
               </label>
               <label>

@@ -61,6 +61,6 @@ describe("recall selection", () => {
 });
 
 it("provides accessible status hints", () => {
-  expect(statusHint("omitted")).toContain("遗漏");
-  expect(statusHint("wrong", "作用方向记反了")).toBe("作用方向记反了");
+  expect(statusHint("Again")).toContain("重新复习");
+  expect(statusHint("Hard", "作用方向记反了")).toBe("作用方向记反了");
 });

@@ -49,13 +49,23 @@ const DEFAULT_RECALL_POINTS_PROMPT: &str = r#"你负责根据知识 Markdown 起
 3. 每个抽查点都要短、可回答，参考要点只写核对所需的核心内容。
 4. 不要生成 pointId，应用会分配稳定 ID。"#;
 
-const DEFAULT_RECALL_EVALUATION_PROMPT: &str = r#"你负责评价用户对知识抽查点的回答。
+const LEGACY_DEFAULT_RECALL_EVALUATION_PROMPT: &str = r#"你负责评价用户对知识抽查点的回答。
 
 要求：
 1. 以 Markdown 和抽查点为事实来源，判断关键点覆盖、事实正确性以及机制/关系是否正确；不要做字面相似度百分比。
 2. 如果输入和回答主要是中文，用中文反馈；如果主要是英文，用英文；混合内容按回答和知识的主要语言动态选择。
 3. 反馈简短、具体、可行动。无法可靠定位短语时不要伪造 evidence，留空并只标记整条抽查点。
 4. 正确且完整的内容使用 correct，不添加多余反馈色。"#;
+
+const DEFAULT_RECALL_EVALUATION_PROMPT: &str = r#"你负责评价用户对知识抽查点的回答。
+
+评价原则：
+1. 以 Markdown 为事实来源，参考要点是评分依据，不是唯一正确措辞。认可含义一致的同义表达、转述、顺序变化，以及分散在答案不同位置的内容。
+2. 先整体阅读答案，再逐点评价。不要因为用户把一个概念放在错误的分类或框架下，就把答案中明确出现的其他正确概念也判为没答到。复合抽查点只答对一部分时，保留答对的部分，并具体指出需要纠正之处。
+3. 不要要求逐字复现或擅自提高参考要点之外的要求。回忆出全部核心概念、关系或特征时，即使回答简短，也应视为充分。
+4. 选择最符合实际回忆质量的 FSRS 等级：Again 表示核心内容基本未回忆出或关键事实根本性错误；Hard 表示回忆有明显困难、只答出部分内容，或核心方向对但仍有重要缺口；Good 表示核心内容正确且覆盖充分；Easy 仅用于内容准确完整、并且用户明确表示回忆轻松的情况。不要仅因少一个次要细节就判 Again。
+5. 反馈简短、具体、可行动；指出具体答对、答错或缺失的内容。能从答案准确摘录时才填写 evidence，否则留空。不要做字面相似度百分比。
+6. 根据输入内容的主要语言回复；混合语言按回答和知识的主要语言动态选择，保留必要的专业术语。"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -224,28 +234,24 @@ enum RecallMode {
     Full,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum RecallStatus {
-    Wrong,
-    Omitted,
-    Incomplete,
-    Misunderstood,
-    Correct,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum FsrsGrade {
+    Again,
+    Hard,
+    Good,
+    Easy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReviewItem {
     #[serde(default)]
     point_id: Option<String>,
-    status: RecallStatus,
+    status: FsrsGrade,
     #[serde(default)]
     evidence: String,
     #[serde(default)]
     feedback: String,
-    #[serde(default)]
-    grade: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,7 +263,7 @@ struct ReviewRecord {
     point_id: Option<String>,
     mode: RecallMode,
     answer: String,
-    status: RecallStatus,
+    status: String,
     feedback: String,
     evidence: String,
     confirmed_at: String,
@@ -367,7 +373,7 @@ struct RecallPointDraftReply {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RecallEvaluationDraft {
     items: Vec<ReviewItem>,
     next_review_at: String,
@@ -520,6 +526,24 @@ fn default_recall_points_prompt() -> String {
 
 fn default_recall_evaluation_prompt() -> String {
     DEFAULT_RECALL_EVALUATION_PROMPT.into()
+}
+
+fn migrate_recall_evaluation_prompt(settings: &mut AppSettings) -> bool {
+    if settings.ai.recall_evaluation_prompt == LEGACY_DEFAULT_RECALL_EVALUATION_PROMPT {
+        settings.ai.recall_evaluation_prompt = DEFAULT_RECALL_EVALUATION_PROMPT.into();
+        true
+    } else {
+        false
+    }
+}
+
+fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    let path = settings_path(app)?;
+    let mut settings = load_or_create(&path, default_settings, validate_settings)?;
+    if migrate_recall_evaluation_prompt(&mut settings) {
+        atomic_write(&path, &settings)?;
+    }
+    Ok(settings)
 }
 
 fn default_appearance() -> AppearanceSettings {
@@ -942,7 +966,7 @@ fn read_api_key(_app: &AppHandle) -> Result<Option<String>, String> {
 #[tauri::command]
 fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
     let board = load_or_create(&board_path(&app)?, default_board, validate_board)?;
-    let settings = load_or_create(&settings_path(&app)?, default_settings, validate_settings)?;
+    let settings = load_settings(&app)?;
     Ok(LoadedAppState {
         board,
         settings,
@@ -1160,12 +1184,18 @@ fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), Stri
     if !valid_knowledge_id(&review.knowledge_id) || !valid_knowledge_id(&review.review_id) {
         return Err("评价记录缺少有效稳定 ID".into());
     }
+    if !matches!(review.status.as_str(), "Again" | "Hard" | "Good" | "Easy") {
+        return Err("评价状态必须是 Again、Hard、Good 或 Easy".into());
+    }
     if review
         .grade
         .as_deref()
         .is_some_and(|grade| !matches!(grade, "Again" | "Hard" | "Good" | "Easy"))
     {
         return Err("评价记录包含无效的 FSRS Grade".into());
+    }
+    if review.grade.as_deref() != Some(review.status.as_str()) {
+        return Err("评价状态必须与 FSRS Grade 一致".into());
     }
     let path = knowledge_reviews_path(&app, &review.knowledge_id)?;
     let mut file = OpenOptions::new()
@@ -1479,7 +1509,7 @@ async fn parse_knowledge_content(
     if request.content.chars().count() > 200_000 {
         return Err("Markdown 内容过长，请分段整理后再导入".into());
     }
-    let settings = load_or_create(&settings_path(&app)?, default_settings, validate_settings)?;
+    let settings = load_settings(&app)?;
     let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
     let base = settings.ai.base_url.trim().trim_end_matches('/');
     if !(base.starts_with("https://")
@@ -1533,7 +1563,7 @@ async fn draft_recall_points(
     if request.markdown.trim().is_empty() {
         return Err("请先输入 Markdown 正文".into());
     }
-    let settings = load_or_create(&settings_path(&app)?, default_settings, validate_settings)?;
+    let settings = load_settings(&app)?;
     let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
     let base = settings.ai.base_url.trim().trim_end_matches('/');
     if !(base.starts_with("https://")
@@ -1594,11 +1624,11 @@ fn recall_system_prompt(points: &[RecallPoint], preferences: &str) -> String {
         .collect::<Vec<_>>()
         .join("\\n");
     format!(
-        r#"You are a careful study-feedback assistant inside Beta Life. The Markdown is the source of truth. Evaluate only the user's answer against the listed checkpoints. Do not use literal similarity percentages. If evidence cannot be located reliably, leave evidence empty and classify the whole checkpoint. Suggest one FSRS grade (Again, Hard, Good, or Easy), but treat it as a user-editable suggestion rather than a confirmed schedule. User-editable preferences follow; use them for language and feedback style but never override the JSON protocol or the source-of-truth rule:
+        r#"You are a careful study-feedback assistant inside Beta Life. The Markdown is the source of truth. Evaluate only the user's answer against the listed checkpoints. Do not use literal similarity percentages. If evidence cannot be located reliably, leave evidence empty. The status is the single FSRS rating; do not return a separate grade field. User-editable preferences follow; use them for language and feedback style but never override the JSON protocol or the source-of-truth rule:
 
 {}
 
-Return exactly one JSON object with no markdown: {{"items":[{{"pointId":"stable-id-or-null","status":"wrong|omitted|incomplete|misunderstood|correct","grade":"Again|Hard|Good|Easy","evidence":"short exact phrase or empty","feedback":"one short sentence"}}],"nextReviewAt":"ISO-8601 timestamp","message":"short note"}}. A correct and complete checkpoint should use status correct and Good unless the user explicitly indicates it was effortless, in which case Easy. Use omitted only when the answer does not address it; wrong for a fact or direction that conflicts; incomplete for a partially covered point; misunderstood for a mentioned mechanism or relationship that is interpreted incorrectly. Keep one item per supplied point. Checkpoints: {}"#,
+Return exactly one JSON object with no markdown: {{"items":[{{"pointId":"stable-id-or-null","status":"Again|Hard|Good|Easy","evidence":"short exact phrase or empty","feedback":"one short sentence"}}],"nextReviewAt":"ISO-8601 timestamp","message":"short note"}}. Again means the core was not recalled or a key fact is fundamentally wrong. Hard means partial recall, substantial difficulty, or an important gap despite a basically correct direction. Good means the core content is accurate and sufficiently complete. Easy is only for accurate, complete recall that the user explicitly says was effortless. Do not assign Again for a minor missing detail. For supplied checkpoints, return exactly one item per pointId, with no missing or duplicate IDs. In full mode, a single whole-answer item with pointId null is also allowed, but do not mix it with point-specific items. Checkpoints: {}"#,
         preferences, point_schema
     )
 }
@@ -1612,24 +1642,27 @@ fn validate_recall_draft(
     if draft.items.is_empty() {
         return Err("AI 评价没有返回考点结果".into());
     }
+    let whole_answer = draft.items.len() == 1
+        && draft.items[0].point_id.is_none()
+        && (matches!(mode, RecallMode::Full) || points.is_empty());
+    let mut returned_ids = HashSet::new();
     for item in &draft.items {
         if let Some(point_id) = &item.point_id {
             if !ids.contains(point_id.as_str()) {
                 return Err("AI 返回了未知 pointId".into());
             }
-        } else if !matches!(mode, RecallMode::Full) {
+            if !returned_ids.insert(point_id.as_str()) {
+                return Err("AI 对同一个抽查点返回了重复评价".into());
+            }
+        } else if !whole_answer {
             return Err("非完整复述评价必须包含 pointId".into());
         }
         if item.feedback.trim().is_empty() {
             return Err("AI 评价反馈不能为空".into());
         }
-        if item
-            .grade
-            .as_deref()
-            .is_some_and(|grade| !matches!(grade, "Again" | "Hard" | "Good" | "Easy"))
-        {
-            return Err("AI 返回了无效的 FSRS Grade".into());
-        }
+    }
+    if !whole_answer && returned_ids != ids {
+        return Err("AI 评价没有为每个抽查点恰好返回一条结果".into());
     }
     Ok(())
 }
@@ -1642,7 +1675,7 @@ async fn generate_recall_evaluation(
     if request.answer.trim().is_empty() {
         return Err("请先输入回答".into());
     }
-    let settings = load_or_create(&settings_path(&app)?, default_settings, validate_settings)?;
+    let settings = load_settings(&app)?;
     let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
     let base = settings.ai.base_url.trim().trim_end_matches('/');
     if !(base.starts_with("https://")
@@ -1742,7 +1775,7 @@ async fn generate_ai_response(
     if request.messages.is_empty() {
         return Err("请先输入文字或添加图片".into());
     }
-    let settings = load_or_create(&settings_path(&app)?, default_settings, validate_settings)?;
+    let settings = load_settings(&app)?;
     let has_images = request
         .messages
         .iter()
@@ -1846,7 +1879,7 @@ mod tests {
             point_id: Some("point-1".into()),
             mode: RecallMode::Point,
             answer: "answer".into(),
-            status: RecallStatus::Correct,
+            status: "Good".into(),
             feedback: "ok".into(),
             evidence: String::new(),
             confirmed_at: "2026-01-01T00:00:00.000Z".into(),
@@ -1857,6 +1890,97 @@ mod tests {
             algorithm: None,
             fsrs_version: None,
             parameters: None,
+        }
+    }
+
+    fn sample_point(point_id: &str) -> RecallPoint {
+        RecallPoint {
+            point_id: point_id.into(),
+            knowledge_id: "knowledge-1".into(),
+            point_type: "framework".into(),
+            prompt: format!("Question for {point_id}"),
+            reference: "Reference".into(),
+            order: 0,
+        }
+    }
+
+    fn sample_item(point_id: Option<&str>, status: FsrsGrade) -> ReviewItem {
+        ReviewItem {
+            point_id: point_id.map(str::to_owned),
+            status,
+            evidence: String::new(),
+            feedback: "Feedback".into(),
+        }
+    }
+
+    #[test]
+    fn migrates_only_the_builtin_evaluation_prompt() {
+        let mut default = default_settings();
+        default.ai.recall_evaluation_prompt = LEGACY_DEFAULT_RECALL_EVALUATION_PROMPT.into();
+        assert!(migrate_recall_evaluation_prompt(&mut default));
+        assert_eq!(
+            default.ai.recall_evaluation_prompt,
+            DEFAULT_RECALL_EVALUATION_PROMPT
+        );
+
+        let mut custom = default_settings();
+        custom.ai.recall_evaluation_prompt = "Keep my custom instructions".into();
+        assert!(!migrate_recall_evaluation_prompt(&mut custom));
+        assert_eq!(
+            custom.ai.recall_evaluation_prompt,
+            "Keep my custom instructions"
+        );
+    }
+
+    #[test]
+    fn recall_evaluation_requires_one_result_per_supplied_point() {
+        let points = vec![sample_point("point-1"), sample_point("point-2")];
+        let valid = RecallEvaluationDraft {
+            items: vec![
+                sample_item(Some("point-1"), FsrsGrade::Good),
+                sample_item(Some("point-2"), FsrsGrade::Hard),
+            ],
+            next_review_at: "2026-01-02T00:00:00.000Z".into(),
+            message: None,
+        };
+        assert!(validate_recall_draft(&valid, &points, RecallMode::Framework).is_ok());
+
+        let missing = RecallEvaluationDraft {
+            items: vec![sample_item(Some("point-1"), FsrsGrade::Good)],
+            next_review_at: "2026-01-02T00:00:00.000Z".into(),
+            message: None,
+        };
+        assert!(validate_recall_draft(&missing, &points, RecallMode::Framework).is_err());
+
+        let duplicate = RecallEvaluationDraft {
+            items: vec![
+                sample_item(Some("point-1"), FsrsGrade::Good),
+                sample_item(Some("point-1"), FsrsGrade::Hard),
+            ],
+            next_review_at: "2026-01-02T00:00:00.000Z".into(),
+            message: None,
+        };
+        assert!(validate_recall_draft(&duplicate, &points, RecallMode::Framework).is_err());
+    }
+
+    #[test]
+    fn full_recall_accepts_one_whole_answer_rating() {
+        let points = vec![sample_point("point-1"), sample_point("point-2")];
+        let draft = RecallEvaluationDraft {
+            items: vec![sample_item(None, FsrsGrade::Good)],
+            next_review_at: "2026-01-02T00:00:00.000Z".into(),
+            message: None,
+        };
+        assert!(validate_recall_draft(&draft, &points, RecallMode::Full).is_ok());
+    }
+
+    #[test]
+    fn evaluation_status_accepts_only_fsrs_ratings() {
+        for rating in ["Again", "Hard", "Good", "Easy"] {
+            assert!(serde_json::from_str::<FsrsGrade>(&format!("\"{rating}\"")).is_ok());
+        }
+        for legacy_status in ["wrong", "omitted", "incomplete", "misunderstood", "correct"] {
+            assert!(serde_json::from_str::<FsrsGrade>(&format!("\"{legacy_status}\"")).is_err());
         }
     }
 

@@ -123,11 +123,11 @@ export interface AiReply {
 export type ContainerId = `period:${PeriodId}` | `hour:${number}`;
 
 export type RecallPointType = "framework" | "mechanism" | "relationship";
-export type RecallStatus = "wrong" | "omitted" | "incomplete" | "misunderstood" | "correct";
+export type FsrsGrade = "Again" | "Hard" | "Good" | "Easy";
+export type RecallStatus = FsrsGrade;
+export type LegacyRecallStatus = "wrong" | "omitted" | "incomplete" | "misunderstood" | "correct";
 export type RecallMode = "framework" | "point" | "full";
 export type RecallSource = "manual" | "ai";
-
-export type FsrsGrade = "Again" | "Hard" | "Good" | "Easy";
 
 export interface KnowledgeRecord {
   id: string;
@@ -155,7 +155,6 @@ export interface ReviewItem {
   status: RecallStatus;
   evidence?: string;
   feedback: string;
-  grade?: FsrsGrade;
   accepted?: boolean;
 }
 
@@ -165,7 +164,7 @@ export interface ReviewRecord {
   pointId?: string;
   mode: RecallMode;
   answer: string;
-  status: RecallStatus;
+  status: RecallStatus | LegacyRecallStatus;
   feedback: string;
   evidence: string;
   confirmedAt: string;

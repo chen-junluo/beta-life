@@ -57,13 +57,12 @@ export interface SelectionCandidate {
   currentRetrievability?: number;
 }
 
-function weakRank(status?: RecallStatus): number {
-  if (status === "wrong") return 0;
-  if (status === "misunderstood") return 1;
-  if (status === "incomplete") return 2;
-  if (status === "omitted") return 3;
-  if (status === "correct") return 5;
-  return 4;
+function weakRank(status?: ReviewRecord["status"]): number {
+  if (status === "Again" || status === "wrong" || status === "omitted") return 0;
+  if (status === "Hard" || status === "misunderstood" || status === "incomplete") return 1;
+  if (status === "Good" || status === "correct") return 4;
+  if (status === "Easy") return 5;
+  return 3;
 }
 
 function isDue(knowledge: KnowledgeRecord, now: Date): boolean {
@@ -84,7 +83,13 @@ function schedulerDue(candidate: SelectionCandidate, now: Date, targetRetention:
 
 function schedulerWeakness(candidate: SelectionCandidate): number {
   const status = candidate.lastReview?.status;
-  const statusScore = status === "wrong" || status === "omitted" ? 4 : status === "misunderstood" || status === "incomplete" ? 2 : status === "correct" ? 0 : 1;
+  const statusScore = status === "Again" || status === "wrong" || status === "omitted"
+    ? 4
+    : status === "Hard" || status === "misunderstood" || status === "incomplete"
+      ? 2
+      : status === "Good" || status === "Easy" || status === "correct"
+        ? 0
+        : 1;
   const r = candidate.schedulerCard && candidate.schedulerCard.stability > 0 && candidate.schedulerCard.lastReview
     ? Math.max(0, 1 - Math.min(1, Math.max(0, candidate.schedulerCard.lastRetrievability)))
     : 1;
@@ -158,22 +163,15 @@ export function pointsForKnowledge(points: RecallPoint[], knowledgeId: string): 
 }
 
 export function statusLabel(status: RecallStatus): string {
-  return {
-    wrong: "记错",
-    omitted: "遗漏",
-    incomplete: "不完整",
-    misunderstood: "理解偏差",
-    correct: "正确",
-  }[status];
+  return status;
 }
 
 export function statusHint(status: RecallStatus, feedback?: string): string {
   if (feedback?.trim()) return feedback.trim();
   return {
-    wrong: "这里的作用方向记反了。",
-    omitted: "答案遗漏了这个考点。",
-    incomplete: "提到了概念，但少了关键条件。",
-    misunderstood: "概念提到了，但关系理解有偏差。",
-    correct: "关键点覆盖完整。",
+    Again: "核心内容未能回忆出来，需要重新复习。",
+    Hard: "回忆有困难，或仍缺少重要内容。",
+    Good: "核心内容回忆准确且覆盖充分。",
+    Easy: "内容准确完整，并且回忆轻松。",
   }[status];
 }
