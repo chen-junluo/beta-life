@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2026-10-12
+
+- Added random-question, AI spot-check, and full-recall modes scoped to the visible knowledge list.
+- Reduced quiz distractions by hiding the memory curve through answering and feedback confirmation, then returning to the last reviewed knowledge item.
+- Renamed the desktop app and macOS installer to `beta-life`.
+
 ## 0.2.4 - 2026-10-09
 
 - Fixed Rust formatting validation so release workflows can proceed to tests and packaging.

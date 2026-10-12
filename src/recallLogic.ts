@@ -116,26 +116,22 @@ export function chooseCandidate(
   if (candidates.length === 0) return { reason: "当前筛选范围没有可抽查内容" };
   const now = options.now ?? new Date();
   const targetRetention = options.targetRetention ?? 0.9;
+  if (options.random) {
+    const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
+    return { candidate: candidates[Math.floor(value * candidates.length)], reason: "当前范围内均匀随机" };
+  }
   const hasScheduler = candidates.some((item) => item.schedulerCard);
   if (hasScheduler) {
-    const due = candidates.filter((item) => schedulerDue(item, now, targetRetention));
+    const due = candidates.filter((item) => schedulerDue(item, now, targetRetention) || (!item.schedulerCard && item.currentRetrievability === undefined && isDue(item.knowledge, now)));
     if (due.length > 0) {
       const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
       return { candidate: due[Math.floor(value * due.length)], reason: "优先选择达到目标触发线的项目，再在其中均匀随机" };
-    }
-    if (options.random) {
-      const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
-      return { candidate: candidates[Math.floor(value * candidates.length)], reason: "没有达到目标触发线的项目，当前标签范围内均匀随机" };
     }
     const ranked = candidates.map((candidate, index) => ({ candidate, score: selectionPriority(candidate, now, (options.randomValue ?? Math.random()) + index * 0.000001, DEFAULT_SELECTION_WEIGHTS, targetRetention) })).sort((a, b) => b.score - a.score);
     return {
       candidate: ranked[0]?.candidate,
       reason: "没有达到目标触发线的项目，选择当前最需要复习的考点",
     };
-  }
-  if (options.random) {
-    const value = Math.min(0.999999, Math.max(0, options.randomValue ?? Math.random()));
-    return { candidate: candidates[Math.floor(value * candidates.length)], reason: "当前标签范围内均匀随机" };
   }
   const due = candidates.filter((item) => isDue(item.knowledge, now));
   if (due.length === 0) {

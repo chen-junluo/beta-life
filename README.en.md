@@ -13,13 +13,13 @@ Download the app from [GitHub Releases](https://github.com/chen-junluo/beta-life
 
 ### Installing the unsigned macOS build
 
-The current macOS build has no Apple Developer ID signature and is not notarized. Open the `.dmg` and drag `Beta Life.app` to `Applications` first.
+The current macOS build has no Apple Developer ID signature and is not notarized. Open the `.dmg` and drag `beta-life.app` to `Applications` first.
 
 If macOS reports that the app is damaged or refuses to open it, run:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Beta Life.app"
-open "/Applications/Beta Life.app"
+xattr -dr com.apple.quarantine "/Applications/beta-life.app"
+open "/Applications/beta-life.app"
 ```
 
 This path is intended for developer users and small-scale testing. It is not yet a no-warning installation path for general users. Run the command only for an app downloaded from this repository's Releases page whose source you trust.
@@ -79,7 +79,7 @@ For local macOS testing, clean generated caches, rebuild, and open the drag-to-A
 npm run build:mac:clean
 ```
 
-This command only removes generated `dist`, Vite, and Cargo build output. It does not remove dependencies or application data. When the build finishes, Finder opens the DMG so you can drag `Beta Life.app` to `Applications`.
+This command only removes generated `dist`, Vite, and Cargo build output. It does not remove dependencies or application data. When the build finishes, Finder opens the DMG so you can drag `beta-life.app` to `Applications`.
 
 `build:mac` runs only on macOS, and `build:windows` runs only on Windows. Pushing a tag such as `v0.2.0` triggers GitHub Actions to build a universal macOS DMG plus Windows MSI and NSIS installers and publish them to Releases.
 

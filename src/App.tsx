@@ -368,7 +368,7 @@ export default function App() {
           </button>
           <div className="brand-lockup">
             <div className="brand-copy">
-              <h1>Beta Life</h1>
+              <h1>beta-life</h1>
               <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : "Recall Space · 本地知识"}</span>
             </div>
           </div>

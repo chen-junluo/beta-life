@@ -13,13 +13,13 @@ Beta Life 是一个本地优先的桌面生活时间板。它把一天分成四�
 
 ### macOS 未签名版本的安装说明
 
-当前 macOS 版本没有 Apple Developer ID 签名，也没有经过 notarization。打开 `.dmg` 后，先把 `Beta Life.app` 拖到 `Applications`。
+当前 macOS 版本没有 Apple Developer ID 签名，也没有经过 notarization。打开 `.dmg` 后，先把 `beta-life.app` 拖到 `Applications`。
 
 如果 macOS 提示应用已损坏或不允许打开，请在 Terminal 中运行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Beta Life.app"
-open "/Applications/Beta Life.app"
+xattr -dr com.apple.quarantine "/Applications/beta-life.app"
+open "/Applications/beta-life.app"
 ```
 
 这一路径适合开发者用户和小范围测试，暂时不是面向普通用户的无提示安装方式。请只对你从本仓库 Releases 下载并确认来源的应用执行上述命令。
@@ -79,7 +79,7 @@ macOS 本地开发测试如果希望清理生成缓存、重新构建并自动�
 npm run build:mac:clean
 ```
 
-该命令只清理项目生成的 `dist`、Vite 缓存和 Cargo 构建目录，不会删除依赖或应用数据。构建完成后会自动打开 DMG；将 `Beta Life.app` 拖到 `Applications` 即可安装。
+该命令只清理项目生成的 `dist`、Vite 缓存和 Cargo 构建目录，不会删除依赖或应用数据。构建完成后会自动打开 DMG；将 `beta-life.app` 拖到 `Applications` 即可安装。
 
 `build:mac` 只能在 macOS 上运行，`build:windows` 只能在 Windows 上运行。推送形如 `v0.2.0` 的 tag 后，GitHub Actions 会构建通用 macOS DMG 以及 Windows MSI/NSIS 安装包，并发布到 Releases。
 

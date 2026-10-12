@@ -72,9 +72,9 @@ jobs:
         with:
           tauriScript: npm run tauri
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: Beta Life ${{ env.RELEASE_TAG }}
+          releaseName: beta-life ${{ env.RELEASE_TAG }}
           releaseBody: |
-            Beta Life desktop builds.
+            beta-life desktop builds.
 
             Recommended downloads:
             - macOS (Apple Silicon and Intel): `.dmg`
@@ -82,11 +82,11 @@ jobs:
 
             macOS note:
             - The current macOS build is not signed or notarized by Apple.
-            - If macOS says the app is damaged or refuses to open it, drag `Beta Life.app` to `Applications` first, then run:
+            - If macOS says the app is damaged or refuses to open it, drag `beta-life.app` to `Applications` first, then run:
 
               ```bash
-              xattr -dr com.apple.quarantine "/Applications/Beta Life.app"
-              open "/Applications/Beta Life.app"
+              xattr -dr com.apple.quarantine "/Applications/beta-life.app"
+              open "/Applications/beta-life.app"
               ```
 
             This macOS release path is intended for developer users and small-scale testing. It is not yet a no-warning installation path for general users.

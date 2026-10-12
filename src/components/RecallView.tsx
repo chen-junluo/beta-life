@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { parseSimpleMarkdown } from "../simpleMarkdown";
 import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
 import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnowledge, statusHint, statusLabel } from "../recallLogic";
+import type { SelectionCandidate } from "../recallLogic";
 import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, isAtOrBelowTarget, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
 import type { AppSettings, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
 
@@ -289,7 +290,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [session, setSession] = useState<RecallSessionState | null>(null);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(null);
-  const [randomMode, setRandomMode] = useState(false);
+  const [showKnowledgeDetails, setShowKnowledgeDetails] = useState(false);
   const desiredRetention = Math.min(0.99, Math.max(0.5, settings.recall?.desiredRetention ?? DEFAULT_DESIRED_RETENTION));
 
   async function refresh() {
@@ -309,7 +310,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
         return nextReviewAt === record.nextReviewAt ? record : { ...record, nextReviewAt };
       });
       setKnowledge(normalizedKnowledge); setPoints(data.points); setReviews(data.reviews); setSchedulers(schedulerEntries); setBrowserPreview(data.browserPreview);
-      setSelectedKnowledgeId((current) => current && normalizedKnowledge.some((item) => item.id === current) ? current : normalizedKnowledge[0]?.id ?? null);
+      setSelectedKnowledgeId((current) => current && normalizedKnowledge.some((item) => item.id === current) ? current : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setLoading(false); }
@@ -325,41 +326,49 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
     const scheduler = schedulers.find((snapshot) => snapshot.knowledgeId === item.id);
     return itemPoints.length === 0 ? (!item.nextReviewAt || new Date(item.nextReviewAt).getTime() <= Date.now()) : itemPoints.some((point) => isAtOrBelowTarget(scheduler?.cards[point.pointId], desiredRetention, new Date(), scheduler?.parameters));
   }).length, [desiredRetention, filtered, points, schedulers]);
-  const selectedKnowledge = useMemo(() => filtered.find((item) => item.id === selectedKnowledgeId) ?? filtered[0], [filtered, selectedKnowledgeId]);
+  const selectedKnowledge = useMemo(() => filtered.find((item) => item.id === selectedKnowledgeId), [filtered, selectedKnowledgeId]);
   const pointCount = (id: string) => pointsForKnowledge(points, id).length;
 
-  function openNew() { setEditor({ knowledge: newKnowledge(), points: [] }); }
-  function openEdit(item: KnowledgeRecord) { setEditor({ knowledge: item, points: pointsForKnowledge(points, item.id) }); }
-
-  function startKnowledgeReview(item: KnowledgeRecord, forceRandom = false) {
-    const itemPoints = pointsForKnowledge(points, item.id);
-    const scheduler = schedulers.find((snapshot) => snapshot.knowledgeId === item.id);
-    const candidates = itemPoints.length > 0
-      ? itemPoints.map((point) => ({ knowledge: item, point, schedulerCard: scheduler?.cards[point.pointId], currentRetrievability: scheduler?.cards[point.pointId] ? retrievability(scheduler.cards[point.pointId], new Date(), scheduler.parameters) : undefined, lastReview: reviews.filter((review) => review.pointId === point.pointId).sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0] }))
-      : [{ knowledge: item, lastReview: latest.get(item.id) }];
-    const selected = chooseCandidate(candidates, { random: forceRandom, targetRetention: desiredRetention });
-    if (!selected.candidate) { setError(selected.reason); return; }
-    const candidate = selected.candidate;
-    const mode: RecallMode = candidate.point ? "framework" : "full";
-    setSelectedKnowledgeId(item.id);
-    setSession({ knowledge: candidate.knowledge, point: candidate.point, mode, answer: "", submitted: false, items: [], source: "manual", nextReviewAt: defaultNextReviewAt(), selectionReason: selected.reason });
-    setError(null);
-  }
-
-  function startReview(forceRandom = randomMode) {
-    const candidates = filtered.flatMap((item) => {
+  function candidatesForVisibleKnowledge(): SelectionCandidate[] {
+    return filtered.flatMap((item): SelectionCandidate[] => {
       const itemPoints = pointsForKnowledge(points, item.id);
       const scheduler = schedulers.find((snapshot) => snapshot.knowledgeId === item.id);
       return itemPoints.length > 0
         ? itemPoints.map((point) => ({ knowledge: item, point, schedulerCard: scheduler?.cards[point.pointId], currentRetrievability: scheduler?.cards[point.pointId] ? retrievability(scheduler.cards[point.pointId], new Date(), scheduler.parameters) : undefined, lastReview: reviews.filter((review) => review.pointId === point.pointId).sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0] }))
         : [{ knowledge: item, lastReview: latest.get(item.id) }];
     });
-    const selected = chooseCandidate(candidates, { random: forceRandom, targetRetention: desiredRetention });
+  }
+
+  function openNew() { setShowKnowledgeDetails(false); setEditor({ knowledge: newKnowledge(), points: [] }); }
+  function openEdit(item: KnowledgeRecord) { setEditor({ knowledge: item, points: pointsForKnowledge(points, item.id) }); }
+
+  function startScopedReview(selection: "smart" | "random") {
+    const candidates = candidatesForVisibleKnowledge();
+    const selected = chooseCandidate(candidates, { random: selection === "random", targetRetention: desiredRetention });
     if (!selected.candidate) { setError(selected.reason); return; }
     const candidate = selected.candidate;
-    const mode: RecallMode = candidate.point ? "framework" : "full";
+    const mode: RecallMode = candidate.point ? "point" : "full";
+    const hasPointCandidates = candidates.some((item) => item.point);
+    const selectionReason = selection !== "random"
+      ? selected.reason
+      : candidate.point
+        ? "当前可见知识的抽查点中均匀随机"
+        : hasPointCandidates
+          ? "当前可见列表中的无抽查点知识被随机选中，进入完整复述"
+          : "当前可见知识中均匀随机选择一篇完整复述";
     setSelectedKnowledgeId(candidate.knowledge.id);
-    setSession({ knowledge: candidate.knowledge, point: candidate.point, mode, answer: "", submitted: false, items: [], source: "manual", nextReviewAt: defaultNextReviewAt(), selectionReason: selected.reason });
+    setShowKnowledgeDetails(false);
+    setSession({ knowledge: candidate.knowledge, point: candidate.point, mode, answer: "", submitted: false, items: [], source: "manual", nextReviewAt: defaultNextReviewAt(), selectionReason });
+    setError(null);
+  }
+
+  function startFullRecall() {
+    const selected = chooseCandidate(filtered.map((item) => ({ knowledge: item })), { random: true });
+    if (!selected.candidate) { setError(selected.reason); return; }
+    const item = selected.candidate.knowledge;
+    setSelectedKnowledgeId(item.id);
+    setShowKnowledgeDetails(false);
+    setSession({ knowledge: item, mode: "full", answer: "", submitted: false, items: [], source: "manual", nextReviewAt: defaultNextReviewAt(), selectionReason: "当前可见知识列表中均匀随机选择整篇复述" });
     setError(null);
   }
 
@@ -436,6 +445,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
       const nextReviewAt = Object.values(nextScheduler.cards).map((card) => card.due).sort()[0] ?? records[0]?.nextReviewAt;
       setKnowledge((current) => current.map((item) => item.id === session.knowledge.id ? { ...item, nextReviewAt } : item));
       setSession(null);
+      setShowKnowledgeDetails(true);
       setError(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   }
@@ -472,38 +482,34 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
   if (loading) return <main className="recall-loading"><RefreshCw className="spin" size={18} /> 正在读取本地知识…</main>;
 
   return <main className="recall-workspace">
-    <div className="recall-header"><div><span className="eyebrow">RECALL SPACE</span><h2>回想</h2><p>从本地 Markdown 出发，先回答，再确认反馈。模型曲线只使用已确认的复习记录和当前预览。</p></div><div className="recall-header-actions"><span className="recall-count">{filtered.length} 篇知识 · {dueCount} 待抽查</span><button className="secondary-button" type="button" onClick={() => void refresh()} title="重新读取"><RefreshCw size={14} /> 刷新</button><button className="primary-button" type="button" onClick={openNew}><Plus size={15} /> 加入知识</button></div></div>
+    <div className="recall-header"><div><span className="eyebrow">RECALL SPACE</span><h2>回想</h2><p>抽查入口始终作用于当前可见的知识列表；切换标签即可改变范围。先回答，再确认反馈。</p></div><div className="recall-header-actions"><span className="recall-count">{filtered.length} 篇知识 · {dueCount} 待抽查</span><button className="secondary-button" type="button" onClick={() => void refresh()} title="重新读取" disabled={Boolean(session)}><RefreshCw size={14} /> 刷新</button><button className="secondary-button" type="button" onClick={() => startScopedReview("random")} title="从当前可见范围均匀随机抽取一题" disabled={filtered.length === 0 || Boolean(session)}>随机一题</button><button className="primary-button" type="button" onClick={() => startScopedReview("smart")} title="按 FSRS 复习优先级，从当前可见范围抽取一个考点" disabled={filtered.length === 0 || Boolean(session)}><Sparkles size={14} /> 智能抽查</button><button className="secondary-button" type="button" onClick={startFullRecall} title="从当前可见范围随机选择一篇知识进行完整复述" disabled={filtered.length === 0 || Boolean(session)}>完整复述</button></div></div>
     {browserPreview && <div className="recall-browser-note">浏览器预览模式：演示数据保存在当前浏览器内存/本地存储，不会写入桌面应用数据目录。</div>}
     {error && <div className="inline-error recall-global-error">{error}</div>}
     <div className="recall-layout">
-      <aside className="recall-library"><div className="recall-library-toolbar"><strong>知识列表</strong><div className="tag-picker"><button className="tag-picker-trigger" type="button" aria-expanded={tagOpen} onClick={() => setTagOpen((open) => !open)}><span>{selectedTag || "全部标签"}</span><ChevronDown size={14} /></button>{tagOpen && <div className="tag-picker-menu"><TagTree nodes={tagTree} selected={selectedTag} expanded={expandedTags} onSelect={(path) => { setSelectedTag(path); setTagOpen(false); }} onToggle={(path) => setExpandedTags((current) => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next; })} /></div>}</div></div>
-        <div className="recall-list">{filtered.length === 0 ? <div className="recall-empty"><FileText size={23} /><strong>没有匹配的知识</strong><p>清空标签筛选，或先加入一篇本地 Markdown 知识。</p><button className="secondary-button" type="button" onClick={() => setSelectedTag("")}>返回全部标签</button></div> : filtered.map((item) => <article className={selectedKnowledgeId === item.id ? "recall-note-card active" : "recall-note-card"} key={item.id}><button type="button" className="recall-note-main" onClick={() => setSelectedKnowledgeId(item.id)} aria-pressed={selectedKnowledgeId === item.id}><span className="recall-note-title">{item.title}</span><span className="recall-note-tags">{normalizeTags(item.tags).join(" / ") || "未分类"}</span><span className="recall-note-meta">{pointCount(item.id)} 个抽查点 · {item.nextReviewAt && new Date(item.nextReviewAt).getTime() > Date.now() ? "已安排" : "待抽查"}</span></button><button className="icon-button recall-note-edit" type="button" onClick={() => openEdit(item)} aria-label={`编辑 ${item.title}`} title="编辑知识"><Pencil size={14} /></button><button className="icon-button recall-note-start" type="button" onClick={() => { setRandomMode(false); startKnowledgeReview(item); }} aria-label={`开始抽查 ${item.title}`} title="开始抽查"><ArrowRightIcon /></button></article>)}</div>
+      <aside className="recall-library"><div className="recall-library-toolbar"><strong>知识列表</strong><button className="secondary-button recall-library-add" type="button" onClick={openNew}><Plus size={14} /> 加入知识</button><div className="tag-picker"><button className="tag-picker-trigger" type="button" aria-expanded={tagOpen} onClick={() => setTagOpen((open) => !open)}><span>{selectedTag || "全部标签"}</span><ChevronDown size={14} /></button>{tagOpen && <div className="tag-picker-menu"><TagTree nodes={tagTree} selected={selectedTag} expanded={expandedTags} onSelect={(path) => { setSelectedTag(path); setShowKnowledgeDetails(false); setTagOpen(false); }} onToggle={(path) => setExpandedTags((current) => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next; })} /></div>}</div></div>
+        <div className="recall-list">{filtered.length === 0 ? <div className="recall-empty"><FileText size={23} /><strong>没有匹配的知识</strong><p>清空标签筛选，或先加入一篇本地 Markdown 知识。</p><button className="secondary-button" type="button" onClick={() => setSelectedTag("")}>返回全部标签</button></div> : filtered.map((item) => <article className={selectedKnowledgeId === item.id ? "recall-note-card active" : "recall-note-card"} key={item.id}><button type="button" className="recall-note-main" onClick={() => { setSelectedKnowledgeId(item.id); setShowKnowledgeDetails(true); }} aria-pressed={showKnowledgeDetails && selectedKnowledgeId === item.id}><span className="recall-note-title">{item.title}</span><span className="recall-note-tags">{normalizeTags(item.tags).join(" / ") || "未分类"}</span><span className="recall-note-meta">{pointCount(item.id)} 个抽查点 · {item.nextReviewAt && new Date(item.nextReviewAt).getTime() > Date.now() ? "已安排" : "待抽查"}</span></button><button className="icon-button recall-note-edit" type="button" onClick={() => openEdit(item)} aria-label={`编辑 ${item.title}`} title="编辑知识"><Pencil size={14} /></button></article>)}</div>
       </aside>
       <section className="recall-focus">
-    {!session ? selectedKnowledge ? <KnowledgeOverview knowledge={selectedKnowledge} points={pointsForKnowledge(points, selectedKnowledge.id)} reviews={reviews.filter((review) => review.knowledgeId === selectedKnowledge.id)} scheduler={schedulers.find((snapshot) => snapshot.knowledgeId === selectedKnowledge.id)} desiredRetention={desiredRetention} onEdit={() => openEdit(selectedKnowledge)} onStart={() => startKnowledgeReview(selectedKnowledge)} onRandomStart={() => startKnowledgeReview(selectedKnowledge, true)} onReviewDeleted={removeReview} /> : <div className="recall-start-card"><div className="recall-start-copy"><span className="eyebrow">READY WHEN YOU ARE</span><h3>把知识从“看过”变成“说得出来”</h3><p>默认优先 FSRS 到期和薄弱考点，也可以在当前标签范围内均匀随机来一条。</p></div><div className="recall-mode-preview">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <div key={mode} className="recall-mode-card"><strong>{MODE_LABELS[mode]}</strong><span>{mode === "framework" ? "回忆结构与关键来源" : mode === "point" ? "解释一个具体考点" : "完整复述整篇知识"}</span></div>)}</div><div className="recall-start-actions"><button className="primary-button" type="button" onClick={() => startReview(false)} disabled={filtered.length === 0}><Sparkles size={15} /> 开始抽查</button><button className="secondary-button" type="button" onClick={() => startReview(true)} disabled={filtered.length === 0}>随机来一条</button><label className="recall-random-toggle"><input type="checkbox" checked={randomMode} onChange={(event) => setRandomMode(event.target.checked)} /> 下次默认随机</label></div></div> : <ReviewSession session={session} points={pointsForKnowledge(points, session.knowledge.id)} reviews={reviews.filter((review) => review.knowledgeId === session.knowledge.id)} scheduler={schedulers.find((snapshot) => snapshot.knowledgeId === session.knowledge.id)} desiredRetention={desiredRetention} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onBack={() => setSession(null)} onModeChange={(mode) => setSession({ ...session, mode, point: mode === "point" ? pointsForKnowledge(points, session.knowledge.id)[0] : session.point, submitted: false, items: [] })} onPointChange={(pointId) => setSession({ ...session, point: pointsForKnowledge(points, session.knowledge.id).find((point) => point.pointId === pointId), submitted: false, items: [] })} onAnswerChange={(answer) => setSession({ ...session, answer })} onSubmit={submitAnswer} onAi={evaluateWithAi} onItemChange={updateReviewItem} onAcceptAll={acceptAllReviewItems} onConfirm={confirmReview} onReject={() => setSession({ ...session, submitted: false, items: [], source: "manual" })} onReviewDeleted={removeReview} />}
+    {!session ? showKnowledgeDetails && selectedKnowledge ? <KnowledgeOverview knowledge={selectedKnowledge} points={pointsForKnowledge(points, selectedKnowledge.id)} reviews={reviews.filter((review) => review.knowledgeId === selectedKnowledge.id)} scheduler={schedulers.find((snapshot) => snapshot.knowledgeId === selectedKnowledge.id)} desiredRetention={desiredRetention} onEdit={() => openEdit(selectedKnowledge)} onReviewDeleted={removeReview} /> : <div className="recall-start-card"><div className="recall-start-copy"><span className="eyebrow">RECALL SPACE</span><h3>{selectedKnowledge ? `当前选中：${selectedKnowledge.title}` : filtered.length > 0 ? "选择一篇知识查看记忆曲线" : "当前筛选范围没有可抽查的知识"}</h3><p>{selectedKnowledge ? "点击左侧知识条目可查看 Memory Curve；答题、AI 审稿和确认反馈期间会隐藏曲线。" : filtered.length > 0 ? "点击左侧知识条目打开详情和曲线。答题与确认评价期间不会显示 Memory Curve。" : "清空标签筛选，或先加入一篇知识。顶部三个抽查入口都作用于左侧当前可见的知识列表。"}</p></div></div> : <ReviewSession session={session} points={pointsForKnowledge(points, session.knowledge.id)} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onBack={() => { setSession(null); setShowKnowledgeDetails(false); }} onModeChange={(mode) => setSession({ ...session, mode, point: mode === "point" ? session.point ?? pointsForKnowledge(points, session.knowledge.id)[0] : session.point, submitted: false, items: [] })} onPointChange={(pointId) => setSession({ ...session, point: pointsForKnowledge(points, session.knowledge.id).find((point) => point.pointId === pointId), submitted: false, items: [] })} onAnswerChange={(answer) => setSession({ ...session, answer })} onSubmit={submitAnswer} onAi={evaluateWithAi} onItemChange={updateReviewItem} onAcceptAll={acceptAllReviewItems} onConfirm={confirmReview} onReject={() => setSession({ ...session, submitted: false, items: [], source: "manual" })} />}
       </section>
     </div>
-    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setEditor(null); void refresh(); }} onDeleted={(id) => { setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setEditor(null); }} />}
+    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setShowKnowledgeDetails(false); setEditor(null); void refresh(); }} onDeleted={(id) => { setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setShowKnowledgeDetails(false); setEditor(null); }} />}
   </main>;
 }
 
-function ArrowRightIcon() { return <span aria-hidden="true">→</span>; }
-
-function KnowledgeOverview({ knowledge, points, reviews, scheduler, desiredRetention, onEdit, onStart, onRandomStart, onReviewDeleted }: {
+function KnowledgeOverview({ knowledge, points, reviews, scheduler, desiredRetention, onEdit, onReviewDeleted }: {
   knowledge: KnowledgeRecord;
   points: RecallPoint[];
   reviews: ReviewRecord[];
   scheduler?: FsrsSchedulerSnapshot;
   desiredRetention: number;
   onEdit: () => void;
-  onStart: () => void;
-  onRandomStart: () => void;
   onReviewDeleted: (reviewId: string) => Promise<boolean>;
 }) {
   return <div className="knowledge-overview">
     <header className="knowledge-overview-header">
       <div><span className="eyebrow">KNOWLEDGE</span><h3>{knowledge.title}</h3><p>{normalizeTags(knowledge.tags).join(" / ") || "未分类"} · {points.length} 个抽查点</p></div>
-      <div className="knowledge-overview-actions"><button className="icon-button" type="button" onClick={onEdit} aria-label="编辑知识" title="编辑知识"><Pencil size={15} /></button><button className="secondary-button" type="button" onClick={onRandomStart}>随机来一条</button><button className="primary-button" type="button" onClick={onStart}><Sparkles size={14} /> 开始抽查</button></div>
+      <div className="knowledge-overview-actions"><button className="icon-button" type="button" onClick={onEdit} aria-label="编辑知识" title="编辑知识"><Pencil size={15} /></button></div>
     </header>
     <MemoryCurve knowledgeId={knowledge.id} knowledgeTitle={knowledge.title} createdAt={knowledge.createdAt} points={points} reviews={reviews} scheduler={scheduler} desiredRetention={desiredRetention} onReviewDeleted={onReviewDeleted} />
   </div>;
@@ -517,7 +523,7 @@ function formatMetric(value: number, digits = 2): string {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
-function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, scheduler, desiredRetention, pendingReviewIds = new Set<string>(), onReviewDeleted }: { knowledgeId: string; knowledgeTitle: string; createdAt?: string; points: RecallPoint[]; reviews: ReviewRecord[]; scheduler?: FsrsSchedulerSnapshot; desiredRetention: number; pendingReviewIds?: Set<string>; onReviewDeleted?: (reviewId: string) => Promise<boolean> }) {
+function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, scheduler, desiredRetention, onReviewDeleted }: { knowledgeId: string; knowledgeTitle: string; createdAt?: string; points: RecallPoint[]; reviews: ReviewRecord[]; scheduler?: FsrsSchedulerSnapshot; desiredRetention: number; onReviewDeleted?: (reviewId: string) => Promise<boolean> }) {
   const [windowDays, setWindowDays] = useState<number | "all">(30);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
@@ -591,10 +597,9 @@ function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, 
       <polyline points={pointsFor("model")} className="curve-model" />
       {curve.filter((item) => item.observation).map((item) => {
         const observation = item.observation!;
-        const pending = pendingReviewIds.has(observation.reviewId);
         return <g key={`${observation.dayKey}-${observation.reviewId}`} role="button" tabIndex={0} aria-label={`${observation.dayKey} ${gradeLabel(observation.grade)} 复习记录`} className="curve-observation-hit" onClick={() => selectObservation(observation.dayKey)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectObservation(observation.dayKey); } }}>
-          <circle cx={x(item.day)} cy={y(observation.value)} r="5" className={`curve-observation curve-${observation.grade}${pending ? " curve-observation-pending" : ""}${selectedDayKey === observation.dayKey ? " curve-observation-selected" : ""}`} />
-          <title>{observation.dayKey} · {gradeLabel(observation.grade)}{pending ? " · 尚未确认" : " · 点击查看详情"}</title>
+          <circle cx={x(item.day)} cy={y(observation.value)} r="5" className={`curve-observation curve-${observation.grade}${selectedDayKey === observation.dayKey ? " curve-observation-selected" : ""}`} />
+          <title>{observation.dayKey} · {gradeLabel(observation.grade)} · 点击查看详情</title>
         </g>;
       })}
       <line x1={x(Math.min(maxDay, Math.max(0, (now.getTime() - new Date(startDate).getTime()) / 86400000)))} x2={x(Math.min(maxDay, Math.max(0, (now.getTime() - new Date(startDate).getTime()) / 86400000)))} y1={padding.top} y2={height - padding.bottom} className="curve-today" />
@@ -606,16 +611,13 @@ function MemoryCurve({ knowledgeId, knowledgeTitle, createdAt, points, reviews, 
     <div className="memory-curve-legend"><span><i className="legend-reference" />参考曲线</span><span><i className="legend-model" />模型估计</span><span><i className="legend-target" />目标触发线 R={Math.round(targetRetention * 100)}%</span><span><i className="legend-again" />Again · 错误/遗漏</span><span><i className="legend-hard" />Hard · 不完整/理解偏差</span><span><i className="legend-good" />Good · 正确</span><span><i className="legend-easy" />Easy · 轻松</span><span className="memory-curve-note">网格按日期刻度显示；点击复习点查看题目、状态和当前模型参数。每个自然日只显示当天最好结果，但原始记录仍完整保留。</span></div>
     <div className="memory-curve-equation"><span>FSRS-6.0</span><code>R(t,S) = (1 + {formatMetric(factor, 4)} × t / S)<sup>−{formatMetric(decay, 4)}</sup></code><small>t：距上次复习的天数　S：稳定性（R=90%时的时间尺度）</small></div>
     <details className="memory-curve-explanation"><summary>目标触发线、题目难度与调度计算</summary><p>90% 是复习触发目标，不是每天固定减少 10%。首次 Good 的 S 约为 2.3 天，所以模型估计大约 2–3 天降到 90%。</p><p>难度 <code>D</code>（1–10）会随 Again / Hard / Good / Easy 更新，影响下一次稳定性；它不等于当前 R。调度器按已完成的整天计算 t，未满 24 小时时 t=0，因此复习后短时间内调度 R 会保持 100%。图上的曲线则用同一公式按连续天数插值，让下降趋势更容易看清。</p><div className="curve-card-summary"><strong>当前抽查点模型（D / S / 调度器 R）</strong>{points.map((point) => { const card = scheduler?.cards[point.pointId]; return <span key={point.pointId} title={point.prompt}>{TYPE_LABELS[point.type]} · {card?.lastReview ? `D ${formatMetric(card.difficulty, 1)}/10 · S ${formatMetric(card.stability, 2)} 天 · R（整日）${Math.round(retrievability(card, now, scheduler?.parameters) * 100)}%` : "尚未复习"}</span>; })}</div></details>
-    {selectedDayKey && <div className="curve-review-detail" aria-live="polite"><div className="curve-review-detail-heading"><div><span className="eyebrow">REVIEW DETAILS</span><h5>{selectedDayKey} · 当日最好结果 {selectedBest ? gradeLabel(selectedBest.grade) : ""}</h5></div><button type="button" className="icon-button" onClick={() => { setSelectedDayKey(null); setDeleteArmedReviewId(null); }} aria-label="关闭复习详情">×</button></div>{selectedReviews.length === 0 ? <p className="memory-curve-empty">这条记录只存在于当前预览中，尚未写入已确认日志。</p> : <div className="curve-review-list">{selectedReviews.map((review) => { const point = review.pointId ? points.find((candidate) => candidate.pointId === review.pointId) : undefined; const observation = curve.find((item) => item.observation?.reviewId === review.reviewId || item.observation?.rawReviewIds.includes(review.reviewId))?.observation; const summary = currentCardSummary(review.pointId); const armed = deleteArmedReviewId === review.reviewId; const grade = review.grade ?? gradeForStatus(review.status); return <article key={review.reviewId} className="curve-review-record"><div className="curve-review-record-meta"><strong>{reviewPrompt(knowledgeTitle, review, point)}</strong><span>{formatReviewDate(review.confirmedAt)}</span></div><p className="curve-review-answer"><span>回答：</span>{review.answer || "（空）"}</p>{point?.reference && <p className="curve-review-answer"><span>参考：</span>{point.reference}</p>}{review.evidence && <p className="curve-review-answer"><span>答案证据：</span>{review.evidence}</p>}<div className="curve-review-status"><span className={`curve-status-dot curve-${grade}`} />{gradeLabel(grade)}{review.feedback ? ` · ${review.feedback}` : ""}</div>{observation && <div className="curve-review-status">观察值 {Math.round(observation.value * 100)}% · 当时模型 {Math.round((curve.find((item) => item.observation?.reviewId === observation.reviewId)?.model ?? 0) * 100)}%</div>}{summary && <div className="curve-review-status">当前模型：{summary}</div>}<div className="curve-review-status">下次计划：{formatReviewDate(review.nextReviewAt)}</div>{!pendingReviewIds.has(review.reviewId) && onReviewDeleted && <button type="button" className={armed ? "text-button curve-review-delete armed" : "text-button curve-review-delete"} disabled={deletingReviewId === review.reviewId} onClick={() => void handleDeleteReview(review.reviewId)}><Trash2 size={12} /> {deletingReviewId === review.reviewId ? "删除中…" : armed ? "再次点击确认删除" : "删除这条历史结果"}</button>}</article>; })}</div>}</div>}
+    {selectedDayKey && <div className="curve-review-detail" aria-live="polite"><div className="curve-review-detail-heading"><div><span className="eyebrow">REVIEW DETAILS</span><h5>{selectedDayKey} · 当日最好结果 {selectedBest ? gradeLabel(selectedBest.grade) : ""}</h5></div><button type="button" className="icon-button" onClick={() => { setSelectedDayKey(null); setDeleteArmedReviewId(null); }} aria-label="关闭复习详情">×</button></div>{selectedReviews.length === 0 ? <p className="memory-curve-empty">这条日期没有可展示的复习记录。</p> : <div className="curve-review-list">{selectedReviews.map((review) => { const point = review.pointId ? points.find((candidate) => candidate.pointId === review.pointId) : undefined; const observation = curve.find((item) => item.observation?.reviewId === review.reviewId || item.observation?.rawReviewIds.includes(review.reviewId))?.observation; const summary = currentCardSummary(review.pointId); const armed = deleteArmedReviewId === review.reviewId; const grade = review.grade ?? gradeForStatus(review.status); return <article key={review.reviewId} className="curve-review-record"><div className="curve-review-record-meta"><strong>{reviewPrompt(knowledgeTitle, review, point)}</strong><span>{formatReviewDate(review.confirmedAt)}</span></div><p className="curve-review-answer"><span>回答：</span>{review.answer || "（空）"}</p>{point?.reference && <p className="curve-review-answer"><span>参考：</span>{point.reference}</p>}{review.evidence && <p className="curve-review-answer"><span>答案证据：</span>{review.evidence}</p>}<div className="curve-review-status"><span className={`curve-status-dot curve-${grade}`} />{gradeLabel(grade)}{review.feedback ? ` · ${review.feedback}` : ""}</div>{observation && <div className="curve-review-status">观察值 {Math.round(observation.value * 100)}% · 当时模型 {Math.round((curve.find((item) => item.observation?.reviewId === observation.reviewId)?.model ?? 0) * 100)}%</div>}{summary && <div className="curve-review-status">当前模型：{summary}</div>}<div className="curve-review-status">下次计划：{formatReviewDate(review.nextReviewAt)}</div>{onReviewDeleted && <button type="button" className={armed ? "text-button curve-review-delete armed" : "text-button curve-review-delete"} disabled={deletingReviewId === review.reviewId} onClick={() => void handleDeleteReview(review.reviewId)}><Trash2 size={12} /> {deletingReviewId === review.reviewId ? "删除中…" : armed ? "再次点击确认删除" : "删除这条历史结果"}</button>}</article>; })}</div>}</div>}
   </section>;
 }
 
-function ReviewSession({ session, points, reviews, scheduler, desiredRetention, hasApiKey, onOpenSettings, onBack, onModeChange, onPointChange, onAnswerChange, onSubmit, onAi, onItemChange, onAcceptAll, onConfirm, onReject, onReviewDeleted }: {
+function ReviewSession({ session, points, hasApiKey, onOpenSettings, onBack, onModeChange, onPointChange, onAnswerChange, onSubmit, onAi, onItemChange, onAcceptAll, onConfirm, onReject }: {
   session: RecallSessionState;
   points: RecallPoint[];
-  reviews: ReviewRecord[];
-  scheduler?: FsrsSchedulerSnapshot;
-  desiredRetention: number;
   hasApiKey: boolean;
   onOpenSettings: () => void;
   onBack: () => void;
@@ -628,17 +630,10 @@ function ReviewSession({ session, points, reviews, scheduler, desiredRetention, 
   onAcceptAll: () => void;
   onConfirm: () => void;
   onReject: () => void;
-  onReviewDeleted: (reviewId: string) => Promise<boolean>;
 }) {
   const currentPoint = session.mode === "point" ? session.point ?? points[0] : undefined;
   const prompt = session.mode === "full" ? `请用自己的话完整复述“${session.knowledge.title}”。` : session.mode === "point" ? currentPoint?.prompt ?? "请选择一个抽查点。" : points.length > 0 ? `不看原文，回忆“${session.knowledge.title}”的关键概念及其关系。` : `请回忆“${session.knowledge.title}”的核心内容。`;
-  const previewReviews = useMemo<ReviewRecord[]>(() => {
-    if (!session.submitted) return [];
-    const confirmedAt = session.submittedAt ?? new Date().toISOString();
-    return session.items.map((item, index) => ({ reviewId: `pending-${session.knowledge.id}-${index}`, knowledgeId: session.knowledge.id, pointId: item.pointId, mode: session.mode, answer: session.answer, status: item.status, feedback: item.feedback, evidence: item.evidence ?? "", confirmedAt, nextReviewAt: session.nextReviewAt, source: session.source, grade: item.status }));
-  }, [session]);
-  const pendingReviewIds = useMemo(() => new Set(previewReviews.map((review) => review.reviewId)), [previewReviews]);
-  return <div className="review-session"><div className="review-session-header"><button className="icon-button" type="button" onClick={onBack} aria-label="返回知识列表"><ArrowLeft size={17} /></button><div><span className="eyebrow">{MODE_LABELS[session.mode]}</span><h3>{session.knowledge.title}</h3></div><span className="review-session-lock" title={session.selectionReason}>本轮范围已固定 · {session.selectionReason ?? "按当前范围选择"}</span></div><div className="review-mode-switch" role="tablist" aria-label="抽查模式">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <button key={mode} type="button" role="tab" aria-selected={session.mode === mode} className={session.mode === mode ? "active" : ""} onClick={() => onModeChange(mode)}>{MODE_LABELS[mode]}</button>)}</div>{session.mode === "point" && <label className="review-point-select"><span>抽查点</span><select value={currentPoint?.pointId ?? ""} onChange={(event) => onPointChange(event.target.value)}>{points.map((point) => <option key={point.pointId} value={point.pointId}>{point.prompt}</option>)}</select></label>}<div className="review-question"><span className="eyebrow">QUESTION</span><h4>{prompt}</h4><p>提交前不会显示标准答案；你可以先写下不完整的回忆。</p></div><textarea className="review-answer" value={session.answer} onChange={(event) => onAnswerChange(event.target.value)} disabled={session.submitted} placeholder="写下你的回答…" />{!session.submitted ? <div className="review-submit-actions"><button className="primary-button" type="button" onClick={onSubmit} disabled={!session.answer.trim()}>提交回答</button><button className="secondary-button" type="button" onClick={onAi} disabled={!session.answer.trim() || !hasApiKey}><Sparkles size={14} /> AI 生成评价草稿</button>{!hasApiKey && <button type="button" className="text-button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <ReviewResult session={session} points={points} hasApiKey={hasApiKey} onAi={onAi} onItemChange={onItemChange} onAcceptAll={onAcceptAll} onConfirm={onConfirm} onReject={onReject} />}<MemoryCurve knowledgeId={session.knowledge.id} knowledgeTitle={session.knowledge.title} createdAt={session.knowledge.createdAt} points={points} reviews={[...reviews, ...previewReviews]} scheduler={scheduler} desiredRetention={desiredRetention} pendingReviewIds={pendingReviewIds} onReviewDeleted={onReviewDeleted} /></div>;
+  return <div className="review-session"><div className="review-session-header"><button className="icon-button" type="button" onClick={onBack} aria-label="返回知识列表"><ArrowLeft size={17} /></button><div><span className="eyebrow">{MODE_LABELS[session.mode]}</span><h3>{session.knowledge.title}</h3></div><span className="review-session-lock" title={session.selectionReason}>本轮范围已固定 · {session.selectionReason ?? "按当前范围选择"}</span></div><div className="review-mode-switch" role="tablist" aria-label="抽查模式">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <button key={mode} type="button" role="tab" aria-selected={session.mode === mode} className={session.mode === mode ? "active" : ""} onClick={() => onModeChange(mode)}>{MODE_LABELS[mode]}</button>)}</div>{session.mode === "point" && <label className="review-point-select"><span>抽查点</span><select value={currentPoint?.pointId ?? ""} onChange={(event) => onPointChange(event.target.value)}>{points.map((point) => <option key={point.pointId} value={point.pointId}>{point.prompt}</option>)}</select></label>}<div className="review-question"><span className="eyebrow">QUESTION</span><h4>{prompt}</h4><p>提交前不会显示标准答案；你可以先写下不完整的回忆。</p></div><textarea className="review-answer" value={session.answer} onChange={(event) => onAnswerChange(event.target.value)} disabled={session.submitted} placeholder="写下你的回答…" />{!session.submitted ? <div className="review-submit-actions"><button className="primary-button" type="button" onClick={onSubmit} disabled={!session.answer.trim()}>提交回答</button><button className="secondary-button" type="button" onClick={onAi} disabled={!session.answer.trim() || !hasApiKey}><Sparkles size={14} /> AI 审稿</button>{!hasApiKey && <button type="button" className="text-button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <ReviewResult session={session} points={points} hasApiKey={hasApiKey} onAi={onAi} onItemChange={onItemChange} onAcceptAll={onAcceptAll} onConfirm={onConfirm} onReject={onReject} />}</div>;
 }
 
 function ReviewResult({ session, points, hasApiKey, onAi, onItemChange, onAcceptAll, onConfirm, onReject }: {
@@ -680,7 +675,7 @@ function ReviewResult({ session, points, hasApiKey, onAi, onItemChange, onAccept
           <div className="review-feedback-actions">
             <button className="secondary-button" type="button" onClick={onAcceptAll}><Check size={14} /> 全部同意</button>
             <button className="secondary-button" type="button" onClick={onReject}>全部拒绝</button>
-            {hasApiKey && <button className="secondary-button" type="button" onClick={onAi}><Sparkles size={14} /> 重新评价</button>}
+            {hasApiKey && <button className="secondary-button" type="button" onClick={onAi}><Sparkles size={14} /> 重新审稿</button>}
           </div>
         </div>
 

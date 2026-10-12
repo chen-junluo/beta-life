@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Beta Life",
-  "version": "0.2.5",
+  "productName": "beta-life",
+  "version": "0.3.0",
   "identifier": "com.dylanchen.beta-life",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Beta Life",
+        "title": "beta-life",
         "width": 1440,
         "height": 900,
         "minWidth": 760,

@@ -10,6 +10,7 @@ src-tauri/target/
 .env.local
 .idea/
 .vscode/
+.codex/
 
 # Local video work-in-progress and source media
 /video/

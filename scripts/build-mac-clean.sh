@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-PRODUCT_NAME="Beta Life"
+PRODUCT_NAME="beta-life"
 VERSION="$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")"
 ARCH="$(uname -m)"
 
@@ -47,7 +47,7 @@ create_fallback_dmg() {
 
   local stage_dir
   stage_dir="$(mktemp -d /private/tmp/beta-life-dmg-stage.XXXXXX)"
-  trap 'rm -rf "$stage_dir"' EXIT
+  trap "rm -rf \"$stage_dir\"" EXIT
 
   cp -R "$APP_PATH" "$stage_dir/$PRODUCT_NAME.app"
   ln -s /Applications "$stage_dir/Applications"
@@ -73,4 +73,4 @@ open "$DMG_PATH"
 
 echo ""
 echo "DMG ready: $DMG_PATH"
-echo "Finder should now show Beta Life.app and the Applications shortcut."
+echo "Finder should now show beta-life.app and the Applications shortcut."

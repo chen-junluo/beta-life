@@ -51,12 +51,24 @@ describe("recall selection", () => {
     expect(chooseCandidate(records, { now: new Date("2026-01-02T00:00:00Z") }).candidate?.knowledge.id).toBe("b");
   });
 
-  it("keeps the target-trigger pool even when the user asks for a random item", () => {
+  it("keeps an overdue legacy candidate in a mixed FSRS pool", () => {
+    const records = [
+      { knowledge: note("scheduled", "x", "2026-01-10T00:00:00Z"), schedulerCard: { due: "2026-01-10T00:00:00Z", stability: 3, difficulty: 5, elapsedDays: 0, scheduledDays: 3, learningSteps: 0, reps: 1, lapses: 0, state: "Review" as const, lastRetrievability: 0.95 } },
+      { knowledge: note("legacy-due", "x", "2026-01-01T00:00:00Z") },
+    ];
+    const result = chooseCandidate(records, { now: new Date("2026-01-02T00:00:00Z"), randomValue: 0 });
+    expect(result.candidate?.knowledge.id).toBe("legacy-due");
+    expect(result.reason).toContain("触发线");
+  });
+
+  it("random mode samples the full pool even when only some items are due", () => {
     const records = [
       { knowledge: note("above", "x"), schedulerCard: { due: "2026-02-01T00:00:00Z", stability: 5, difficulty: 5, elapsedDays: 0, scheduledDays: 5, learningSteps: 0, reps: 2, lapses: 0, state: "Review" as const, lastRetrievability: 0.95 } },
       { knowledge: note("below", "x"), schedulerCard: { due: "2026-02-01T00:00:00Z", stability: 2, difficulty: 5, elapsedDays: 0, scheduledDays: 2, learningSteps: 0, reps: 1, lapses: 0, state: "Review" as const, lastRetrievability: 0.7 } },
     ];
-    expect(chooseCandidate(records, { random: true, randomValue: 0.99, targetRetention: 0.9 }).candidate?.knowledge.id).toBe("below");
+    const result = chooseCandidate(records, { random: true, randomValue: 0, targetRetention: 0.9 });
+    expect(result.candidate?.knowledge.id).toBe("above");
+    expect(result.reason).toContain("均匀随机");
   });
 });
 
