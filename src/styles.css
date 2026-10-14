@@ -317,6 +317,7 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .habit-card-title { font-size: var(--habit-font-size, 11px); font-weight: 650; line-height: 1.42; overflow-wrap: anywhere; }
 .habit-card-title p, .habit-card-title ul, .habit-card-title ol { margin: 0; }
 .habit-card-title ul, .habit-card-title ol { padding-left: 17px; }
+.habit-card-title ol { list-style-type: decimal; }
 .habit-card-title li + li { margin-top: 2px; }
 .habit-card-title > * + * { margin-top: 4px; }
 .habit-tags { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -1676,6 +1677,7 @@ select {
 .recall-markdown h4, .recall-markdown h5, .recall-markdown h6 { font-size: 12px; }
 .recall-markdown p:last-child { margin-bottom: 0; }
 .recall-markdown ul, .recall-markdown ol { margin: 0 0 8px; padding-left: 18px; }
+.recall-markdown ol { list-style-type: decimal; }
 .review-feedback { margin: var(--ui-section-gap) 18px 0; padding: 0 0 var(--ui-section-gap); }
 .review-feedback-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .review-feedback-heading h4 { margin: 4px 0 0; color: var(--ink); font-size: 13px; }
