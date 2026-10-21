@@ -1,16 +1,38 @@
 node_modules/
 dist/
 src-tauri/target/
-.DS_Store
-*.log
-*.dmg
-*.msi
-*.exe
-.env
-.env.local
-.idea/
-.vscode/
 .codex/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+tests/e2e/screenshots/
 
 # Local video work-in-progress and source media
 /video/
@@ -25,3 +47,4 @@ REMOTION_PREFERENCES.md
 *.webm
 *.wav
 *.mp3
+
