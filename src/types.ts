@@ -106,6 +106,8 @@ export interface AbilityMapState {
     mediumNodeRadius: number;
   };
   selectedId: string | null;
+  mapWidth?: number;
+  treeHeight?: number;
 }
 
 export interface AbilityForest {

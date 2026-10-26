@@ -121,10 +121,17 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
   const [collision, setCollision] = useState(false);
   const [collisionPreview, setCollisionPreview] = useState<{ x: number; y: number; size: number } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [mapWidth, setMapWidth] = useState(initialMapState.mapWidth ?? 0);
+  const [treeHeight, setTreeHeight] = useState(initialMapState.treeHeight ?? 0);
   const importInput = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapMetrics = useRef<AbilityMapMetrics | null>(null);
   const dragState = useRef<{ id: string | null; startX: number; startY: number; offsetX: number; offsetY: number; moved: boolean; x: number; y: number; panX: number; panY: number } | null>(null);
+  const verticalSplitterRef = useRef<HTMLDivElement>(null);
+  const horizontalSplitterRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const editorPanelRef = useRef<HTMLDivElement>(null);
+  const splitterDrag = useRef<{ type: "vertical" | "horizontal"; startPos: number; startSize: number } | null>(null);
   const selected = selectedId ? forest.nodes.find((node) => node.id === selectedId) ?? orderedSiblings(forest, null)[0] : undefined;
   const rows = useMemo(() => orderedTree(forest, collapsed), [forest, collapsed]);
   const siblings = selected ? orderedSiblings(forest, selected.parentId) : [];
@@ -156,7 +163,65 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
     setVisibleLevels(next.visibleLevels);
     setMapOptions(next.options);
     setSelectedId(next.selectedId ?? "");
+    setMapWidth(next.mapWidth ?? 0);
+    setTreeHeight(next.treeHeight ?? 0);
   }, [forest.mapState]);
+
+  useEffect(() => {
+    if (mapWidth > 0) {
+      document.documentElement.style.setProperty("--ability-map-width", `${mapWidth}px`);
+    }
+    if (treeHeight > 0) {
+      document.documentElement.style.setProperty("--ability-tree-height", `${treeHeight}px`);
+    }
+  }, [mapWidth, treeHeight]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const drag = splitterDrag.current;
+      if (!drag) return;
+
+      if (drag.type === "vertical") {
+        const deltaX = e.clientX - drag.startPos;
+        const newWidth = Math.max(320, Math.min(drag.startSize + deltaX, window.innerWidth - 400));
+        setMapWidth(newWidth);
+        document.documentElement.style.setProperty("--ability-map-width", `${newWidth}px`);
+      } else {
+        const deltaY = e.clientY - drag.startPos;
+        const panelHeight = editorPanelRef.current?.offsetHeight ?? 600;
+        const newHeight = Math.max(140, Math.min(drag.startSize + deltaY, panelHeight - 260));
+        setTreeHeight(newHeight);
+        document.documentElement.style.setProperty("--ability-tree-height", `${newHeight}px`);
+      }
+    };
+
+    const handleMouseUp = () => {
+      const drag = splitterDrag.current;
+      if (!drag) return;
+
+      if (drag.type === "vertical") {
+        document.body.classList.remove("dragging-vertical-splitter");
+        verticalSplitterRef.current?.classList.remove("dragging");
+        const finalWidth = mapWidth > 0 ? mapWidth : undefined;
+        onForestChange({ ...forest, mapState: currentMapState({ mapWidth: finalWidth }) }, true);
+      } else {
+        document.body.classList.remove("dragging-horizontal-splitter");
+        horizontalSplitterRef.current?.classList.remove("dragging");
+        const finalHeight = treeHeight > 0 ? treeHeight : undefined;
+        onForestChange({ ...forest, mapState: currentMapState({ treeHeight: finalHeight }) }, true);
+      }
+
+      splitterDrag.current = null;
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [forest, mapWidth, treeHeight, onForestChange]);
 
   useEffect(() => {
     setPreviewPlants(null);
@@ -188,6 +253,8 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
       visibleLevels,
       options: mapOptions,
       selectedId: selectedId || null,
+      mapWidth: mapWidth > 0 ? mapWidth : undefined,
+      treeHeight: treeHeight > 0 ? treeHeight : undefined,
       ...overrides,
     };
   }
@@ -372,6 +439,22 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
     updateMapState(currentMapState({ options: { ...mapOptions, [key]: value } }), true);
   }
 
+  function startVerticalSplitterDrag(e: React.MouseEvent) {
+    const currentWidth = layoutRef.current?.querySelector(".ability-map-panel")?.getBoundingClientRect().width ?? 600;
+    splitterDrag.current = { type: "vertical", startPos: e.clientX, startSize: currentWidth };
+    document.body.classList.add("dragging-vertical-splitter");
+    verticalSplitterRef.current?.classList.add("dragging");
+    e.preventDefault();
+  }
+
+  function startHorizontalSplitterDrag(e: React.MouseEvent) {
+    const currentHeight = editorPanelRef.current?.querySelector(".ability-tree-section")?.getBoundingClientRect().height ?? 200;
+    splitterDrag.current = { type: "horizontal", startPos: e.clientY, startSize: currentHeight };
+    document.body.classList.add("dragging-horizontal-splitter");
+    horizontalSplitterRef.current?.classList.add("dragging");
+    e.preventDefault();
+  }
+
   function exportJson() {
     const blob = new Blob([`${JSON.stringify(forest, null, 2)}\n`], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -431,7 +514,7 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
         </div>
       </header>
 
-      <div className="ability-forest-layout">
+      <div className="ability-forest-layout" ref={layoutRef}>
         <section className="ability-map-panel" aria-label="能力森林图">
           <div className="ability-map-scene">
             <canvas
@@ -488,19 +571,27 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
           </div>
         </section>
 
-        <aside className="ability-editor-panel" aria-label="节点编辑器">
+        <div
+          ref={verticalSplitterRef}
+          className="ability-splitter-vertical"
+          onMouseDown={startVerticalSplitterDrag}
+          aria-label="调整地图宽度"
+        />
+
+        <aside className="ability-editor-panel" ref={editorPanelRef} aria-label="节点编辑器">
           <section className="ability-tree-section">
             <div className="ability-section-title"><h3>层级关系</h3><span>{forest.nodes.length} 个节点</span></div>
             <div className="ability-tree" role="tree" aria-label="能力节点层级">
               {rows.map(({ node, depth }) => {
                 const childCount = childrenOf(forest, node.id).length;
                 const hasChildren = childCount > 0;
+                const color = nodeColor(forest, node);
                 return (
-                  <div className={`ability-tree-row ${depth === 0 ? "is-root" : ""} ${selectedId === node.id ? "is-selected" : ""}`} key={node.id} role="treeitem" aria-level={depth + 1} aria-selected={selectedId === node.id} aria-expanded={hasChildren ? !collapsed.has(node.id) : undefined} title={node.name} style={{ "--tree-depth": depth } as CSSProperties}>
+                  <div className={`ability-tree-row ${depth === 0 ? "is-root" : ""} ${selectedId === node.id ? "is-selected" : ""}`} key={node.id} role="treeitem" aria-level={depth + 1} aria-selected={selectedId === node.id} aria-expanded={hasChildren ? !collapsed.has(node.id) : undefined} title={node.name} style={{ "--tree-depth": depth, "--node-color": color } as CSSProperties}>
                     {hasChildren ? (
                       <button type="button" className="tree-fold" aria-label={`${collapsed.has(node.id) ? "展开" : "折叠"}${node.name}`} onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}>{collapsed.has(node.id) ? "+" : "−"}</button>
                     ) : <span className="tree-fold-spacer" />}
-                    <span className="tree-node-dot" aria-hidden="true" style={{ "--node-color": nodeColor(forest, node) } as CSSProperties} />
+                    <span className="tree-node-dot" aria-hidden="true" style={{ "--node-color": color } as CSSProperties} />
                     <button type="button" className="tree-node-label" onClick={() => selectNode(node.id)}>{node.name}</button>
                     {hasChildren && <span className="tree-child-count" aria-label={`${childCount} 个子节点`}>{childCount}</span>}
                   </div>
@@ -509,52 +600,88 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
             </div>
           </section>
 
+          <div
+            ref={horizontalSplitterRef}
+            className="ability-splitter-horizontal"
+            onMouseDown={startHorizontalSplitterDrag}
+            aria-label="调整树状图高度"
+          />
+
           {selected ? (
             <section className="ability-node-editor">
-              <div className="ability-editor-title"><div><span className="eyebrow">{levelNames[selected.level]}</span><h3 title={selected.name}>{selected.name || "未命名节点"}</h3></div><span className="ability-editor-number">{selectedIndex + 1}/{siblings.length}</span></div>
-
-              <label className="ability-field">
-                <span>节点名称</span>
-                <input className="ability-name-input" value={selected.name} maxLength={120} onChange={(event) => updateName(event.target.value)} onBlur={() => onForestChange(forest, true)} aria-label="节点名称" />
-              </label>
-
-              <div className="ability-field ability-move-field">
-                <span>所属节点</span>
-                <select aria-label="所属节点" value={selected.parentId ?? ""} onChange={(event) => changeParent(event.target.value)}>
-                  <option value="">顶层</option>
-                  {parentOptions.map((node) => <option key={node.id} value={node.id}>{"　".repeat(node.level)}{node.name}</option>)}
-                </select>
-              </div>
-
-              <div className="ability-order-row">
-                <span>同级位置</span>
-                <div className="ability-order-controls">
-                  <button type="button" className="icon-button" title="上移" aria-label="同级上移" disabled={selectedIndex <= 0} onClick={() => reorder(-1)}><ArrowUp size={14} /></button>
-                  <span>{selectedIndex + 1} / {siblings.length}</span>
-                  <button type="button" className="icon-button" title="下移" aria-label="同级下移" disabled={selectedIndex < 0 || selectedIndex >= siblings.length - 1} onClick={() => reorder(1)}><ArrowDown size={14} /></button>
+              <div className="ability-meta-line">
+                <span className="ability-level-tag">{levelNames[selected.level]}</span>
+                <span className="ability-meta-sep">·</span>
+                <span className="ability-parent-path" title={selected.parentId ? parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层" : "顶层"}>
+                  {selected.parentId ? parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层" : "顶层"}
+                </span>
+                <span className="ability-meta-sep">·</span>
+                <div className="ability-order-controls-inline">
+                  <button type="button" className="ability-order-btn" disabled={selectedIndex <= 0} onClick={() => reorder(-1)}>↑</button>
+                  <span className="ability-order-value-inline">{selectedIndex + 1}/{siblings.length}</span>
+                  <button type="button" className="ability-order-btn" disabled={selectedIndex < 0 || selectedIndex >= siblings.length - 1} onClick={() => reorder(1)}>↓</button>
                 </div>
+                {selected.level === 0 && (
+                  <>
+                    <span className="ability-meta-sep">·</span>
+                    <div className="ability-color-dots">
+                      {ABILITY_FOREST_COLORS.map((color) => (
+                        <button
+                          type="button"
+                          key={color}
+                          className={`ability-color-dot ${selected.color?.toUpperCase() === color ? "active" : ""}`}
+                          style={{ "--swatch": color } as CSSProperties}
+                          onClick={() => change(setAbilityNodeColor(forest, selected.id, color))}
+                          aria-label={`选择${color === "#7FB77E" ? "绿色" : color === "#5A9FD4" ? "蓝色" : "珊瑚色"}`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
-              {selected.level === 0 ? (
-                <div className="ability-color-field"><span>群落颜色</span><div className="ability-color-swatches" role="radiogroup" aria-label="群落颜色">
-                  {ABILITY_FOREST_COLORS.map((color, index) => <button type="button" className="ability-color-swatch" key={color} style={{ "--swatch-color": color } as CSSProperties} title={["绿色", "蓝色", "珊瑚色"][index]} aria-label={["绿色", "蓝色", "珊瑚色"][index]} aria-pressed={selected.color?.toUpperCase() === color} onClick={() => change(setAbilityNodeColor(forest, selected.id, color))} />)}
-                </div></div>
-              ) : <div className="ability-inherited-color"><span>继承群落颜色</span><i style={{ background: nodeColor(forest, selected) }} role="img" aria-label="继承的群落颜色" /></div>}
+              <input
+                className="ability-name-field"
+                value={selected.name}
+                maxLength={120}
+                placeholder="节点名称"
+                onChange={(event) => updateName(event.target.value)}
+                onBlur={() => onForestChange(forest, true)}
+                aria-label="节点名称"
+              />
 
-              <label className="ability-field ability-markdown-field">
-                <span>Markdown 说明</span>
-                <textarea className="ability-markdown-input" value={selected.markdown} onChange={(event) => updateMarkdown(event.target.value)} onBlur={() => onForestChange(forest, true)} aria-label="Markdown 说明" spellCheck={false} />
-              </label>
-              <div className="ability-markdown-meta"><span>自动同步到森林</span><span>{selected.markdown.length} 字</span></div>
+              <div className="ability-markdown-field-wrapper">
+                <label className="ability-markdown-label">Markdown 说明</label>
+                <textarea
+                  className="ability-markdown-input"
+                  value={selected.markdown}
+                  onChange={(event) => updateMarkdown(event.target.value)}
+                  onBlur={() => onForestChange(forest, true)}
+                  spellCheck={false}
+                  aria-label="Markdown 说明"
+                />
+              </div>
 
               <div className="ability-editor-actions">
-                <button type="button" className="secondary-button" disabled={selected.level >= 2} onClick={addChild}><Plus size={14} /> 添加子节点</button>
-                <button type="button" className="primary-button" onClick={() => change(forest, true)}><Save size={14} /> 保存节点</button>
+                <button type="button" className="button" disabled={selected.level >= 2} onClick={addChild}>
+                  ＋ 添加子节点
+                </button>
+                <button type="button" className="button primary" onClick={() => change(forest, true)}>
+                  保存节点
+                </button>
               </div>
+
               <div className="ability-delete-actions">
-                <button type="button" className="ability-delete-button" onClick={removeSelected}><Trash2 size={14} /> {deleteConfirmId === selected.id ? "确认删除" : "删除节点"}{selectedBranch.size > 1 ? `及 ${selectedBranch.size - 1} 个下属节点` : ""}</button>
-                {deleteConfirmId === selected.id && <button type="button" className="ability-delete-cancel" onClick={() => { setDeleteConfirmId(null); setMessage(null); }}>取消</button>}
+                <button type="button" className="ability-delete-button" onClick={removeSelected}>
+                  <Trash2 size={14} /> {deleteConfirmId === selected.id ? "确认删除" : "删除节点"}
+                </button>
+                {deleteConfirmId === selected.id && (
+                  <button type="button" className="ability-delete-cancel" onClick={() => { setDeleteConfirmId(null); setMessage(null); }}>
+                    取消
+                  </button>
+                )}
               </div>
+
               {message && <p className="ability-editor-message" role="status">{message}</p>}
               {saveState === "error" && <p className="ability-editor-error" role="alert">保存失败。检查本机磁盘空间后再次保存。</p>}
             </section>

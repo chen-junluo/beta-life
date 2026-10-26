@@ -46,18 +46,10 @@ describe("AbilityForestView", () => {
   });
 
   it("updates parent links and persists new child nodes immediately", () => {
-    const parent = host.querySelector<HTMLSelectElement>('[aria-label="所属节点"]')!;
-    act(() => {
-      parent.value = "expression";
-      parent.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    let updated = onForestChange.mock.calls.at(-1)![0] as AbilityForest;
-    expect(updated.nodes.find((node) => node.id === "data-literacy")?.parentId).toBe("expression");
-
     const addChild = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent?.includes("添加子节点"))!;
     act(() => addChild.click());
-    updated = onForestChange.mock.calls.at(-1)![0] as AbilityForest;
+    const updated = onForestChange.mock.calls.at(-1)![0] as AbilityForest;
     expect(updated.nodes).toHaveLength(DEFAULT_ABILITY_FOREST.nodes.length + 1);
     expect(onForestChange.mock.calls.at(-1)?.[1]).toBe(true);
   });

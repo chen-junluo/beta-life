@@ -423,25 +423,34 @@ export interface AbilityMapCollision {
 
 function nodeLabelInfo(node: AbilityNode, point: Point) {
   const shown = node.name.trim() || "未命名节点";
+  const fontSize = node.level === 0 ? 12 : node.level === 1 ? 10 : 8;
+  const cjkWidth = node.level === 0 ? 12 : node.level === 1 ? 10 : 8;
+  const latinWidth = node.level === 0 ? 7.4 : node.level === 1 ? 6.2 : 5;
   const textWidth = Array.from(shown).reduce((width, character) => {
-    // CJK glyphs occupy roughly the full 10px label font; Latin text is narrower.
-    return width + (/[^\u0000-\u00ff]/u.test(character) ? 10 : 6.2);
+    return width + (/[^\u0000-ÿ]/u.test(character) ? cjkWidth : latinWidth);
   }, 0);
-  const width = Math.max(58, textWidth + 24);
+  const padding = node.level === 0 ? 28 : node.level === 1 ? 24 : 20;
+  const minWidth = node.level === 0 ? 70 : node.level === 1 ? 58 : 48;
+  const width = Math.max(minWidth, textWidth + padding);
+  const height = node.level === 0 ? 26 : node.level === 1 ? 22 : 18;
   const top = point.y - (node.level === 0 ? 91 : node.level === 1 ? 65 : 43);
-  return { shown, width, x: point.x - width / 2, y: top, height: 22 };
+  return { shown, width, x: point.x - width / 2, y: top, height, fontSize };
 }
 
 function drawNodeLabel(ctx: CanvasRenderingContext2D, forest: AbilityForest, node: AbilityNode, point: Point, active: boolean) {
   const info = nodeLabelInfo(node, point);
   const colors = colorSetFor(forest, node);
+  const bgOpacity = node.level === 0 ? 0.78 : node.level === 1 ? 0.70 : 0.62;
   ctx.save();
   if (active) { ctx.shadowColor = colors.border; ctx.shadowBlur = 12; }
   roundedPath(ctx, info.x, info.y, info.width, info.height, 3);
-  ctx.fillStyle = colors.label; ctx.fill(); ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
+  ctx.globalAlpha = bgOpacity;
+  ctx.fillStyle = colors.label; ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
   ctx.strokeStyle = colors.border; ctx.lineWidth = active ? 2.4 : 1; ctx.stroke();
   ctx.fillStyle = colors.border; ctx.fillRect(info.x, info.y, 3, info.height);
-  ctx.fillStyle = "#2a2e28"; ctx.font = "600 10px 'PingFang SC','Microsoft YaHei',sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(info.shown, point.x, info.y + info.height / 2, info.width - 12);
+  ctx.fillStyle = "#2a2e28"; ctx.font = `600 ${info.fontSize}px 'PingFang SC','Microsoft YaHei',sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(info.shown, point.x, info.y + info.height / 2, info.width - 12);
   ctx.restore();
   return info;
 }
