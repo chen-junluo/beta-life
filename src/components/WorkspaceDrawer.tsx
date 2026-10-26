@@ -1,7 +1,7 @@
-import { BrainCircuit, CalendarDays, X } from "lucide-react";
+import { BrainCircuit, CalendarDays, Sprout, X } from "lucide-react";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-export type WorkspaceSection = "board" | "recall";
+export type WorkspaceSection = "board" | "recall" | "forest";
 
 interface WorkspaceDrawerProps {
   activeSection: WorkspaceSection;
@@ -112,11 +112,20 @@ export function WorkspaceDrawer({
             <BrainCircuit size={18} aria-hidden="true" />
             <span>回想</span>
           </button>
+          <button
+            type="button"
+            className={`workspace-drawer-item ${activeSection === "forest" ? "active" : ""}`}
+            aria-current={activeSection === "forest" ? "page" : undefined}
+            onClick={() => selectSection("forest")}
+          >
+            <Sprout size={18} aria-hidden="true" />
+            <span>能力森林</span>
+          </button>
         </nav>
 
         <footer className="workspace-drawer-footer">
           <span>当前面板</span>
-          <strong>{activeSection === "board" ? "时间板" : "回想"}</strong>
+          <strong>{activeSection === "board" ? "时间板" : activeSection === "recall" ? "回想" : "能力森林"}</strong>
         </footer>
       </aside>
     </>

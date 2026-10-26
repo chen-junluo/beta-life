@@ -9,9 +9,11 @@ import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { WorkspaceDrawer, type WorkspaceSection } from "./components/WorkspaceDrawer";
-import { DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
+import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
+import { AbilityForestView } from "./components/AbilityForestView";
 import type {
   AiProposalItem,
+  AbilityForest,
   AppSettings,
   BoardViewMode,
   BoardFile,
@@ -71,6 +73,7 @@ export default function App() {
   const [state, setState] = useState<LoadedAppState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [forestSaveState, setForestSaveState] = useState<SaveState>("saved");
   const [editorHabit, setEditorHabit] = useState<Habit | null>(null);
   const [editorContainer, setEditorContainer] = useState<ContainerId | null>(null);
   const [showEditor, setShowEditor] = useState(false);
@@ -83,6 +86,9 @@ export default function App() {
   const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
   const workspaceDrawerTrigger = useRef<HTMLButtonElement>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const abilityForestSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const abilityForestSaveTimer = useRef<number | null>(null);
+  const pendingAbilityForest = useRef<AbilityForest | null>(null);
   const settingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const stateRef = useRef<LoadedAppState | null>(null);
 
@@ -98,6 +104,8 @@ export default function App() {
           const settings = withPrototypePalette(loaded.settings);
           const normalized = settings === loaded.settings ? loaded : { ...loaded, settings };
           setState(normalized);
+          pendingAbilityForest.current = null;
+          setForestSaveState("saved");
           void applyZoom(settings.appearance.zoomPercent);
           if (settings !== loaded.settings) {
             void invoke("save_settings", { settings }).catch((error) => console.error(error));
@@ -108,7 +116,7 @@ export default function App() {
         if (!active) return;
         setLoadError(errorMessage(error));
         if (!window.__TAURI_INTERNALS__) {
-          setState({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, hasApiKey: false });
+          setState({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, abilityForest: DEFAULT_ABILITY_FOREST, hasApiKey: false });
         }
       });
     return () => {
@@ -126,6 +134,38 @@ export default function App() {
         console.error(error);
         setSaveState("error");
       });
+  }, []);
+
+  const changeAbilityForest = useCallback((abilityForest: AbilityForest, immediate = false) => {
+    const current = stateRef.current;
+    if (!current) return;
+    const nextState = { ...current, abilityForest };
+    stateRef.current = nextState;
+    setState(nextState);
+    pendingAbilityForest.current = abilityForest;
+    setForestSaveState("saving");
+    if (abilityForestSaveTimer.current !== null) {
+      window.clearTimeout(abilityForestSaveTimer.current);
+      abilityForestSaveTimer.current = null;
+    }
+    const persist = () => {
+      abilityForestSaveTimer.current = null;
+      const forestToSave = pendingAbilityForest.current;
+      if (!forestToSave) return;
+      pendingAbilityForest.current = null;
+      abilityForestSaveQueue.current = abilityForestSaveQueue.current
+        .catch(() => undefined)
+        .then(() => invoke<void>("save_ability_forest", { abilityForest: forestToSave }))
+        .then(() => {
+          if (!pendingAbilityForest.current) setForestSaveState("saved");
+        })
+        .catch((error) => {
+          console.error(error);
+          if (!pendingAbilityForest.current) setForestSaveState("error");
+        });
+    };
+    if (immediate) persist();
+    else abilityForestSaveTimer.current = window.setTimeout(persist, 420);
   }, []);
 
   const queueSettingsSave = useCallback((settings: AppSettings) => {
@@ -281,7 +321,7 @@ export default function App() {
         event.preventDefault();
         openCreate();
       }
-      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      if (!typing && activeSection === "board" && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
@@ -369,7 +409,7 @@ export default function App() {
           <div className="brand-lockup">
             <div className="brand-copy">
               <h1>beta-life</h1>
-              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : "Recall Space · 本地知识"}</span>
+              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : activeSection === "recall" ? "Recall Space · 本地知识" : `能力森林 · ${state.abilityForest.nodes.length} 个节点`}</span>
             </div>
           </div>
         </div>
@@ -402,7 +442,7 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} /> : <main className="workspace-scroll">
         <div className="board-intro">
           <div><span className="eyebrow">LIFE TEMPLATE</span><h2>一天，不必精确到每一分钟。</h2></div>
           <nav className="view-mode-switch" aria-label="时间板视图模式">

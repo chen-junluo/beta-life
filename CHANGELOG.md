@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 - 2026-10-26
+
+- Added the Ability Forest view with a default skill map, map editing, and progress tracking.
+- Added Rust commands and persistent state for Ability Forest data.
+
 ## 0.3.0 - 2026-10-12
 
 - Added random-question, AI spot-check, and full-recall modes scoped to the visible knowledge list.

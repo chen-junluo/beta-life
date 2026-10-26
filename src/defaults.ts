@@ -1,4 +1,7 @@
-import type { AppSettings, BoardFile, PeriodId } from "./types";
+import type { AbilityForest, AppSettings, BoardFile, PeriodId } from "./types";
+import abilityForestDefaults from "./ability-forest-default.json";
+
+export const DEFAULT_ABILITY_FOREST = abilityForestDefaults as AbilityForest;
 
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 

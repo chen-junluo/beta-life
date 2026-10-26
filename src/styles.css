@@ -1711,6 +1711,122 @@ select {
 .status-Easy { background: #E8F1FF; color: #3568a9; }
 .review-confirm-actions { margin-top: 18px; padding-top: 13px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
 
+/* Ability Forest: one graph, a navigable hierarchy, and one expanded node editor. */
+.ability-forest-page { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--panel-soft); }
+.ability-forest-header { min-height: 72px; padding: 12px 22px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 86%, var(--panel-soft)); }
+.ability-forest-heading { min-width: 145px; }
+.ability-forest-heading .eyebrow { color: var(--muted); }
+.ability-forest-heading h2 { margin: 3px 0 0; color: var(--ink); font: 650 19px/1.2 Georgia, "Songti SC", serif; }
+.ability-forest-summary { margin: 0 auto 0 0; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.ability-forest-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.ability-forest-actions .primary-button, .ability-forest-actions .secondary-button { min-height: 32px; white-space: nowrap; }
+.forest-save-state { min-width: 82px; color: #059669; font-size: 10px; text-align: right; white-space: nowrap; }
+.forest-save-state.saving { color: #b7791f; }
+.forest-save-state.error { color: var(--danger); }
+.ability-forest-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 355px; }
+.ability-map-panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--line); background: #fbfaf7; }
+.ability-map-scene { position: relative; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: radial-gradient(ellipse at 50% 44%, rgba(255,255,255,.94), rgba(247,245,239,.98) 72%); }
+.ability-map-canvas { width: 100%; height: 100%; display: block; cursor: default; touch-action: none; }
+.ability-map-caption { position: absolute; z-index: 1; top: 17px; left: 20px; display: grid; gap: 4px; pointer-events: none; }
+.ability-map-caption strong { color: rgba(36,38,33,.55); font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .16em; }
+.ability-map-caption span { color: rgba(73,76,69,.66); font-size: 9px; }
+.ability-map-tools { position: absolute; z-index: 2; left: 18px; bottom: 18px; min-height: 39px; padding: 4px; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(44,45,39,.14); border-radius: 11px; background: rgba(251,250,247,.9); box-shadow: 0 6px 20px rgba(42,40,32,.12); backdrop-filter: blur(12px); }
+.ability-map-tools button, .ability-map-tools select { height: 29px; border: 0; border-radius: 7px; background: transparent; color: #53574e; font-size: 10px; }
+.ability-map-tools button { width: 29px; padding: 0; display: grid; place-items: center; }
+.ability-map-tools button:hover, .ability-map-tools select:hover { background: rgba(38,57,46,.08); }
+.ability-map-tools select { max-width: 132px; padding: 0 5px; }
+.ability-map-zoom { min-width: 39px; color: #6e7169; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+.ability-map-legend { position: absolute; right: 17px; bottom: 22px; z-index: 1; display: flex; align-items: center; gap: 11px; color: rgba(73,76,69,.75); font-size: 8px; pointer-events: none; }
+.ability-map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ability-map-legend i { width: 8px; height: 8px; display: inline-block; border: 1px solid #779b70; border-radius: 3px; background: #e5efe1; }
+.ability-map-legend .legend-middle { border-color: #7e9ab0; background: #e6eef4; }
+.ability-map-legend .legend-leaf { width: 6px; height: 6px; border-color: #94a3b8; border-radius: 50%; background: #fff; }
+.ability-map-collision { position: absolute; z-index: 3; top: 14px; left: 50%; transform: translateX(-50%); padding: 7px 11px; border: 1px solid rgba(185,39,34,.32); border-radius: 8px; background: rgba(255,244,242,.96); color: #a32620; font-size: 10px; font-weight: 700; box-shadow: 0 3px 12px rgba(92,28,21,.12); }
+.ability-map-drawer { position: absolute; z-index: 4; top: 16px; right: 16px; width: min(390px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: rgba(251,250,247,.97); box-shadow: 0 20px 60px rgba(42,40,32,.16); backdrop-filter: blur(16px); }
+.ability-map-drawer-head { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+.ability-map-drawer-head strong { color: var(--ink); font-size: 12px; }
+.ability-map-drawer-head .icon-button { width: 29px; height: 29px; }
+.ability-map-seed { margin: 1px 0 13px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; }
+.ability-map-seed strong { color: #62665e; font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-map-range { margin-bottom: 13px; display: grid; gap: 6px; color: #666a62; font-size: 10px; }
+.ability-map-range > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ability-map-range strong { color: #42463f; font: 650 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-map-range input { width: 100%; accent-color: var(--accent); }
+.ability-map-parameters p { margin: 2px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.ability-map-logs pre { min-height: 180px; max-height: min(65vh,520px); margin: 0; padding: 12px; overflow: auto; border-radius: 8px; background: #242a25; color: #dfead7; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.ability-editor-panel { min-height: 0; display: flex; flex-direction: column; background: var(--panel); }
+.ability-tree-section { flex: 0 0 auto; padding: 12px 13px 10px; border-bottom: 1px solid var(--line); }
+.ability-section-title { margin-bottom: 7px; display: flex; align-items: center; justify-content: space-between; }
+.ability-section-title h3 { margin: 0; color: var(--ink); font-size: 10px; font-weight: 720; }
+.ability-section-title > span { color: var(--muted); font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-tree { max-height: 202px; overflow: auto; font-size: 10px; scrollbar-width: thin; }
+.ability-tree-row { min-width: 0; min-height: 25px; margin-left: calc(var(--tree-depth) * 11px); padding: 2px 6px; display: flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 5px; }
+.ability-tree-row.is-root { border-color: var(--line); background: var(--panel); }
+.ability-tree-row[aria-selected="true"] { border-color: color-mix(in srgb, var(--accent) 20%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); box-shadow: inset 2px 0 var(--accent); }
+.tree-fold, .tree-fold-spacer { width: 15px; height: 15px; flex: 0 0 15px; }
+.tree-fold { display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
+.tree-fold:hover { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.tree-node-dot { width: 8px; height: 8px; flex: 0 0 8px; border: 1px solid color-mix(in srgb, var(--node-color) 75%, #263329); border-radius: 50%; background: var(--node-color); }
+.tree-node-label { min-width: 0; flex: 1; overflow: hidden; border: 0; background: transparent; color: var(--ink); font-size: 10px; font-weight: 560; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.tree-child-count { min-width: 18px; padding: 2px 5px; border-radius: 4px; background: var(--panel-soft); color: var(--muted); font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+.ability-node-editor { min-height: 0; flex: 1; padding: 12px 14px 13px; display: flex; flex-direction: column; overflow: auto; }
+.ability-editor-title { min-width: 0; margin-bottom: var(--ui-section-gap); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ability-editor-title .eyebrow { color: var(--muted); }
+.ability-editor-title h3 { max-width: 240px; margin: 3px 0 0; overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ability-editor-number { flex: 0 0 auto; color: var(--muted); font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-field { min-width: 0; margin: 0 0 var(--ui-field-gap); display: grid; gap: 6px; }
+.ability-field > span, .ability-order-row > span, .ability-color-field > span, .ability-inherited-color > span { color: #475569; font-size: 9px; font-weight: 720; letter-spacing: .02em; }
+.ability-field input, .ability-field select { width: 100%; height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: var(--panel); color: var(--ink); font-size: 11px; }
+.ability-order-row { min-height: 34px; margin: 0 0 var(--ui-field-gap); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ability-order-controls { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-order-controls .icon-button { width: 25px; height: 25px; }
+.ability-color-field, .ability-inherited-color { min-height: 34px; margin: 0 0 var(--ui-field-gap); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ability-color-swatches { display: flex; align-items: center; gap: 8px; }
+.ability-color-swatch { width: 22px; height: 22px; padding: 0; border: 2px solid color-mix(in srgb, var(--swatch-color) 35%, var(--line)); border-radius: 7px; background: var(--swatch-color); cursor: pointer; }
+.ability-color-swatch[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ability-inherited-color i { width: 23px; height: 23px; border: 1px solid var(--line); border-radius: 7px; }
+.ability-field.ability-markdown-field { min-height: 72px; margin-bottom: 0; flex: 1; }
+.ability-markdown-input { min-height: 72px; width: 100%; flex: 1; padding: 9px; resize: vertical; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: var(--panel-soft); color: var(--ink); font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-markdown-meta { min-height: 25px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 8px; }
+.ability-editor-actions { margin-top: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.ability-editor-actions button { justify-content: center; gap: 5px; min-width: 0; min-height: 33px; padding: 0 7px; font-size: 9px; }
+.ability-delete-actions { margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 7px; }
+.ability-delete-button, .ability-delete-cancel { min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 7px; background: transparent; color: var(--danger); font-size: 9px; cursor: pointer; }
+.ability-delete-button:hover { background: color-mix(in srgb, var(--danger) 8%, var(--panel)); }
+.ability-delete-cancel { padding: 0 9px; color: var(--muted); }
+.ability-delete-cancel:hover { background: var(--panel-soft); color: var(--ink); }
+.ability-editor-message, .ability-editor-error { margin: 6px 0 0; color: #28724b; font-size: 9px; line-height: 1.4; }
+.ability-editor-error { color: var(--danger); }
+.ability-empty, .ability-empty-editor { min-height: 180px; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }
+.ability-empty > svg, .ability-empty-editor > svg { color: var(--accent); }
+.ability-empty strong { color: var(--ink); font-size: 12px; }
+.ability-empty span, .ability-empty-editor span { font-size: 10px; }
+
+@media (max-width: 900px) {
+  .ability-forest-header { padding: 10px 14px; flex-wrap: wrap; gap: 8px 12px; }
+  .ability-forest-heading { min-width: 128px; }
+  .ability-forest-summary { margin-right: auto; }
+  .ability-forest-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .forest-save-state { margin-right: auto; text-align: left; }
+  .ability-forest-layout { grid-template-columns: minmax(0, 1fr) 320px; }
+  .ability-map-caption span { max-width: 210px; }
+}
+
+@media (max-height: 760px) {
+  .ability-tree { max-height: 164px; }
+  .ability-node-editor { padding-top: 9px; }
+  .ability-editor-title { margin-bottom: 12px; }
+  .ability-field { margin-bottom: 10px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .ability-map-panel, .ability-editor-panel { background: var(--panel); }
+  .ability-forest-header { background: color-mix(in srgb, var(--panel) 88%, var(--panel-soft)); }
+  .ability-field > span, .ability-order-row > span, .ability-color-field > span, .ability-inherited-color > span { color: #cbd5e1; }
+  .ability-editor-message { color: #6ee7b7; }
+}
+
 @media (max-width: 980px) {
   .recall-layout { grid-template-columns: 1fr; }
   .recall-library { max-height: 340px; overflow: auto; }

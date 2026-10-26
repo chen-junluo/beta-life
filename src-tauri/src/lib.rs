@@ -194,7 +194,92 @@ enum AiProvider {
 struct LoadedAppState {
     board: BoardFile,
     settings: AppSettings,
+    ability_forest: AbilityForest,
     has_api_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityForest {
+    schema_version: u8,
+    nodes: Vec<AbilityNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map_positions: Option<HashMap<String, AbilityMapPosition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map_state: Option<AbilityMapState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityMapPosition {
+    x: usize,
+    y: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityMapState {
+    seed: u32,
+    zoom: f64,
+    pan: AbilityMapPan,
+    visible_levels: u8,
+    options: AbilityMapOptions,
+    #[serde(default)]
+    selected_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AbilityMapPan {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityMapOptions {
+    base_radius: f64,
+    cluster_spread: f64,
+    large_node_radius: f64,
+    medium_node_radius: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityNode {
+    id: String,
+    name: String,
+    level: u8,
+    #[serde(default)]
+    parent_id: Option<String>,
+    order: usize,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityForestMetadata {
+    schema_version: u8,
+    nodes: Vec<AbilityNodeMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map_positions: Option<HashMap<String, AbilityMapPosition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map_state: Option<AbilityMapState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AbilityNodeMetadata {
+    id: String,
+    name: String,
+    level: u8,
+    #[serde(default)]
+    parent_id: Option<String>,
+    order: usize,
+    #[serde(default)]
+    color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,6 +732,34 @@ fn knowledge_index_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(knowledge_root(app)?.join("index.json"))
 }
 
+fn ability_forest_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = app_data_dir(app)?.join("ability-forest");
+    fs::create_dir_all(root.join("nodes"))
+        .map_err(|error| format!("无法创建能力森林目录：{error}"))?;
+    Ok(root)
+}
+
+fn ability_forest_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(ability_forest_root(app)?.join("forest.json"))
+}
+
+fn valid_ability_node_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 120
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn ability_node_markdown_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    if !valid_ability_node_id(id) {
+        return Err("能力节点 ID 格式无效".into());
+    }
+    Ok(ability_forest_root(app)?
+        .join("nodes")
+        .join(format!("{id}.md")))
+}
+
 fn read_knowledge_index(app: &AppHandle) -> Result<Vec<KnowledgeIndexEntry>, String> {
     let path = knowledge_index_path(app)?;
     if !path.exists() {
@@ -840,6 +953,231 @@ fn validate_board(board: &BoardFile) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_ability_forest(forest: &AbilityForest) -> Result<(), String> {
+    if forest.schema_version != 1 {
+        return Err(format!(
+            "不支持的能力森林数据版本：{}",
+            forest.schema_version
+        ));
+    }
+    if forest.nodes.is_empty() {
+        return Err("能力森林至少需要一个顶层节点".into());
+    }
+    if forest.nodes.len() > 5000 {
+        return Err("能力森林最多支持 5000 个节点".into());
+    }
+
+    let mut by_id = HashMap::new();
+    let mut sibling_orders = HashSet::new();
+    for node in &forest.nodes {
+        if !valid_ability_node_id(&node.id) || by_id.insert(node.id.as_str(), node).is_some() {
+            return Err("能力节点 ID 无效或重复".into());
+        }
+        if node.name.trim().is_empty() {
+            return Err(format!("节点 {} 的名称不能为空", node.id));
+        }
+        if node.level > 2 {
+            return Err(format!("节点 {} 超出三层结构的范围", node.name));
+        }
+        if let Some(color) = node.color.as_deref() {
+            let bytes = color.as_bytes();
+            if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit)
+            {
+                return Err(format!("节点 {} 的颜色格式无效", node.name));
+            }
+        }
+        let sibling_key = (node.parent_id.as_deref(), node.order);
+        if !sibling_orders.insert(sibling_key) {
+            return Err("同一父节点下不能有重复的位置编号".into());
+        }
+    }
+    if let Some(positions) = &forest.map_positions {
+        let mut occupied_map_tiles = HashSet::new();
+        for (id, position) in positions {
+            let node = by_id
+                .get(id.as_str())
+                .ok_or_else(|| format!("地图位置引用了不存在的节点 {id}"))?;
+            let size = match node.level {
+                0 => 3,
+                1 => 2,
+                _ => 1,
+            };
+            if position.x < 1
+                || position.y < 1
+                || position.x + size >= 79
+                || position.y + size >= 79
+            {
+                return Err(format!("节点 {} 的地图位置超出范围", node.name));
+            }
+            for x in position.x - 1..position.x + size + 1 {
+                for y in position.y - 1..position.y + size + 1 {
+                    if !occupied_map_tiles.insert((x, y)) {
+                        return Err("能力森林地图中的树木位置发生重叠".into());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(state) = &forest.map_state {
+        if !(0.25..=4.0).contains(&state.zoom) || !state.zoom.is_finite() {
+            return Err("能力森林地图缩放比例无效".into());
+        }
+        if !state.pan.x.is_finite() || !state.pan.y.is_finite() {
+            return Err("能力森林地图平移位置无效".into());
+        }
+        if state.visible_levels > 3 {
+            return Err("能力森林地图名称显示范围无效".into());
+        }
+        let options = &state.options;
+        if !options.base_radius.is_finite()
+            || !options.cluster_spread.is_finite()
+            || !options.large_node_radius.is_finite()
+            || !options.medium_node_radius.is_finite()
+        {
+            return Err("能力森林地图生成参数无效".into());
+        }
+        if let Some(selected_id) = &state.selected_id {
+            if !by_id.contains_key(selected_id.as_str()) {
+                return Err("能力森林地图选中的节点不存在".into());
+            }
+        }
+    }
+
+    if !forest.nodes.iter().any(|node| node.parent_id.is_none()) {
+        return Err("能力森林至少需要一个顶层节点".into());
+    }
+    for node in &forest.nodes {
+        match node.parent_id.as_deref() {
+            None if node.level != 0 => {
+                return Err(format!("顶层节点 {} 的层级必须为 0", node.name));
+            }
+            None => {}
+            Some(parent_id) => {
+                let parent = by_id
+                    .get(parent_id)
+                    .ok_or_else(|| format!("找不到节点 {} 的父节点", node.name))?;
+                if node.level != parent.level + 1 {
+                    return Err(format!("节点 {} 必须位于父节点的下一层", node.name));
+                }
+            }
+        }
+    }
+
+    for node in &forest.nodes {
+        let mut active = HashSet::new();
+        let mut current = node;
+        loop {
+            if !active.insert(current.id.as_str()) {
+                return Err("能力树中存在循环关系".into());
+            }
+            let Some(parent_id) = current.parent_id.as_deref() else {
+                break;
+            };
+            current = by_id
+                .get(parent_id)
+                .ok_or_else(|| format!("找不到节点 {} 的父节点", current.name))?;
+        }
+        if current.level != 0 {
+            return Err(format!("节点 {} 未连接到顶层节点", node.name));
+        }
+    }
+    Ok(())
+}
+
+fn ability_forest_metadata(forest: &AbilityForest) -> AbilityForestMetadata {
+    AbilityForestMetadata {
+        schema_version: forest.schema_version,
+        nodes: forest
+            .nodes
+            .iter()
+            .map(|node| AbilityNodeMetadata {
+                id: node.id.clone(),
+                name: node.name.clone(),
+                level: node.level,
+                parent_id: node.parent_id.clone(),
+                order: node.order,
+                color: node.color.clone(),
+            })
+            .collect(),
+        map_positions: forest.map_positions.clone(),
+        map_state: forest.map_state.clone(),
+    }
+}
+
+fn save_ability_forest_data(app: &AppHandle, forest: &AbilityForest) -> Result<(), String> {
+    validate_ability_forest(forest)?;
+    let mut retained_ids = HashSet::new();
+    for node in &forest.nodes {
+        retained_ids.insert(node.id.as_str());
+        atomic_write_text(&ability_node_markdown_path(app, &node.id)?, &node.markdown)?;
+    }
+    atomic_write(&ability_forest_path(app)?, &ability_forest_metadata(forest))?;
+
+    let nodes_dir = ability_forest_root(app)?.join("nodes");
+    let entries =
+        fs::read_dir(&nodes_dir).map_err(|error| format!("无法读取能力节点目录：{error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("无法读取能力节点目录：{error}"))?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if !retained_ids.contains(id) {
+            fs::remove_file(&path)
+                .map_err(|error| format!("无法删除旧节点说明 {}：{error}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn load_ability_forest(app: &AppHandle) -> Result<AbilityForest, String> {
+    let path = ability_forest_path(app)?;
+    let is_new = !path.exists();
+    let mut forest = if is_new {
+        serde_json::from_str::<AbilityForest>(include_str!("../../src/ability-forest-default.json"))
+            .map_err(|error| format!("内置能力森林数据无效：{error}"))?
+    } else {
+        let stored: AbilityForestMetadata = read_json(&path)?;
+        AbilityForest {
+            schema_version: stored.schema_version,
+            map_positions: stored.map_positions,
+            map_state: stored.map_state,
+            nodes: stored
+                .nodes
+                .into_iter()
+                .map(|node| AbilityNode {
+                    id: node.id,
+                    name: node.name,
+                    level: node.level,
+                    parent_id: node.parent_id,
+                    order: node.order,
+                    color: node.color,
+                    markdown: String::new(),
+                })
+                .collect(),
+        }
+    };
+    validate_ability_forest(&forest)?;
+
+    let mut missing_markdown = false;
+    for node in &mut forest.nodes {
+        let markdown_path = ability_node_markdown_path(app, &node.id)?;
+        if markdown_path.exists() {
+            node.markdown = fs::read_to_string(&markdown_path)
+                .map_err(|error| format!("无法读取节点 {} 的说明：{error}", node.name))?;
+        } else {
+            missing_markdown = true;
+        }
+    }
+    if is_new || missing_markdown {
+        save_ability_forest_data(app, &forest)?;
+    }
+    Ok(forest)
+}
+
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.schema_version != SCHEMA_VERSION {
         return Err(format!(
@@ -967,9 +1305,11 @@ fn read_api_key(_app: &AppHandle) -> Result<Option<String>, String> {
 fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
     let board = load_or_create(&board_path(&app)?, default_board, validate_board)?;
     let settings = load_settings(&app)?;
+    let ability_forest = load_ability_forest(&app)?;
     Ok(LoadedAppState {
         board,
         settings,
+        ability_forest,
         has_api_key: read_api_key(&app)?.is_some(),
     })
 }
@@ -978,6 +1318,11 @@ fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
 fn save_board(app: AppHandle, board: BoardFile) -> Result<(), String> {
     validate_board(&board)?;
     atomic_write(&board_path(&app)?, &board)
+}
+
+#[tauri::command]
+fn save_ability_forest(app: AppHandle, ability_forest: AbilityForest) -> Result<(), String> {
+    save_ability_forest_data(&app, &ability_forest)
 }
 
 #[tauri::command]
@@ -1844,6 +2189,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_app_state,
             save_board,
+            save_ability_forest,
             save_settings,
             save_api_key,
             delete_api_key,
@@ -1871,6 +2217,77 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeds_the_v43_forest_and_persists_relationships_without_markdown() {
+        let forest: AbilityForest =
+            serde_json::from_str(include_str!("../../src/ability-forest-default.json"))
+                .expect("prototype forest defaults should deserialize");
+        validate_ability_forest(&forest).expect("prototype forest should validate");
+        assert_eq!(forest.nodes.len(), 27);
+
+        let stored = serde_json::to_value(ability_forest_metadata(&forest))
+            .expect("forest metadata should serialize");
+        assert_eq!(stored["nodes"][1]["parentId"], "technology");
+        assert_eq!(stored["nodes"][1]["order"], 0);
+        assert!(stored["nodes"][1].get("markdown").is_none());
+    }
+
+    #[test]
+    fn ability_forest_metadata_keeps_dragged_map_positions() {
+        let mut forest: AbilityForest =
+            serde_json::from_str(include_str!("../../src/ability-forest-default.json"))
+                .expect("prototype forest defaults should deserialize");
+        forest.map_positions = Some(HashMap::from([
+            ("technology".to_string(), AbilityMapPosition { x: 5, y: 5 }),
+            ("expression".to_string(), AbilityMapPosition { x: 15, y: 5 }),
+        ]));
+        validate_ability_forest(&forest).expect("non-overlapping map positions should validate");
+
+        let stored = serde_json::to_value(ability_forest_metadata(&forest))
+            .expect("forest metadata should serialize");
+        assert_eq!(stored["mapPositions"]["technology"]["x"], 5);
+        assert_eq!(stored["mapPositions"]["expression"]["y"], 5);
+
+        forest.map_state = Some(AbilityMapState {
+            seed: 77,
+            zoom: 1.2,
+            pan: AbilityMapPan { x: 24.0, y: -12.0 },
+            visible_levels: 2,
+            options: AbilityMapOptions {
+                base_radius: 25.0,
+                cluster_spread: 9.0,
+                large_node_radius: 8.0,
+                medium_node_radius: 14.0,
+            },
+            selected_id: Some("technology".into()),
+        });
+        let stored = serde_json::to_value(ability_forest_metadata(&forest))
+            .expect("forest metadata should serialize map state");
+        assert_eq!(stored["mapState"]["seed"], 77);
+        assert_eq!(stored["mapState"]["pan"]["x"], 24.0);
+        assert_eq!(stored["mapState"]["selectedId"], "technology");
+
+        forest
+            .map_positions
+            .as_mut()
+            .unwrap()
+            .insert("expression".to_string(), AbilityMapPosition { x: 5, y: 5 });
+        assert!(validate_ability_forest(&forest)
+            .expect_err("overlapping map positions should be rejected")
+            .contains("重叠"));
+    }
+
+    #[test]
+    fn ability_forest_validation_rejects_duplicate_sibling_positions() {
+        let mut forest: AbilityForest =
+            serde_json::from_str(include_str!("../../src/ability-forest-default.json"))
+                .expect("prototype forest defaults should deserialize");
+        forest.nodes[4].order = forest.nodes[1].order;
+        assert!(validate_ability_forest(&forest)
+            .expect_err("siblings cannot share an order")
+            .contains("重复"));
+    }
 
     fn sample_review(review_id: &str, knowledge_id: &str) -> ReviewRecord {
         ReviewRecord {

@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "technology",
+      "name": "技术与产品",
+      "level": 0,
+      "parentId": null,
+      "order": 0,
+      "color": "#7FB77E",
+      "markdown": "# 技术与产品\n\n把工程能力、产品思维和数据素养连成一棵树。"
+    },
+    {
+      "id": "engineering",
+      "name": "软件工程",
+      "level": 1,
+      "parentId": "technology",
+      "order": 0,
+      "color": null,
+      "markdown": "# 软件工程\n\n构建可靠、清晰、可维护的软件。"
+    },
+    {
+      "id": "api-design",
+      "name": "接口设计",
+      "level": 2,
+      "parentId": "engineering",
+      "order": 0,
+      "color": null,
+      "markdown": "# 接口设计\n\n设计清晰、一致、易于演进的 API。"
+    },
+    {
+      "id": "database-modeling",
+      "name": "数据库建模",
+      "level": 2,
+      "parentId": "engineering",
+      "order": 1,
+      "color": null,
+      "markdown": "# 数据库建模\n\n用合适的数据结构表达业务关系。"
+    },
+    {
+      "id": "product-design",
+      "name": "产品设计",
+      "level": 1,
+      "parentId": "technology",
+      "order": 1,
+      "color": null,
+      "markdown": "# 产品设计\n\n从真实问题出发，组织清楚的产品体验。"
+    },
+    {
+      "id": "user-research",
+      "name": "用户研究",
+      "level": 2,
+      "parentId": "product-design",
+      "order": 0,
+      "color": null,
+      "markdown": "# 用户研究\n\n观察用户行为，理解需求和使用情境。"
+    },
+    {
+      "id": "product-structure",
+      "name": "产品结构",
+      "level": 2,
+      "parentId": "product-design",
+      "order": 1,
+      "color": null,
+      "markdown": "# 产品结构\n\n组织信息、功能和关键使用路径。"
+    },
+    {
+      "id": "data-literacy",
+      "name": "数据素养",
+      "level": 1,
+      "parentId": "technology",
+      "order": 2,
+      "color": null,
+      "markdown": "# 数据素养\n\n理解数据的来源、质量与局限。"
+    },
+    {
+      "id": "data-analysis",
+      "name": "数据分析",
+      "level": 2,
+      "parentId": "data-literacy",
+      "order": 0,
+      "color": null,
+      "markdown": "# 数据分析\n\n用指标和证据支持判断。"
+    },
+    {
+      "id": "expression",
+      "name": "表达与协作",
+      "level": 0,
+      "parentId": null,
+      "order": 1,
+      "color": "#5A9FD4",
+      "markdown": "# 表达与协作\n\n通过写作、视觉和协作把想法传递清楚。"
+    },
+    {
+      "id": "writing",
+      "name": "写作表达",
+      "level": 1,
+      "parentId": "expression",
+      "order": 0,
+      "color": null,
+      "markdown": "# 写作表达\n\n用清楚的结构和恰当的语气表达观点。"
+    },
+    {
+      "id": "clear-writing",
+      "name": "清晰写作",
+      "level": 2,
+      "parentId": "writing",
+      "order": 0,
+      "color": null,
+      "markdown": "# 清晰写作\n\n先说明重点，再给读者足够的上下文。"
+    },
+    {
+      "id": "storytelling",
+      "name": "叙事表达",
+      "level": 2,
+      "parentId": "writing",
+      "order": 1,
+      "color": null,
+      "markdown": "# 叙事表达\n\n用具体细节组织有记忆点的故事。"
+    },
+    {
+      "id": "visual-expression",
+      "name": "视觉表达",
+      "level": 1,
+      "parentId": "expression",
+      "order": 1,
+      "color": null,
+      "markdown": "# 视觉表达\n\n用图形和版式建立清楚的视觉层级。"
+    },
+    {
+      "id": "layout-design",
+      "name": "版式设计",
+      "level": 2,
+      "parentId": "visual-expression",
+      "order": 0,
+      "color": null,
+      "markdown": "# 版式设计\n\n安排文字、图形和留白的关系。"
+    },
+    {
+      "id": "collaboration",
+      "name": "沟通协作",
+      "level": 1,
+      "parentId": "expression",
+      "order": 2,
+      "color": null,
+      "markdown": "# 沟通协作\n\n在共同目标下倾听、反馈并推进事情。"
+    },
+    {
+      "id": "listening",
+      "name": "倾听反馈",
+      "level": 2,
+      "parentId": "collaboration",
+      "order": 0,
+      "color": null,
+      "markdown": "# 倾听反馈\n\n确认对方的意思，再给出具体回应。"
+    },
+    {
+      "id": "self-management",
+      "name": "自我管理",
+      "level": 0,
+      "parentId": null,
+      "order": 2,
+      "color": "#E8856F",
+      "markdown": "# 自我管理\n\n为专注、学习和恢复留出稳定的空间。"
+    },
+    {
+      "id": "deep-work",
+      "name": "深度工作",
+      "level": 1,
+      "parentId": "self-management",
+      "order": 0,
+      "color": null,
+      "markdown": "# 深度工作\n\n减少切换，把注意力留给重要任务。"
+    },
+    {
+      "id": "focus",
+      "name": "专注力",
+      "level": 2,
+      "parentId": "deep-work",
+      "order": 0,
+      "color": null,
+      "markdown": "# 专注力\n\n在一段时间内持续投入一件事。"
+    },
+    {
+      "id": "time-planning",
+      "name": "时间规划",
+      "level": 2,
+      "parentId": "deep-work",
+      "order": 1,
+      "color": null,
+      "markdown": "# 时间规划\n\n为重要任务安排可执行的时间块。"
+    },
+    {
+      "id": "continuous-learning",
+      "name": "持续学习",
+      "level": 1,
+      "parentId": "self-management",
+      "order": 1,
+      "color": null,
+      "markdown": "# 持续学习\n\n通过回忆、练习和复盘巩固新知。"
+    },
+    {
+      "id": "active-recall",
+      "name": "主动回想",
+      "level": 2,
+      "parentId": "continuous-learning",
+      "order": 0,
+      "color": null,
+      "markdown": "# 主动回想\n\n先尝试从记忆中提取，再回看材料。"
+    },
+    {
+      "id": "reflection",
+      "name": "复盘总结",
+      "level": 2,
+      "parentId": "continuous-learning",
+      "order": 1,
+      "color": null,
+      "markdown": "# 复盘总结\n\n记录结果、原因和下一步调整。"
+    },
+    {
+      "id": "recovery",
+      "name": "休息恢复",
+      "level": 1,
+      "parentId": "self-management",
+      "order": 2,
+      "color": null,
+      "markdown": "# 休息恢复\n\n让睡眠和活动支持长期稳定的精力。"
+    },
+    {
+      "id": "sleep",
+      "name": "睡眠习惯",
+      "level": 2,
+      "parentId": "recovery",
+      "order": 0,
+      "color": null,
+      "markdown": "# 睡眠习惯\n\n保持规律的作息，为恢复提供条件。"
+    },
+    {
+      "id": "movement",
+      "name": "日常活动",
+      "level": 2,
+      "parentId": "recovery",
+      "order": 1,
+      "color": null,
+      "markdown": "# 日常活动\n\n把轻量活动融入日常生活。"
+    }
+  ]
+}

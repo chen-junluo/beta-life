@@ -80,7 +80,39 @@ export interface AppSettings {
 export interface LoadedAppState {
   board: BoardFile;
   settings: AppSettings;
+  abilityForest: AbilityForest;
   hasApiKey: boolean;
+}
+
+export interface AbilityNode {
+  id: string;
+  name: string;
+  level: number;
+  parentId: string | null;
+  order: number;
+  color: string | null;
+  markdown: string;
+}
+
+export interface AbilityMapState {
+  seed: number;
+  zoom: number;
+  pan: { x: number; y: number };
+  visibleLevels: number;
+  options: {
+    baseRadius: number;
+    clusterSpread: number;
+    largeNodeRadius: number;
+    mediumNodeRadius: number;
+  };
+  selectedId: string | null;
+}
+
+export interface AbilityForest {
+  schemaVersion: 1;
+  nodes: AbilityNode[];
+  mapPositions?: Record<string, { x: number; y: number }>;
+  mapState?: AbilityMapState;
 }
 
 export interface ImageAttachment {
