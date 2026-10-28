@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Constellation V11</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #000000;
+            color: #E5E7EB;
+            overflow: hidden;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+        }
+        #canvas-wrapper {
+            position: relative;
+            flex: 1;
+            background: radial-gradient(ellipse at center, #0a0a1a 0%, #000000 100%);
+        }
+        canvas { display: block; }
+
+        /* 左侧精简控件 */
+        .left-controls {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 100;
+        }
+        .control-panel {
+            background: rgba(15, 19, 28, 0.9);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 8px;
+            padding: 0.5rem 0.625rem;
+            backdrop-filter: blur(10px);
+        }
+        .panel-title {
+            font-size: 0.625rem;
+            font-weight: 600;
+            color: #9CA3AF;
+            margin-bottom: 0.375rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .filter-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+        .filter-chip {
+            padding: 0.125rem 0.4rem;
+            font-size: 0.625rem;
+            border-radius: 999px;
+            border: 1px solid #374151;
+            background: #1E2636;
+            color: #D1D5DB;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        .filter-chip:hover {
+            border-color: #6366f1;
+        }
+        .filter-chip.active {
+            border-color: #6366f1;
+            background: #6366f1;
+            color: #fff;
+        }
+        .compact-btn {
+            width: 100%;
+            padding: 0.3rem;
+            font-size: 0.6875rem;
+            border: 1px solid #374151;
+            background: #1E2636;
+            color: #D1D5DB;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        .compact-btn:hover {
+            background: #2D3748;
+            border-color: #6366f1;
+        }
+        .compact-btn.active {
+            background: #6366f1;
+            border-color: #6366f1;
+            color: #fff;
+        }
+        .param-drawer {
+            display: none;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+        .param-drawer.active {
+            display: block;
+        }
+        .param-item {
+            margin-bottom: 0.4rem;
+        }
+        .param-item:last-child {
+            margin-bottom: 0;
+        }
+        .param-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.2rem;
+        }
+        .param-name {
+            font-size: 0.625rem;
+            color: #D1D5DB;
+        }
+        .param-value {
+            font-size: 0.625rem;
+            color: #6366f1;
+            font-weight: 600;
+        }
+        .param-slider {
+            width: 100%;
+            height: 3px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #374151;
+            border-radius: 2px;
+            outline: none;
+        }
+        .param-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            background: #6366f1;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .param-slider::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            background: #6366f1;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        .stage-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .stage-btn {
+            background: #1E2636;
+            border: 1px solid #374151;
+            color: #D1D5DB;
+            padding: 0.3rem 0.5rem;
+            border-radius: 5px;
+            font-size: 0.625rem;
+            cursor: pointer;
+            transition: all 0.1s;
+            text-align: left;
+        }
+        .stage-btn:hover {
+            background: #2D3748;
+            border-color: #6366f1;
+        }
+        .stage-btn.active {
+            background: #6366f1;
+            border-color: #6366f1;
+            color: #fff;
+        }
+
+        /* 右侧面板 */
+        #right-panel {
+            width: 400px;
+            background: #0F131C;
+            border-left: 1px solid #1E2636;
+            display: flex;
+            flex-direction: column;
+        }
+        .splitter-vertical {
+            width: 6px;
+            background: rgba(99, 102, 241, 0.15);
+            cursor: col-resize;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .splitter-vertical::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 40px;
+            background: rgba(99, 102, 241, 0.4);
+            border-radius: 1px;
+        }
+        .splitter-vertical:hover,
+        .splitter-vertical.dragging {
+            background: rgba(99, 102, 241, 0.3);
+        }
+        .splitter-horizontal {
+            height: 6px;
+            background: rgba(99, 102, 241, 0.15);
+            cursor: row-resize;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .splitter-horizontal::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 2px;
+            background: rgba(99, 102, 241, 0.4);
+            border-radius: 1px;
+        }
+        .splitter-horizontal:hover,
+        .splitter-horizontal.dragging {
+            background: rgba(99, 102, 241, 0.3);
+        }
+        #top-section {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            min-height: 180px;
+        }
+        .chart-title {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #F9FAFB;
+            margin-bottom: 0.625rem;
+        }
+        #emotion-chart {
+            width: 100%;
+            height: 220px;
+            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid #374151;
+        }
+        .similar-memories {
+            display: none;
+            margin-top: 1.25rem;
+        }
+        .similar-memories.active {
+            display: grid;
+            grid-template-columns: 60px 1fr;
+            gap: 0.5rem 0.75rem;
+            align-items: start;
+        }
+        .similar-label {
+            font-size: 0.6875rem;
+            color: #9CA3AF;
+            padding-top: 0.25rem;
+        }
+        .similar-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+        }
+        .similar-link {
+            padding: 0.25rem 0.625rem;
+            background: #1E2636;
+            border: 1px solid #374151;
+            border-radius: 5px;
+            font-size: 0.6875rem;
+            color: #E5E7EB;
+            cursor: pointer;
+            transition: all 0.12s;
+        }
+        .similar-link:hover {
+            background: #2D3748;
+            border-color: #6366f1;
+            color: #6366f1;
+        }
+        #bottom-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            min-height: 180px;
+        }
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.625rem;
+        }
+        .editor-title {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #F9FAFB;
+        }
+        .editor-meta {
+            display: flex;
+            gap: 0.375rem;
+            font-size: 0.6875rem;
+            color: #9CA3AF;
+        }
+        #memory-editor {
+            flex: 1;
+            width: 100%;
+            background: #1E2636;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 0.625rem;
+            color: #E5E7EB;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+        }
+        #memory-editor:focus {
+            border-color: #6366f1;
+        }
+        #memory-editor:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 操作提示 */
+        .controls {
+            position: absolute;
+            bottom: 1rem;
+            left: 1rem;
+            background: rgba(15, 19, 28, 0.9);
+            padding: 0.5rem 0.625rem;
+            border-radius: 6px;
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            backdrop-filter: blur(8px);
+        }
+        .controls-hint {
+            font-size: 0.5625rem;
+            color: #9CA3AF;
+            line-height: 1.4;
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4B5563;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-wrapper">
+            <!-- 左侧控件 -->
+            <div class="left-controls">
+                <div class="control-panel">
+                    <div class="panel-title">筛选</div>
+                    <div class="filter-chips" id="emotion-filters"></div>
+                    <div class="filter-chips" id="location-filters" style="margin-top: 0.3rem;"></div>
+                    <button class="compact-btn" id="reset-filters" style="margin-top: 0.375rem;">重置</button>
+                </div>
+                <button class="compact-btn" id="param-toggle">⚙️ 参数</button>
+                <div class="control-panel param-drawer" id="param-drawer"></div>
+                <div class="control-panel">
+                    <div class="panel-title">阶段</div>
+                    <div class="stage-nav" id="stage-nav"></div>
+                </div>
+            </div>
+
+            <!-- 操作提示 -->
+            <div class="controls">
+                <div class="controls-hint">
+                    右键平移 • 左键旋转 • 滚轮缩放<br>
+                    点击星系/星星 • Esc 返回
+                </div>
+            </div>
+        </div>
+
+        <!-- 垂直分隔符 -->
+        <div class="splitter-vertical" id="splitter-v"></div>
+
+        <!-- 右侧面板 -->
+        <div id="right-panel">
+            <div id="top-section">
+                <!-- 情绪热力图 -->
+                <div>
+                    <div class="chart-title">情绪 × 年份热力图</div>
+                    <canvas id="emotion-chart"></canvas>
+                </div>
+
+                <!-- 相似记忆 -->
+                <div class="similar-memories" id="similar-memories">
+                    <!-- 紧凑表格布局: grid会在CSS中设置，这里只放内容 -->
+                </div>
+            </div>
+
+            <!-- 水平分隔符 -->
+            <div class="splitter-horizontal" id="splitter-h"></div>
+
+            <!-- 记忆编辑器 -->
+            <div id="bottom-section">
+                <div class="editor-header">
+                    <div class="editor-title">记忆详情</div>
+                    <div class="editor-meta" id="editor-meta"></div>
+                </div>
+                <textarea id="memory-editor" placeholder="选择记忆星后在此编辑..." disabled></textarea>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+
+        // ========== 数据定义 ==========
+        const LIFE_STAGES = [
+            { name: '小学', start: '2007-09', end: '2013-08', zStart: 228, zEnd: 168, color: '#7FB77E' },
+            { name: '初中', start: '2013-09', end: '2016-08', zStart: 168, zEnd: 132, color: '#5A9FD4' },
+            { name: '高中', start: '2016-09', end: '2019-08', zStart: 132, zEnd: 96, color: '#E9A568' },
+            { name: '本科', start: '2019-09', end: '2023-08', zStart: 96, zEnd: 48, color: '#D47C7C' },
+            { name: 'PhD', start: '2023-09', end: '2027-08', zStart: 48, zEnd: 0, color: '#9B87C7' }
+        ];
+
+        const EMOTION_COLORS = {
+            nostalgic: 0xE9A568,
+            melancholic: 0x3B6DFF,
+            excited: 0x38BDF8,
+            calm: 0x6EE7B7,
+            confused: 0x9CA3AF,
+            warm: 0xF97316
+        };
+
+        const EMOTION_NAMES = {
+            nostalgic: '怀念',
+            melancholic: '伤感',
+            excited: '兴奋',
+            calm: '平静',
+            confused: '迷茫',
+            warm: '温暖'
+        };
+
+        const MOCK_MEMORIES = [
+            { song: '童年', date: '2008Q2', stage: '小学', location: '家乡', emotion: { type: 'nostalgic', intensity: 6 }, content: '小学二年级的夏天，放学后和小伙伴在河边抓蝌蚪。' },
+            { song: '晴天', date: '2010Q4', stage: '小学', location: '家乡', emotion: { type: 'warm', intensity: 7 }, content: '小学四年级的秋天，放学后的小路上落叶铺满地。' },
+            { song: '稻香', date: '2011Q3', stage: '小学', location: '外婆家', emotion: { type: 'calm', intensity: 8 }, content: '暑假在外婆家的稻田里奔跑，金黄色的稻浪。' },
+            { song: '蜗牛', date: '2012Q1', stage: '小学', location: '学校', emotion: { type: 'confused', intensity: 5 }, content: '小学五年级，第一次考试没考好。' },
+            { song: '星晴', date: '2013Q2', stage: '小学', location: '家乡', emotion: { type: 'nostalgic', intensity: 7 }, content: '小学毕业前的夏夜，躺在天台看星星。' },
+            { song: '南山南', date: '2014Q3', stage: '初中', location: '韶关', emotion: { type: 'melancholic', intensity: 8 }, content: '第一次听，是在韶关，初中那个时候还睡在大厅的青石地板上看电视。' },
+            { song: '董小姐', date: '2014Q1', stage: '初中', location: '学校', emotion: { type: 'confused', intensity: 6 }, content: '初一的冬天，第一次听民谣。' },
+            { song: '成都', date: '2015Q2', stage: '初中', location: '教室', emotion: { type: 'nostalgic', intensity: 7 }, content: '初二的春天，同桌用手机放给我听。' },
+            { song: '青春修炼手册', date: '2015Q4', stage: '初中', location: '学校', emotion: { type: 'excited', intensity: 8 }, content: '初二秋季运动会，班级入场曲。' },
+            { song: '平凡之路', date: '2016Q1', stage: '初中', location: '家里', emotion: { type: 'melancholic', intensity: 7 }, content: '初三寒假，一个人在家看《后会无期》。' },
+            { song: '演员', date: '2016Q2', stage: '初中', location: '公园', emotion: { type: 'confused', intensity: 6 }, content: '中考前的周末，和朋友去公园散步。' },
+            { song: '追光者', date: '2017Q1', stage: '高中', location: '学校', emotion: { type: 'nostalgic', intensity: 7 }, content: '高一的春天，文理分科前的最后一个学期。' },
+            { song: '理想三旬', date: '2018Q1', stage: '高中', location: '教室', emotion: { type: 'calm', intensity: 6 }, content: '高二时期的春天，教室外的阳光。' },
+            { song: '起风了', date: '2019Q2', stage: '高中', location: '操场', emotion: { type: 'warm', intensity: 9 }, content: '高考前夕，和朋友们在操场上最后一次夕阳下的长跑。' },
+            { song: '外面的世界', date: '2017Q4', stage: '高中', location: '宿舍', emotion: { type: 'excited', intensity: 7 }, content: '高二秋天，晚自习后在宿舍畅想大学生活。' },
+            { song: '那些年', date: '2018Q3', stage: '高中', location: '电影院', emotion: { type: 'nostalgic', intensity: 10 }, content: '高二暑假，和初中同学一起看电影。' },
+            { song: '十年', date: '2019Q1', stage: '高中', location: '教室', emotion: { type: 'melancholic', intensity: 7 }, content: '高三寒假开学，听着这首歌想象十年后的自己。' },
+            { song: '红玫瑰', date: '2018Q4', stage: '高中', location: '图书馆', emotion: { type: 'confused', intensity: 6 }, content: '高二秋天，第一次听懂了歌词里的遗憾。' },
+            { song: '匆匆那年', date: '2019Q3', stage: '高中', location: '车站', emotion: { type: 'melancholic', intensity: 10 }, content: '高考结束，在车站送走同学。' },
+            { song: '形容', date: '2021Q2', stage: '本科', location: '校园', emotion: { type: 'nostalgic', intensity: 7 }, content: '本科二年级要结束。春夏之交的微风。' },
+            { song: '大人中', date: '2021Q2', stage: '本科', location: '泰国', emotion: { type: 'excited', intensity: 10 }, content: '满脑子都是泰国。第一次自己出国。' },
+            { song: '麻雀', date: '2020Q1', stage: '本科', location: '宿舍', emotion: { type: 'calm', intensity: 6 }, content: '大一下学期，疫情期间在宿舍上网课。' },
+            { song: '光辉岁月', date: '2020Q4', stage: '本科', location: '操场', emotion: { type: 'excited', intensity: 8 }, content: '大二秋天，迎新晚会上的合唱。' },
+            { song: '夜空中最亮的星', date: '2021Q1', stage: '本科', location: '图书馆', emotion: { type: 'confused', intensity: 7 }, content: '大二寒假留校做项目，深夜从图书馆出来。' },
+            { song: '漠河舞厅', date: '2022Q1', stage: '本科', location: '咖啡店', emotion: { type: 'melancholic', intensity: 8 }, content: '大三寒假，在咖啡店第一次听。' },
+            { song: '可能否', date: '2022Q2', stage: '本科', location: '校园', emotion: { type: 'nostalgic', intensity: 7 }, content: '大三春天，想起过去的某个人。' },
+            { song: '海阔天空', date: '2022Q4', stage: '本科', location: 'KTV', emotion: { type: 'warm', intensity: 9 }, content: '大四秋天，和室友最后一次KTV。' },
+            { song: '同桌的你', date: '2023Q2', stage: '本科', location: '毕业典礼', emotion: { type: 'nostalgic', intensity: 10 }, content: '本科毕业典礼，回想起四年的时光。' },
+            { song: '夏天的风', date: '2023Q3', stage: '本科', location: '火车站', emotion: { type: 'melancholic', intensity: 8 }, content: '毕业后的夏天，在火车站送别朋友。' },
+            { song: '告白气球', date: '2021Q4', stage: '本科', location: '图书馆', emotion: { type: 'warm', intensity: 7 }, content: '大三秋天，在图书馆偶然听到。' },
+            { song: '小幸运', date: '2022Q3', stage: '本科', location: '校园', emotion: { type: 'calm', intensity: 6 }, content: '大三暑假，傍晚在校园散步。' },
+            { song: '夜空中最亮的星', date: '2024Q1', stage: 'PhD', location: '实验室', emotion: { type: 'confused', intensity: 7 }, content: 'PhD第一年，深夜的实验室。' },
+            { song: '孤勇者', date: '2024Q2', stage: 'PhD', location: '实验室', emotion: { type: 'excited', intensity: 8 }, content: 'PhD第一年春天，终于做出了第一个成果。' },
+            { song: '如愿', date: '2024Q4', stage: 'PhD', location: '办公室', emotion: { type: 'calm', intensity: 7 }, content: 'PhD第一年秋天，慢慢找到了节奏。' },
+            { song: '星辰大海', date: '2025Q1', stage: 'PhD', location: '图书馆', emotion: { type: 'excited', intensity: 7 }, content: 'PhD第二年，对未来充满期待。' },
+            { song: '路', date: '2025Q3', stage: 'PhD', location: '校园', emotion: { type: 'nostalgic', intensity: 6 }, content: 'PhD第二年暑假，在校园散步。' },
+            { song: '勇气', date: '2026Q1', stage: 'PhD', location: '会议', emotion: { type: 'excited', intensity: 10 }, content: 'PhD第三年，第一次在国际会议上做报告。' },
+            { song: '远方', date: '2026Q2', stage: 'PhD', location: '咖啡店', emotion: { type: 'confused', intensity: 6 }, content: 'PhD第三年春天，在咖啡店思考毕业后的方向。' }
+        ];
+
+        // 参数配置
+        let PARAMS = {
+            starSizeBase: 2,
+            starSizeIntensity: 2,
+            bgStarMultiplier: 1,
+            bgOpacity: 0.18,
+            nodeOpacity: 0.5,
+            zThicknessMultiplier: 1,
+            cameraMoveSpeed: 1200,
+            dampingFactor: 0.05
+        };
+
+        let FILTERS = {
+            emotions: new Set(),
+            locations: new Set()
+        };
+
+        const STORAGE_KEY = 'memory-constellation-v11-state';
+        function loadState() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    if (state.params) PARAMS = { ...PARAMS, ...state.params };
+                }
+            } catch (e) {}
+        }
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ params: PARAMS }));
+            } catch (e) {}
+        }
+        loadState();
+
+        // ========== 工具函数 ==========
+        function dateToZ(dateStr, stage) {
+            const stageStart = new Date(stage.start + '-01');
+            const stageEnd = new Date(stage.end + '-01');
+            const stageDuration = stageEnd - stageStart;
+            let targetDate;
+
+            if (dateStr.includes('Q')) {
+                const [year, quarter] = dateStr.split('Q');
+                const month = (parseInt(quarter) - 1) * 3 + 1;
+                targetDate = new Date(`${year}-${month.toString().padStart(2, '0')}-01`);
+            } else if (dateStr.length === 8) {
+                const year = dateStr.substring(0, 4);
+                const month = dateStr.substring(4, 6);
+                const day = dateStr.substring(6, 8);
+                targetDate = new Date(`${year}-${month}-${day}`);
+            } else {
+                return (stage.zStart + stage.zEnd) / 2;
+            }
+
+            const dateOffset = targetDate - stageStart;
+            const ratio = Math.max(0, Math.min(1, dateOffset / stageDuration));
+            return stage.zStart + ratio * (stage.zEnd - stage.zStart);
+        }
+
+        function dateToTimestamp(dateStr) {
+            if (dateStr.includes('Q')) {
+                const [year, quarter] = dateStr.split('Q');
+                const month = (parseInt(quarter) - 1) * 3 + 1;
+                return new Date(`${year}-${month.toString().padStart(2, '0')}-01`).getTime();
+            }
+            return new Date(dateStr).getTime();
+        }
+
+        function dateToYear(dateStr) {
+            if (dateStr.includes('Q')) {
+                return parseInt(dateStr.split('Q')[0]);
+            } else if (dateStr.length >= 4) {
+                return parseInt(dateStr.substring(0, 4));
+            }
+            return null;
+        }
+
+        const LOCATION_BASE_POSITIONS = {};
+        function getLocationBasePosition(location) {
+            if (!LOCATION_BASE_POSITIONS[location]) {
+                const hash = location.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                const angle = (hash % 360) * (Math.PI / 180);
+                const radius = 4 + (hash % 6);
+                LOCATION_BASE_POSITIONS[location] = {
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius
+                };
+            }
+            return LOCATION_BASE_POSITIONS[location];
+        }
+
+        function getFilteredMemories() {
+            return MOCK_MEMORIES.filter(m => {
+                if (FILTERS.emotions.size > 0 && !FILTERS.emotions.has(m.emotion.type)) return false;
+                if (FILTERS.locations.size > 0 && !FILTERS.locations.has(m.location)) return false;
+                return true;
+            });
+        }
+
+        // 多项式拟合
+        function polynomialFit(points, degree) {
+            // 使用最小二乘法拟合多项式
+            const n = points.length;
+            if (n === 0) return [];
+
+            const X = points.map(p => p.x);
+            const Y = points.map(p => p.y);
+
+            // 构建矩阵
+            const matrix = [];
+            const rhs = [];
+            for (let i = 0; i <= degree; i++) {
+                const row = [];
+                for (let j = 0; j <= degree; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < n; k++) {
+                        sum += Math.pow(X[k], i + j);
+                    }
+                    row.push(sum);
+                }
+                matrix.push(row);
+
+                let sum = 0;
+                for (let k = 0; k < n; k++) {
+                    sum += Y[k] * Math.pow(X[k], i);
+                }
+                rhs.push(sum);
+            }
+
+            // 高斯消元法求解
+            const coeffs = gaussianElimination(matrix, rhs);
+            return coeffs || [];
+        }
+
+        function gaussianElimination(A, b) {
+            const n = A.length;
+            const aug = A.map((row, i) => [...row, b[i]]);
+
+            for (let i = 0; i < n; i++) {
+                let maxRow = i;
+                for (let k = i + 1; k < n; k++) {
+                    if (Math.abs(aug[k][i]) > Math.abs(aug[maxRow][i])) {
+                        maxRow = k;
+                    }
+                }
+                [aug[i], aug[maxRow]] = [aug[maxRow], aug[i]];
+
+                for (let k = i + 1; k < n; k++) {
+                    const factor = aug[k][i] / aug[i][i];
+                    for (let j = i; j <= n; j++) {
+                        aug[k][j] -= factor * aug[i][j];
+                    }
+                }
+            }
+
+            const x = new Array(n);
+            for (let i = n - 1; i >= 0; i--) {
+                x[i] = aug[i][n];
+                for (let j = i + 1; j < n; j++) {
+                    x[i] -= aug[i][j] * x[j];
+                }
+                x[i] /= aug[i][i];
+            }
+
+            return x;
+        }
+
+        function evaluatePolynomial(coeffs, x) {
+            let sum = 0;
+            for (let i = 0; i < coeffs.length; i++) {
+                sum += coeffs[i] * Math.pow(x, i);
+            }
+            return sum;
+        }
+
+        // ========== UI 初始化 ==========
+        function initFilters() {
+            const emotionContainer = document.getElementById('emotion-filters');
+            const locationContainer = document.getElementById('location-filters');
+
+            Object.keys(EMOTION_NAMES).forEach(type => {
+                const chip = document.createElement('button');
+                chip.className = 'filter-chip';
+                chip.textContent = EMOTION_NAMES[type];
+                chip.onclick = () => {
+                    if (FILTERS.emotions.has(type)) {
+                        FILTERS.emotions.delete(type);
+                        chip.classList.remove('active');
+                    } else {
+                        FILTERS.emotions.add(type);
+                        chip.classList.add('active');
+                    }
+                    updateScene();
+                    updateEmotionChart();
+                };
+                emotionContainer.appendChild(chip);
+            });
+
+            const locations = [...new Set(MOCK_MEMORIES.map(m => m.location))].sort();
+            locations.forEach(loc => {
+                const chip = document.createElement('button');
+                chip.className = 'filter-chip';
+                chip.textContent = loc;
+                chip.onclick = () => {
+                    if (FILTERS.locations.has(loc)) {
+                        FILTERS.locations.delete(loc);
+                        chip.classList.remove('active');
+                    } else {
+                        FILTERS.locations.add(loc);
+                        chip.classList.add('active');
+                    }
+                    updateScene();
+                    updateEmotionChart();
+                };
+                locationContainer.appendChild(chip);
+            });
+
+            document.getElementById('reset-filters').onclick = () => {
+                FILTERS.emotions.clear();
+                FILTERS.locations.clear();
+                document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                updateScene();
+                updateEmotionChart();
+            };
+        }
+
+        function initParams() {
+            const drawer = document.getElementById('param-drawer');
+            const toggle = document.getElementById('param-toggle');
+            toggle.onclick = () => {
+                const isActive = drawer.classList.toggle('active');
+                toggle.classList.toggle('active', isActive);
+            };
+
+            const params = [
+                { key: 'starSizeBase', label: '星星基础大小', min: 1, max: 5, step: 0.1 },
+                { key: 'starSizeIntensity', label: '情绪强度系数', min: 0, max: 4, step: 0.1 },
+                { key: 'bgStarMultiplier', label: '星云粒子倍数', min: 0.5, max: 3, step: 0.1 },
+                { key: 'bgOpacity', label: '星云不透明度', min: 0.05, max: 0.5, step: 0.01 },
+                { key: 'nodeOpacity', label: '节点星云不透明度', min: 0.1, max: 0.8, step: 0.05 },
+                { key: 'zThicknessMultiplier', label: 'Z轴厚度', min: 0.5, max: 2, step: 0.1 },
+                { key: 'cameraMoveSpeed', label: '相机速度(ms)', min: 600, max: 2400, step: 100 },
+                { key: 'dampingFactor', label: '阻尼系数', min: 0.01, max: 0.2, step: 0.01 }
+            ];
+
+            params.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'param-item';
+                item.innerHTML = `
+                    <div class="param-header">
+                        <span class="param-name">${p.label}</span>
+                        <span class="param-value" id="param-val-${p.key}">${PARAMS[p.key]}</span>
+                    </div>
+                    <input type="range" class="param-slider"
+                           min="${p.min}" max="${p.max}" step="${p.step}"
+                           value="${PARAMS[p.key]}">
+                `;
+                const slider = item.querySelector('input');
+                slider.oninput = (e) => {
+                    const val = parseFloat(e.target.value);
+                    PARAMS[p.key] = val;
+                    document.getElementById(`param-val-${p.key}`).textContent = val;
+                    if (p.key === 'dampingFactor') {
+                        controls.dampingFactor = val;
+                    } else if (p.key === 'bgOpacity' || p.key === 'bgStarMultiplier' || p.key === 'starSizeBase' || p.key === 'starSizeIntensity' || p.key === 'zThicknessMultiplier') {
+                        updateScene();
+                    }
+                    saveState();
+                };
+                drawer.appendChild(item);
+            });
+        }
+
+        function initStageNav() {
+            const nav = document.getElementById('stage-nav');
+            LIFE_STAGES.forEach(stage => {
+                const btn = document.createElement('button');
+                btn.className = 'stage-btn';
+                btn.textContent = `${stage.name} ${stage.start.substring(0,4)}`;
+                btn.dataset.stage = stage.name;
+                btn.onclick = () => {
+                    const galaxy = galaxies.find(g => g.userData.stage.name === stage.name);
+                    if (galaxy) zoomToGalaxy(galaxy);
+                };
+                nav.appendChild(btn);
+            });
+        }
+
+        // ========== Three.js 场景 ==========
+        const canvas = document.createElement('canvas');
+        document.getElementById('canvas-wrapper').appendChild(canvas);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        const wrapper = document.getElementById('canvas-wrapper');
+
+        function updateRendererSize() {
+            const w = wrapper.clientWidth;
+            const h = wrapper.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio * 2, 4));
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.001);
+
+        const camera = new THREE.PerspectiveCamera(60, wrapper.clientWidth / wrapper.clientHeight, 0.1, 1000);
+        camera.position.set(0, 60, 250);
+        camera.lookAt(0, 0, 114);
+
+        updateRendererSize();
+
+        const controls = new OrbitControls(camera, canvas);
+        controls.enableDamping = true;
+        controls.dampingFactor = PARAMS.dampingFactor;
+        controls.minDistance = 10;
+        controls.maxDistance = 400;
+        controls.enablePan = true;
+        controls.panSpeed = 0.8;
+        controls.rotateSpeed = 0.5;
+        controls.mouseButtons = {
+            LEFT: THREE.MOUSE.ROTATE,
+            MIDDLE: THREE.MOUSE.DOLLY,
+            RIGHT: THREE.MOUSE.PAN
+        };
+
+        function createStarTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            const centerX = 256, centerY = 256;
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 256);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.15, 'rgba(255, 255, 255, 0.9)');
+            gradient.addColorStop(0.35, 'rgba(255, 255, 255, 0.5)');
+            gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.1)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const starTexture = createStarTexture();
+
+        // 时间线
+        const tubeControlPoints = [];
+        LIFE_STAGES.forEach((stage, i) => {
+            const zCenter = (stage.zStart + stage.zEnd) / 2;
+            const offsetX = (Math.sin(i * 1.5) * 4) + (Math.random() - 0.5) * 2;
+            const offsetY = (Math.cos(i * 1.3) * 4) + (Math.random() - 0.5) * 2;
+            const centerPos = new THREE.Vector3(offsetX, offsetY, zCenter);
+            tubeControlPoints.push(centerPos);
+            stage.centerPos = centerPos;
+
+            if (i < LIFE_STAGES.length - 1) {
+                const nextStage = LIFE_STAGES[i + 1];
+                const midZ = (stage.zEnd + nextStage.zStart) / 2;
+                const midOffsetX = (offsetX + Math.sin((i + 0.5) * 1.5) * 4) / 2;
+                const midOffsetY = (offsetY + Math.cos((i + 0.5) * 1.3) * 4) / 2;
+                tubeControlPoints.push(new THREE.Vector3(
+                    midOffsetX + (Math.random() - 0.5) * 4,
+                    midOffsetY + (Math.random() - 0.5) * 4,
+                    midZ
+                ));
+            }
+        });
+
+        const tubeCurve = new THREE.CatmullRomCurve3(tubeControlPoints);
+        const tubeGeometry = new THREE.TubeGeometry(tubeCurve, 200, 0.2, 8, false);
+        const tubeMaterial = new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.25 });
+        scene.add(new THREE.Mesh(tubeGeometry, tubeMaterial));
+
+        // 阶段节点
+        LIFE_STAGES.forEach((stage, i) => {
+            const pos = stage.centerPos;
+
+            const node = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0x818cf8, transparent: true, opacity: 0.8 })
+            );
+            node.position.copy(pos);
+            scene.add(node);
+
+            // 节点星云
+            const nodeGalaxyParams = {
+                a: 0.7 + i * 0.16 + (Math.random() - 0.5) * 0.2,
+                b: 0.18 + i * 0.06 + (Math.random() - 0.5) * 0.07,
+                armCount: 2 + (i % 4),
+                armAngles: [],
+                armLengthFactor: 1.2 + i * 0.24 + Math.random() * 0.4,
+                ellipseX: 1.4 + i * 0.2 + (Math.random() - 0.5) * 0.25,
+                ellipseY: 1.2 + i * 0.15 + (Math.random() - 0.5) * 0.2,
+                rotationAngle: (i * Math.PI / 5) + (Math.random() - 0.5) * Math.PI / 6,
+                color: new THREE.Color().setHSL(0.52 + i * 0.08 + (Math.random() - 0.5) * 0.1, 0.7, 0.55),
+                zThicknessBase: 1.8 + i * 0.4 + (Math.random() - 0.5) * 0.5,
+                zThicknessNoise: 0.8 + (Math.random() - 0.5) * 0.4
+            };
+
+            for (let k = 0; k < nodeGalaxyParams.armCount; k++) {
+                nodeGalaxyParams.armAngles.push((k / nodeGalaxyParams.armCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.4);
+            }
+
+            const nodeStarCount = 700;
+            const nodePositions = new Float32Array(nodeStarCount * 3);
+            const nodeColors = new Float32Array(nodeStarCount * 3);
+            const nodeSizes = new Float32Array(nodeStarCount);
+
+            for (let j = 0; j < nodeStarCount; j++) {
+                const armIdx = j % nodeGalaxyParams.armCount;
+                const t = (j / nodeStarCount) * nodeGalaxyParams.armLengthFactor * 8;
+                const angle = nodeGalaxyParams.armAngles[armIdx] + t * Math.PI * 2.5;
+                const baseRadius = nodeGalaxyParams.a * Math.exp(nodeGalaxyParams.b * t);
+
+                const radialRatio = t / 8;
+                const radialThickness = baseRadius * (0.35 + radialRatio * 0.2);
+                const perpAngle = Math.random() * Math.PI * 2;
+                const perpDist = (Math.random() - 0.5) * radialThickness * (1 + (Math.random() - 0.5) * 0.5);
+
+                let x = Math.cos(angle) * (baseRadius + Math.cos(perpAngle) * perpDist) * nodeGalaxyParams.ellipseX;
+                let y = Math.sin(angle) * (baseRadius + Math.sin(perpAngle) * perpDist) * nodeGalaxyParams.ellipseY;
+
+                const cosR = Math.cos(nodeGalaxyParams.rotationAngle);
+                const sinR = Math.sin(nodeGalaxyParams.rotationAngle);
+                const xRot = x * cosR - y * sinR;
+                const yRot = x * sinR + y * cosR;
+
+                const zThicknessScale = nodeGalaxyParams.zThicknessBase * (1 + radialRatio * 0.5);
+                const zNoise = (Math.random() - 0.5) * nodeGalaxyParams.zThicknessNoise;
+                const zOffset = (Math.random() - 0.5) * zThicknessScale * (1 + zNoise);
+
+                nodePositions[j * 3] = xRot + pos.x;
+                nodePositions[j * 3 + 1] = yRot + pos.y;
+                nodePositions[j * 3 + 2] = pos.z + zOffset;
+
+                nodeColors[j * 3] = nodeGalaxyParams.color.r * (0.6 + Math.random() * 0.4);
+                nodeColors[j * 3 + 1] = nodeGalaxyParams.color.g * (0.6 + Math.random() * 0.4);
+                nodeColors[j * 3 + 2] = nodeGalaxyParams.color.b * (0.6 + Math.random() * 0.4);
+
+                nodeSizes[j] = 1.0 + Math.random() * 2.0;
+            }
+
+            const nodeGalaxyGeometry = new THREE.BufferGeometry();
+            nodeGalaxyGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
+            nodeGalaxyGeometry.setAttribute('color', new THREE.BufferAttribute(nodeColors, 3));
+            nodeGalaxyGeometry.setAttribute('size', new THREE.BufferAttribute(nodeSizes, 1));
+
+            const nodeGalaxyMaterial = new THREE.PointsMaterial({
+                vertexColors: true,
+                transparent: true,
+                opacity: PARAMS.nodeOpacity,
+                sizeAttenuation: true,
+                blending: THREE.AdditiveBlending,
+                map: starTexture,
+                depthWrite: false
+            });
+
+            scene.add(new THREE.Points(nodeGalaxyGeometry, nodeGalaxyMaterial));
+        });
+
+        // V11新增：时间轴管理（恢复V8功能）
+        let timeAxis = null;
+        let timeLabels = [];
+
+        function createTimeAxis(stage) {
+            if (timeAxis) {
+                scene.remove(timeAxis);
+                timeAxis = null;
+            }
+            timeLabels.forEach(label => scene.remove(label));
+            timeLabels = [];
+
+            const linePoints = [
+                new THREE.Vector3(0, 0, stage.zStart),
+                new THREE.Vector3(0, 0, stage.zEnd)
+            ];
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.6, transparent: true });
+            timeAxis = new THREE.Line(lineGeometry, lineMaterial);
+            scene.add(timeAxis);
+
+            const startDate = new Date(stage.start + '-01');
+            const endDate = new Date(stage.end + '-01');
+            const yearMarks = [];
+
+            let currentDate = new Date(startDate);
+            currentDate.setMonth(0, 1);
+            if (currentDate < startDate) {
+                currentDate.setFullYear(currentDate.getFullYear() + 1);
+            }
+
+            while (currentDate <= endDate) {
+                const z = dateToZ(`${currentDate.getFullYear()}Q1`, stage);
+                yearMarks.push({ date: currentDate.getFullYear(), z });
+                currentDate.setFullYear(currentDate.getFullYear() + 1);
+            }
+
+            yearMarks.forEach(mark => {
+                const nodeGeometry = new THREE.SphereGeometry(0.6, 16, 16);
+                const nodeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.8, transparent: true });
+                const node = new THREE.Mesh(nodeGeometry, nodeMaterial);
+                node.position.set(0, 0, mark.z);
+                scene.add(node);
+                timeLabels.push(node);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 32px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(mark.date.toString(), 64, 32);
+
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.set(2, 0, mark.z);
+                sprite.scale.set(4, 2, 1);
+                scene.add(sprite);
+                timeLabels.push(sprite);
+            });
+        }
+
+        function removeTimeAxis() {
+            if (timeAxis) {
+                scene.remove(timeAxis);
+                timeAxis = null;
+            }
+            timeLabels.forEach(label => scene.remove(label));
+            timeLabels = [];
+        }
+
+        // 创建星系
+        const galaxies = [];
+        const galaxyBoundingBoxes = [];
+        let memorySprites = [];
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let currentView = 'global';
+        let selectedGalaxy = null;
+        let selectedMemory = null;
+
+        function createGalaxies() {
+            galaxies.forEach(g => scene.remove(g));
+            galaxies.length = 0;
+            galaxyBoundingBoxes.forEach(b => scene.remove(b));
+            galaxyBoundingBoxes.length = 0;
+            memorySprites = [];
+
+            const filteredMemories = getFilteredMemories();
+
+            LIFE_STAGES.forEach(stage => {
+                const stageMemories = filteredMemories.filter(m => m.stage === stage.name);
+                const galaxyGroup = new THREE.Group();
+                galaxyGroup.userData = { type: 'galaxy', stage, memories: stageMemories };
+
+                const spiralParams = {
+                    a: 0.7 + Math.random() * 0.8,
+                    b: 0.22 + Math.random() * 0.3,
+                    armCount: 2 + Math.floor(Math.random() * 4),
+                    armAngles: Array.from({ length: 6 }, () => Math.random() * Math.PI * 2),
+                    armLengths: Array.from({ length: 6 }, () => 0.9 + Math.random() * 0.7),
+                    ellipseX: 1.5 + Math.random() * 1.0,
+                    ellipseY: 1.0 + Math.random() * 0.8,
+                    rotationAngle: (Math.random() - 0.5) * Math.PI / 3,
+                    maxRadius: 16 + Math.random() * 8,
+                    zThicknessCenter: 12 + Math.random() * 16,
+                    zThicknessEdge: 4 + Math.random() * 5,
+                    zThicknessNoiseScale: 0.4 + Math.random() * 0.6
+                };
+
+                const bgStarCount = Math.floor(8400 * PARAMS.bgStarMultiplier);
+                const bgPositions = new Float32Array(bgStarCount * 3);
+                const bgColors = new Float32Array(bgStarCount * 3);
+                const bgSizes = new Float32Array(bgStarCount);
+
+                for (let i = 0; i < bgStarCount; i++) {
+                    const armIdx = i % spiralParams.armCount;
+                    const t = (i / bgStarCount) * spiralParams.armLengths[armIdx] * 12;
+                    const angle = spiralParams.armAngles[armIdx] + t * Math.PI * 2;
+                    const baseRadius = spiralParams.a * Math.exp(spiralParams.b * t);
+
+                    const radialRatio = Math.min(t / 10, 1);
+                    const radialThickness = Math.sqrt(1 - Math.pow(radialRatio, 2)) * baseRadius * 0.9;
+                    const perpAngle = Math.random() * Math.PI * 2;
+                    const perpDist = (Math.random() - 0.5) * radialThickness;
+
+                    let x = Math.cos(angle) * (baseRadius + Math.cos(perpAngle) * perpDist) * spiralParams.ellipseX;
+                    let y = Math.sin(angle) * (baseRadius + Math.sin(perpAngle) * perpDist) * spiralParams.ellipseY;
+
+                    const cosR = Math.cos(spiralParams.rotationAngle);
+                    const sinR = Math.sin(spiralParams.rotationAngle);
+                    const xRot = x * cosR - y * sinR;
+                    const yRot = x * sinR + y * cosR;
+
+                    const zThicknessLinear = spiralParams.zThicknessCenter * (1 - radialRatio * 0.75) +
+                                             spiralParams.zThicknessEdge * radialRatio;
+                    const randomFactor = 1 + (Math.random() - 0.5) * spiralParams.zThicknessNoiseScale * (1 - radialRatio * 0.3);
+                    const zThickness = zThicknessLinear * randomFactor * PARAMS.zThicknessMultiplier;
+                    const zOffset = (Math.random() - 0.5) * zThickness;
+
+                    bgPositions[i * 3] = xRot + stage.centerPos.x;
+                    bgPositions[i * 3 + 1] = yRot + stage.centerPos.y;
+                    bgPositions[i * 3 + 2] = stage.centerPos.z + zOffset;
+
+                    const brightness = 0.08 + Math.random() * 0.15;
+                    bgColors[i * 3] = brightness * 0.4;
+                    bgColors[i * 3 + 1] = brightness * 0.5;
+                    bgColors[i * 3 + 2] = brightness * 0.7;
+                    bgSizes[i] = Math.random() * 0.6 + 0.2;
+                }
+
+                const bgGeometry = new THREE.BufferGeometry();
+                bgGeometry.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
+                bgGeometry.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
+                bgGeometry.setAttribute('size', new THREE.BufferAttribute(bgSizes, 1));
+
+                const bgMaterial = new THREE.PointsMaterial({
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: PARAMS.bgOpacity,
+                    sizeAttenuation: true,
+                    blending: THREE.AdditiveBlending,
+                    map: starTexture,
+                    depthWrite: false
+                });
+
+                galaxyGroup.add(new THREE.Points(bgGeometry, bgMaterial));
+
+                const convexHullPoints = [];
+                const galaxyMemorySprites = [];
+
+                stageMemories.forEach((memory) => {
+                    const locPos = getLocationBasePosition(memory.location);
+                    const memZ = dateToZ(memory.date, stage);
+
+                    const x = locPos.x + stage.centerPos.x + (Math.random() - 0.5) * 2;
+                    const y = locPos.y + stage.centerPos.y + (Math.random() - 0.5) * 2;
+                    const z = memZ + (Math.random() - 0.5) * 2;
+
+                    convexHullPoints.push(new THREE.Vector3(x, y, z));
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256;
+                    canvas.height = 256;
+                    const ctx = canvas.getContext('2d');
+                    const centerX = 128, centerY = 128;
+
+                    const color = new THREE.Color(EMOTION_COLORS[memory.emotion.type]);
+                    const r = Math.floor(color.r * 255);
+                    const g = Math.floor(color.g * 255);
+                    const b = Math.floor(color.b * 255);
+
+                    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 128);
+                    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+                    gradient.addColorStop(0.2, `rgba(${r}, ${g}, ${b}, 0.9)`);
+                    gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.5)`);
+                    gradient.addColorStop(0.8, `rgba(${r}, ${g}, ${b}, 0.1)`);
+                    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, 256, 256);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const spriteMaterial = new THREE.SpriteMaterial({
+                        map: texture,
+                        transparent: true,
+                        blending: THREE.AdditiveBlending,
+                        depthWrite: false
+                    });
+
+                    const sprite = new THREE.Sprite(spriteMaterial);
+                    sprite.position.set(x, y, z);
+
+                    const baseScale = PARAMS.starSizeBase + PARAMS.starSizeIntensity * ((memory.emotion.intensity - 1) / 9);
+                    sprite.scale.set(baseScale, baseScale, 1);
+
+                    sprite.userData = { type: 'memory-star', memory };
+                    galaxyGroup.add(sprite);
+                    galaxyMemorySprites.push(sprite);
+                });
+
+                galaxyGroup.userData.memorySprites = galaxyMemorySprites;
+                memorySprites.push(...galaxyMemorySprites);
+
+                if (convexHullPoints.length >= 4) {
+                    const centerZ = (stage.zStart + stage.zEnd) / 2;
+                    const expandedPoints = convexHullPoints.map(p => {
+                        const center = new THREE.Vector3(stage.centerPos.x, stage.centerPos.y, centerZ);
+                        const dir = p.clone().sub(center).normalize();
+                        return p.clone().add(dir.multiplyScalar(6));
+                    });
+
+                    try {
+                        const convexGeometry = new ConvexGeometry(expandedPoints);
+                        const edges = new THREE.EdgesGeometry(convexGeometry);
+                        const lineMaterial = new THREE.LineDashedMaterial({
+                            color: 0x6366f1,
+                            transparent: true,
+                            opacity: 0.3,
+                            dashSize: 0.8,
+                            gapSize: 0.4
+                        });
+                        const boundary = new THREE.LineSegments(edges, lineMaterial);
+                        boundary.computeLineDistances();
+                        galaxyGroup.add(boundary);
+
+                        const hoverMesh = new THREE.Mesh(convexGeometry, new THREE.MeshBasicMaterial({
+                            transparent: true,
+                            opacity: 0,
+                            side: THREE.DoubleSide,
+                            depthWrite: false
+                        }));
+                        hoverMesh.userData = { type: 'galaxy-hitbox', galaxy: galaxyGroup };
+                        scene.add(hoverMesh);
+                        galaxyBoundingBoxes.push(hoverMesh);
+                    } catch (e) {
+                        console.warn('Convex hull failed for', stage.name);
+                    }
+                }
+
+                scene.add(galaxyGroup);
+                galaxies.push(galaxyGroup);
+            });
+        }
+
+        function updateScene() {
+            createGalaxies();
+        }
+
+        createGalaxies();
+
+        // ========== 交互 ==========
+        let hoveredGalaxy = null;
+
+        canvas.addEventListener('mousemove', (event) => {
+            if (currentView !== 'global') return;
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(galaxyBoundingBoxes);
+
+            if (intersects.length > 0) {
+                const galaxy = intersects[0].object.userData.galaxy;
+                if (hoveredGalaxy !== galaxy) {
+                    if (hoveredGalaxy) resetGalaxyHighlight(hoveredGalaxy);
+                    hoveredGalaxy = galaxy;
+                    highlightGalaxy(galaxy);
+                    canvas.style.cursor = 'pointer';
+                }
+            } else {
+                if (hoveredGalaxy) {
+                    resetGalaxyHighlight(hoveredGalaxy);
+                    hoveredGalaxy = null;
+                    canvas.style.cursor = 'default';
+                }
+            }
+        });
+
+        function highlightGalaxy(galaxy) {
+            galaxy.children.forEach(child => {
+                if (child instanceof THREE.Points) {
+                    child.material.opacity = 0.4;
+                } else if (child instanceof THREE.LineSegments) {
+                    child.material.opacity = 0.9;
+                }
+            });
+        }
+
+        function resetGalaxyHighlight(galaxy) {
+            galaxy.children.forEach(child => {
+                if (child instanceof THREE.Points) {
+                    child.material.opacity = PARAMS.bgOpacity;
+                } else if (child instanceof THREE.LineSegments) {
+                    child.material.opacity = 0.3;
+                }
+            });
+        }
+
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            if (currentView === 'global') {
+                const intersects = raycaster.intersectObjects(galaxyBoundingBoxes);
+                if (intersects.length > 0) {
+                    const galaxy = intersects[0].object.userData.galaxy;
+                    zoomToGalaxy(galaxy);
+                }
+            } else if (currentView === 'stage') {
+                if (selectedGalaxy) {
+                    const sprites = selectedGalaxy.userData.memorySprites;
+                    if (sprites) {
+                        const intersects = raycaster.intersectObjects(sprites);
+                        if (intersects.length > 0) {
+                            const sprite = intersects[0].object;
+                            const memory = sprite.userData.memory;
+                            if (memory) {
+                                showMemoryDetail(memory);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') returnToGlobal();
+        });
+
+        function zoomToGalaxy(galaxy) {
+            selectedGalaxy = galaxy;
+            currentView = 'stage';
+
+            const stage = galaxy.userData.stage;
+            const centerZ = (stage.zStart + stage.zEnd) / 2;
+            const endPos = new THREE.Vector3(stage.centerPos.x, stage.centerPos.y + 30, centerZ + 40);
+            const endTarget = new THREE.Vector3(stage.centerPos.x, stage.centerPos.y, centerZ);
+
+            animateCamera(camera.position.clone(), controls.target.clone(), endPos, endTarget, PARAMS.cameraMoveSpeed);
+
+            // V11新增：进入阶段时创建时间轴
+            createTimeAxis(stage);
+
+            document.querySelectorAll('.stage-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.stage === stage.name);
+            });
+        }
+
+        function returnToGlobal() {
+            currentView = 'global';
+            selectedGalaxy = null;
+            selectedMemory = null;
+
+            const endPos = new THREE.Vector3(0, 60, 250);
+            const endTarget = new THREE.Vector3(0, 0, 114);
+
+            animateCamera(camera.position.clone(), controls.target.clone(), endPos, endTarget, PARAMS.cameraMoveSpeed);
+
+            // V11新增：返回全局视图时移除时间轴
+            removeTimeAxis();
+
+            document.querySelectorAll('.stage-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('similar-memories').classList.remove('active');
+            document.getElementById('memory-editor').disabled = true;
+            document.getElementById('memory-editor').value = '';
+            document.getElementById('editor-meta').textContent = '';
+        }
+
+        function animateCamera(startPos, startTarget, endPos, endTarget, duration) {
+            const startTime = Date.now();
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+                camera.position.lerpVectors(startPos, endPos, eased);
+                controls.target.lerpVectors(startTarget, endTarget, eased);
+
+                if (progress < 1) requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        function showMemoryDetail(memory) {
+            selectedMemory = memory;
+
+            const editor = document.getElementById('memory-editor');
+            editor.value = memory.content;
+            editor.disabled = false;
+
+            const meta = document.getElementById('editor-meta');
+            meta.innerHTML = `
+                <span>${memory.song}</span>
+                <span>•</span>
+                <span>${memory.date}</span>
+                <span>•</span>
+                <span>${memory.location}</span>
+            `;
+
+            showSimilarMemories(memory);
+        }
+
+        function showSimilarMemories(memory) {
+            const similarSection = document.getElementById('similar-memories');
+            similarSection.innerHTML = ''; // 清空内容
+
+            const sameLocation = getFilteredMemories().filter(m =>
+                m.location === memory.location && m.song !== memory.song
+            ).slice(0, 5);
+
+            const sameEmotion = getFilteredMemories().filter(m =>
+                m.emotion.type === memory.emotion.type && m.song !== memory.song
+            ).slice(0, 5);
+
+            const sameStage = getFilteredMemories().filter(m =>
+                m.stage === memory.stage && m.song !== memory.song
+            ).slice(0, 5);
+
+            // 只在有任意一个维度有相似记忆时才显示
+            if (sameLocation.length > 0 || sameEmotion.length > 0 || sameStage.length > 0) {
+                similarSection.classList.add('active');
+
+                // 方案10紧凑表格布局：只添加有数据的行
+                if (sameLocation.length > 0) {
+                    const label = document.createElement('span');
+                    label.className = 'similar-label';
+                    label.textContent = '同地点';
+                    similarSection.appendChild(label);
+
+                    const links = document.createElement('div');
+                    links.className = 'similar-links';
+                    sameLocation.forEach(m => {
+                        const link = document.createElement('button');
+                        link.className = 'similar-link';
+                        link.textContent = m.song;
+                        link.onclick = () => showMemoryDetail(m);
+                        links.appendChild(link);
+                    });
+                    similarSection.appendChild(links);
+                }
+
+                if (sameEmotion.length > 0) {
+                    const label = document.createElement('span');
+                    label.className = 'similar-label';
+                    label.textContent = '同情绪';
+                    similarSection.appendChild(label);
+
+                    const links = document.createElement('div');
+                    links.className = 'similar-links';
+                    sameEmotion.forEach(m => {
+                        const link = document.createElement('button');
+                        link.className = 'similar-link';
+                        link.textContent = m.song;
+                        link.onclick = () => showMemoryDetail(m);
+                        links.appendChild(link);
+                    });
+                    similarSection.appendChild(links);
+                }
+
+                if (sameStage.length > 0) {
+                    const label = document.createElement('span');
+                    label.className = 'similar-label';
+                    label.textContent = '同阶段';
+                    similarSection.appendChild(label);
+
+                    const links = document.createElement('div');
+                    links.className = 'similar-links';
+                    sameStage.forEach(m => {
+                        const link = document.createElement('button');
+                        link.className = 'similar-link';
+                        link.textContent = m.song;
+                        link.onclick = () => showMemoryDetail(m);
+                        links.appendChild(link);
+                    });
+                    similarSection.appendChild(links);
+                }
+            } else {
+                // 没有相似记忆时隐藏整个区域
+                similarSection.classList.remove('active');
+            }
+        }
+
+        document.getElementById('memory-editor').addEventListener('blur', () => {
+            if (selectedMemory) {
+                const newContent = document.getElementById('memory-editor').value;
+                selectedMemory.content = newContent;
+                console.log('Memory saved:', selectedMemory);
+            }
+        });
+
+        // ========== V11核心改动：情绪总结图表（热力图矩阵） ==========
+        const chartCanvas = document.getElementById('emotion-chart');
+        const chartCtx = chartCanvas.getContext('2d');
+
+        function updateEmotionChart() {
+            const memories = getFilteredMemories().sort((a, b) => dateToTimestamp(a.date) - dateToTimestamp(b.date));
+
+            const dpr = window.devicePixelRatio;
+            const w = chartCanvas.width = chartCanvas.clientWidth * dpr;
+            const h = chartCanvas.height = chartCanvas.clientHeight * dpr;
+            chartCtx.clearRect(0, 0, w, h);
+
+            if (memories.length === 0) return;
+
+            const padding = { top: 20 * dpr, right: 15 * dpr, bottom: 30 * dpr, left: 60 * dpr };
+            const chartW = w - padding.left - padding.right;
+            const chartH = h - padding.top - padding.bottom;
+
+            const minYear = 2007;
+            const maxYear = 2027;
+
+            // 按年分桶统计
+            const yearlyData = {};
+            Object.keys(EMOTION_NAMES).forEach(type => {
+                yearlyData[type] = {};
+                for (let year = minYear; year <= maxYear; year++) {
+                    yearlyData[type][year] = 0;
+                }
+            });
+
+            memories.forEach(m => {
+                const year = dateToYear(m.date);
+                if (year && year >= minYear && year <= maxYear) {
+                    yearlyData[m.emotion.type][year]++;
+                }
+            });
+
+            const emotions = Object.keys(EMOTION_NAMES);
+            const years = [];
+            for (let y = minYear; y <= maxYear; y++) years.push(y);
+
+            const cellW = chartW / years.length;
+            const cellH = chartH / emotions.length;
+
+            // 找出最大值用于归一化
+            let maxCount = 0;
+            emotions.forEach(emotion => {
+                years.forEach(year => {
+                    const count = yearlyData[emotion][year];
+                    if (count > maxCount) maxCount = count;
+                });
+            });
+
+            // 绘制矩阵
+            emotions.forEach((emotion, j) => {
+                years.forEach((year, i) => {
+                    const count = yearlyData[emotion][year];
+                    const x = padding.left + i * cellW;
+                    const y = padding.top + j * cellH;
+
+                    // 转换颜色
+                    const colorHex = EMOTION_COLORS[emotion];
+                    const threeColor = new THREE.Color(colorHex);
+                    const r = Math.floor(threeColor.r * 255);
+                    const g = Math.floor(threeColor.g * 255);
+                    const b = Math.floor(threeColor.b * 255);
+
+                    const intensity = maxCount > 0 ? count / maxCount : 0;
+
+                    chartCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${intensity * 0.9})`;
+                    chartCtx.fillRect(x, y, cellW, cellH);
+
+                    chartCtx.strokeStyle = '#fff';
+                    chartCtx.lineWidth = 0.5 * dpr;
+                    chartCtx.strokeRect(x, y, cellW, cellH);
+
+                    // 数字标注
+                    if (count > 0) {
+                        chartCtx.fillStyle = intensity > 0.5 ? '#fff' : '#000';
+                        chartCtx.font = `${7 * dpr}px Arial`;
+                        chartCtx.textAlign = 'center';
+                        chartCtx.textBaseline = 'middle';
+                        chartCtx.fillText(count, x + cellW / 2, y + cellH / 2);
+                    }
+                });
+            });
+
+            // Y轴标签（情绪名称）
+            chartCtx.fillStyle = '#000';
+            chartCtx.font = `${8 * dpr}px Arial`;
+            chartCtx.textAlign = 'right';
+            chartCtx.textBaseline = 'middle';
+            emotions.forEach((emotion, j) => {
+                const y = padding.top + j * cellH + cellH / 2;
+                chartCtx.fillText(EMOTION_NAMES[emotion], padding.left - 6 * dpr, y);
+            });
+
+            // X轴标签
+            chartCtx.textAlign = 'center';
+            chartCtx.textBaseline = 'top';
+            years.forEach((year, i) => {
+                if (i % 3 === 0) {
+                    const x = padding.left + i * cellW + cellW / 2;
+                    chartCtx.fillText(year, x, h - padding.bottom + 4 * dpr);
+                }
+            });
+        }
+
+        updateEmotionChart();
+
+        // ========== 分隔符拖拽 ==========
+        let splitterDrag = null;
+
+        document.getElementById('splitter-v').addEventListener('mousedown', (e) => {
+            splitterDrag = {
+                type: 'vertical',
+                startX: e.clientX,
+                startWidth: document.getElementById('right-panel').clientWidth
+            };
+            document.body.style.cursor = 'col-resize';
+            document.getElementById('splitter-v').classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.getElementById('splitter-h').addEventListener('mousedown', (e) => {
+            splitterDrag = {
+                type: 'horizontal',
+                startY: e.clientY,
+                startHeight: document.getElementById('top-section').clientHeight
+            };
+            document.body.style.cursor = 'row-resize';
+            document.getElementById('splitter-h').classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!splitterDrag) return;
+
+            if (splitterDrag.type === 'vertical') {
+                const delta = splitterDrag.startX - e.clientX;
+                const newWidth = Math.max(280, Math.min(splitterDrag.startWidth + delta, window.innerWidth - 300));
+                document.getElementById('right-panel').style.width = newWidth + 'px';
+                updateRendererSize();
+                updateEmotionChart();
+            } else {
+                const delta = e.clientY - splitterDrag.startY;
+                const newHeight = Math.max(140, splitterDrag.startHeight + delta);
+                document.getElementById('top-section').style.flex = `0 0 ${newHeight}px`;
+                updateEmotionChart();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (splitterDrag) {
+                document.body.style.cursor = '';
+                document.querySelectorAll('.splitter-vertical, .splitter-horizontal').forEach(s => s.classList.remove('dragging'));
+                splitterDrag = null;
+            }
+        });
+
+        // ========== 动画循环 ==========
+        function animate() {
+            requestAnimationFrame(animate);
+            galaxies.forEach(g => g.rotation.z += 0.0002);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // ========== 窗口调整 ==========
+        window.addEventListener('resize', () => {
+            updateRendererSize();
+            updateEmotionChart();
+        });
+
+        // ========== 初始化 ==========
+        initFilters();
+        initParams();
+        initStageNav();
+    </script>
+</body>
+</html>
