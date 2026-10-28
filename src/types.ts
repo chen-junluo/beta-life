@@ -54,6 +54,7 @@ export interface AiSettings {
   knowledgeImportPrompt: string;
   recallPointsPrompt: string;
   recallEvaluationPrompt: string;
+  memoryAnalysisPrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -245,4 +246,42 @@ export interface RecallEvaluationDraft {
   items: ReviewItem[];
   nextReviewAt: string;
   message?: string;
+}
+
+// Memory Constellation Types
+export type EmotionType = "nostalgic" | "melancholic" | "excited" | "calm" | "confused" | "warm";
+
+export interface Emotion {
+  type: EmotionType;
+  intensity: number; // 0-10
+}
+
+export interface Memory {
+  id: string;
+  song: string;
+  date: string; // 支持 "2021Q2", "20220102", "高考完暑假" 等
+  stage: string;
+  location: string;
+  emotion: Emotion;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryMetadata {
+  id: string;
+  song: string;
+  date: string;
+  stage?: string;
+  location: string;
+  emotion: Emotion;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LifeStage {
+  name: string;
+  start: string; // YYYY-MM
+  end: string;   // YYYY-MM
+  color?: string;
 }

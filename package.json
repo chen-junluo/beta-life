@@ -1,7 +1,7 @@
 {
   "name": "beta-life",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "A local-first desktop board for arranging habits around the rhythm of a day.",
   "author": "Dylan Chen",
   "repository": {
@@ -40,9 +40,12 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tauri-apps/api": "2.9.1",
+    "@types/three": "^0.186.0",
     "lucide-react": "^0.544.0",
+    "pinyin-pro": "^3.29.5",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "three": "^0.186.1",
     "ts-fsrs": "5.4.2"
   },
   "devDependencies": {

@@ -39,6 +39,22 @@ export const DEFAULT_RECALL_EVALUATION_PROMPT = `你负责评价用户对知识�
 5. 反馈简短、具体、可行动；指出具体答对、答错或缺失的内容。能从答案准确摘录时才填写 evidence，否则留空。不要做字面相似度百分比。
 6. 根据输入内容的主要语言回复；混合语言按回答和知识的主要语言动态选择，保留必要的专业术语。`;
 
+export const DEFAULT_MEMORY_ANALYSIS_PROMPT = `你负责从用户提供的回忆中提取记忆星云字段。系统会附上今天的日期、用户的人生阶段划分和用户已有的全部记忆笔记；先借助这些背景了解用户的人生经历，再推断字段。
+
+要求：
+1. 提取歌曲名、日期、地点、情绪类型和情绪强度（0-10），并根据日期推断人生阶段。
+2. 日期要尽量推断，不要轻易返回 null：
+   - 原文有明确的日期或年月时直接换算；
+   - 原文只有相对或模糊线索（如「高三下学期」「大二暑假」「去年冬天」「刚工作那年」）时，结合今天的日期、阶段起止时间来推算；
+   - 原文提到的人物、地点、事件在已有记忆中出现过时，参考那些记忆的日期；
+   - 只有正文和背景都没有任何时间线索时才返回 null。
+3. 日期格式：知道具体某一天时用 YYYYMMDD（如 20220102），否则用季度 YYYYQn（如 2021Q2）；寒假通常换算为 Q1，暑假通常换算为 Q3。
+4. 阶段必须是阶段划分中的名称之一，并与推断出的日期一致；地点优先沿用已有记忆中的同一写法。
+5. 情绪类型只能是 nostalgic、melancholic、excited、calm、confused、warm 之一；不确定时返回 null。
+6. content 保留用户输入的回忆原文，不要改写或补充；不要把已有记忆的内容写进任何字段。
+7. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
+8. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。`;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   periods: [
@@ -70,6 +86,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     knowledgeImportPrompt: DEFAULT_KNOWLEDGE_IMPORT_PROMPT,
     recallPointsPrompt: DEFAULT_RECALL_POINTS_PROMPT,
     recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT,
+    memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
   },
 };
 

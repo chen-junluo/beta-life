@@ -67,6 +67,32 @@ const DEFAULT_RECALL_EVALUATION_PROMPT: &str = r#"你负责评价用户对知识
 5. 反馈简短、具体、可行动；指出具体答对、答错或缺失的内容。能从答案准确摘录时才填写 evidence，否则留空。不要做字面相似度百分比。
 6. 根据输入内容的主要语言回复；混合语言按回答和知识的主要语言动态选择，保留必要的专业术语。"#;
 
+const DEFAULT_MEMORY_ANALYSIS_PROMPT: &str = r#"你负责从用户提供的回忆中提取记忆星云字段。系统会附上今天的日期、用户的人生阶段划分和用户已有的全部记忆笔记；先借助这些背景了解用户的人生经历，再推断字段。
+
+要求：
+1. 提取歌曲名、日期、地点、情绪类型和情绪强度（0-10），并根据日期推断人生阶段。
+2. 日期要尽量推断，不要轻易返回 null：
+   - 原文有明确的日期或年月时直接换算；
+   - 原文只有相对或模糊线索（如「高三下学期」「大二暑假」「去年冬天」「刚工作那年」）时，结合今天的日期、阶段起止时间来推算；
+   - 原文提到的人物、地点、事件在已有记忆中出现过时，参考那些记忆的日期；
+   - 只有正文和背景都没有任何时间线索时才返回 null。
+3. 日期格式：知道具体某一天时用 YYYYMMDD（如 20220102），否则用季度 YYYYQn（如 2021Q2）；寒假通常换算为 Q1，暑假通常换算为 Q3。
+4. 阶段必须是阶段划分中的名称之一，并与推断出的日期一致；地点优先沿用已有记忆中的同一写法。
+5. 情绪类型只能是 nostalgic、melancholic、excited、calm、confused、warm 之一；不确定时返回 null。
+6. content 保留用户输入的回忆原文，不要改写或补充；不要把已有记忆的内容写进任何字段。
+7. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
+8. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。"#;
+
+const LEGACY_DEFAULT_MEMORY_ANALYSIS_PROMPT: &str = r#"你负责从用户提供的回忆中提取记忆星云字段。
+
+要求：
+1. 提取歌曲名、日期、地点、情绪类型和情绪强度（0-10），并根据日期推断人生阶段。
+2. 日期可以是季度（2021Q2）、具体日期（20220102）或原文中的模糊时间描述；无法可靠推断时返回 null。
+3. 情绪类型只能是 nostalgic、melancholic、excited、calm、confused、warm 之一；不确定时返回 null。
+4. content 保留用户输入的回忆原文，不要改写或补充。
+5. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
+6. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。"#;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BoardFile {
@@ -180,6 +206,8 @@ struct AiSettings {
     recall_points_prompt: String,
     #[serde(default = "default_recall_evaluation_prompt")]
     recall_evaluation_prompt: String,
+    #[serde(default = "default_memory_analysis_prompt")]
+    memory_analysis_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +393,83 @@ struct ReviewRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     parameters: Option<Value>,
 }
+
+// ========== Memory Constellation Structures ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LifeStage {
+    name: String,
+    start: String, // "2007-09"
+    end: String,   // "2013-08"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryEmotion {
+    #[serde(rename = "type")]
+    emotion_type: String, // nostalgic, melancholic, excited, calm, confused, warm
+    intensity: u8, // 0-10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Memory {
+    id: String,
+    song: String,
+    date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stage: Option<String>,
+    location: String,
+    emotion: MemoryEmotion,
+    content: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryIndex {
+    schema_version: u8,
+    memories: Vec<MemoryMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryMetadata {
+    id: String,
+    song: String,
+    date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stage: Option<String>,
+    location: String,
+    emotion: MemoryEmotion,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParsedMemoryResult {
+    song: Option<String>,
+    date: Option<String>,
+    stage: Option<String>,
+    location: Option<String>,
+    emotion: Option<ParsedMemoryEmotion>,
+    content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParsedMemoryEmotion {
+    #[serde(rename = "type")]
+    emotion_type: Option<String>,
+    intensity: Option<i16>,
+}
+
+// ========== End Memory Constellation Structures ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -593,6 +698,7 @@ fn default_settings() -> AppSettings {
             knowledge_import_prompt: DEFAULT_KNOWLEDGE_IMPORT_PROMPT.into(),
             recall_points_prompt: DEFAULT_RECALL_POINTS_PROMPT.into(),
             recall_evaluation_prompt: DEFAULT_RECALL_EVALUATION_PROMPT.into(),
+            memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
         },
     }
 }
@@ -613,6 +719,10 @@ fn default_recall_evaluation_prompt() -> String {
     DEFAULT_RECALL_EVALUATION_PROMPT.into()
 }
 
+fn default_memory_analysis_prompt() -> String {
+    DEFAULT_MEMORY_ANALYSIS_PROMPT.into()
+}
+
 fn migrate_recall_evaluation_prompt(settings: &mut AppSettings) -> bool {
     if settings.ai.recall_evaluation_prompt == LEGACY_DEFAULT_RECALL_EVALUATION_PROMPT {
         settings.ai.recall_evaluation_prompt = DEFAULT_RECALL_EVALUATION_PROMPT.into();
@@ -622,10 +732,21 @@ fn migrate_recall_evaluation_prompt(settings: &mut AppSettings) -> bool {
     }
 }
 
+fn migrate_memory_analysis_prompt(settings: &mut AppSettings) -> bool {
+    if settings.ai.memory_analysis_prompt == LEGACY_DEFAULT_MEMORY_ANALYSIS_PROMPT {
+        settings.ai.memory_analysis_prompt = DEFAULT_MEMORY_ANALYSIS_PROMPT.into();
+        true
+    } else {
+        false
+    }
+}
+
 fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app)?;
     let mut settings = load_or_create(&path, default_settings, validate_settings)?;
-    if migrate_recall_evaluation_prompt(&mut settings) {
+    let migrated_recall = migrate_recall_evaluation_prompt(&mut settings);
+    let migrated_memory = migrate_memory_analysis_prompt(&mut settings);
+    if migrated_recall || migrated_memory {
         atomic_write(&path, &settings)?;
     }
     Ok(settings)
@@ -737,6 +858,35 @@ fn ability_forest_root(app: &AppHandle) -> Result<PathBuf, String> {
     fs::create_dir_all(root.join("nodes"))
         .map_err(|error| format!("无法创建能力森林目录：{error}"))?;
     Ok(root)
+}
+
+fn memories_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = app_data_dir(app)?.join("memories");
+    fs::create_dir_all(root.join("nodes")).map_err(|error| format!("无法创建记忆目录：{error}"))?;
+    Ok(root)
+}
+
+fn life_stages_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(memories_root(app)?.join("life-stages.json"))
+}
+
+fn memories_index_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(memories_root(app)?.join("index.json"))
+}
+
+fn valid_memory_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 120
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn memory_markdown_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    if !valid_memory_id(id) {
+        return Err("记忆 ID 格式无效".into());
+    }
+    Ok(memories_root(app)?.join("nodes").join(format!("{id}.md")))
 }
 
 fn ability_forest_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -2064,16 +2214,7 @@ async fn call_provider(
     settings: &AiSettings,
     messages: Vec<Value>,
 ) -> Result<(String, Option<String>), String> {
-    let mut body = json!({
-        "model": settings.model,
-        "messages": messages,
-        "temperature": settings.temperature,
-        "max_tokens": settings.max_tokens,
-        "stream": false
-    });
-    if settings.use_json_mode {
-        body["response_format"] = json!({"type": "json_object"});
-    }
+    let body = provider_request_body(settings, messages);
     let response = client
         .post(endpoint)
         .bearer_auth(key)
@@ -2110,6 +2251,20 @@ async fn call_provider(
         .and_then(Value::as_str)
         .map(str::to_string);
     Ok((content.to_string(), finish_reason))
+}
+
+fn provider_request_body(settings: &AiSettings, messages: Vec<Value>) -> Value {
+    let mut body = json!({
+        "model": settings.model,
+        "messages": messages,
+        "temperature": settings.temperature,
+        "max_tokens": settings.max_tokens,
+        "stream": false
+    });
+    if settings.use_json_mode {
+        body["response_format"] = json!({"type": "json_object"});
+    }
+    body
 }
 
 #[tauri::command]
@@ -2183,6 +2338,442 @@ async fn generate_ai_response(
     ))
 }
 
+// ========== Memory Constellation Commands ==========
+
+#[tauri::command]
+fn load_life_stages(app: AppHandle) -> Result<Vec<LifeStage>, String> {
+    let path = life_stages_path(&app)?;
+    if !path.exists() {
+        // 返回默认阶段
+        return Ok(vec![
+            LifeStage {
+                name: "小学".into(),
+                start: "2007-09".into(),
+                end: "2013-08".into(),
+                color: Some("#7FB77E".into()),
+            },
+            LifeStage {
+                name: "初中".into(),
+                start: "2013-09".into(),
+                end: "2016-08".into(),
+                color: Some("#5A9FD4".into()),
+            },
+            LifeStage {
+                name: "高中".into(),
+                start: "2016-09".into(),
+                end: "2019-08".into(),
+                color: Some("#E9A568".into()),
+            },
+            LifeStage {
+                name: "本科".into(),
+                start: "2019-09".into(),
+                end: "2023-08".into(),
+                color: Some("#D47C7C".into()),
+            },
+            LifeStage {
+                name: "PhD".into(),
+                start: "2023-09".into(),
+                end: "2027-08".into(),
+                color: Some("#9B87C7".into()),
+            },
+        ]);
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|error| format!("无法读取阶段配置：{error}"))?;
+    serde_json::from_str(&content).map_err(|error| format!("阶段配置格式无效：{error}"))
+}
+
+#[tauri::command]
+fn save_life_stages(app: AppHandle, stages: Vec<LifeStage>) -> Result<(), String> {
+    let path = life_stages_path(&app)?;
+    let content = serde_json::to_string_pretty(&stages)
+        .map_err(|error| format!("无法序列化阶段配置：{error}"))?;
+    fs::write(&path, content).map_err(|error| format!("无法保存阶段配置：{error}"))
+}
+
+#[tauri::command]
+fn list_memories(app: AppHandle) -> Result<Vec<MemoryMetadata>, String> {
+    let index_path = memories_index_path(&app)?;
+    if !index_path.exists() {
+        return Ok(Vec::new());
+    }
+    let content =
+        fs::read_to_string(&index_path).map_err(|error| format!("无法读取记忆索引：{error}"))?;
+    let index: MemoryIndex =
+        serde_json::from_str(&content).map_err(|error| format!("记忆索引格式无效：{error}"))?;
+    Ok(index.memories)
+}
+
+#[tauri::command]
+fn read_memory(app: AppHandle, id: String) -> Result<Memory, String> {
+    let path = memory_markdown_path(&app, &id)?;
+    if !path.exists() {
+        return Err("记忆不存在".into());
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|error| format!("无法读取记忆文件：{error}"))?;
+    parse_memory_markdown(&id, &content)
+}
+
+#[tauri::command]
+fn save_memory(app: AppHandle, memory: Memory) -> Result<(), String> {
+    let path = memory_markdown_path(&app, &memory.id)?;
+    let markdown = format_memory_markdown(&memory);
+    fs::write(&path, markdown).map_err(|error| format!("无法保存记忆文件：{error}"))?;
+
+    // 更新索引
+    update_memory_index(&app, &memory)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_memory(app: AppHandle, id: String) -> Result<(), String> {
+    let path = memory_markdown_path(&app, &id)?;
+    if path.exists() {
+        fs::remove_file(&path).map_err(|error| format!("无法删除记忆文件：{error}"))?;
+    }
+
+    // 从索引中移除
+    remove_from_memory_index(&app, &id)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn parse_memory_with_ai(
+    app: AppHandle,
+    text: String,
+    today: String,
+) -> Result<ParsedMemoryResult, String> {
+    let settings = load_settings(&app)?;
+    let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
+    let stages = load_life_stages(app.clone())?;
+    let configured_prompt = if settings.ai.memory_analysis_prompt.trim().is_empty() {
+        DEFAULT_MEMORY_ANALYSIS_PROMPT
+    } else {
+        &settings.ai.memory_analysis_prompt
+    };
+    // The full notes collection gives the model enough life context to infer relative dates.
+    let memories = list_memories(app.clone())?
+        .into_iter()
+        .filter_map(|metadata| read_memory(app.clone(), metadata.id).ok())
+        .collect::<Vec<_>>();
+    let system_prompt =
+        memory_analysis_system_prompt(configured_prompt, &stages, &today, &memories);
+
+    let base = settings.ai.base_url.trim().trim_end_matches('/');
+    let endpoint = if base.ends_with("/chat/completions") {
+        base.to_string()
+    } else {
+        format!("{base}/chat/completions")
+    };
+
+    let messages = vec![
+        json!({
+            "role": "system",
+            "content": system_prompt
+        }),
+        json!({
+            "role": "user",
+            "content": text
+        }),
+    ];
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|error| format!("无法初始化 AI 客户端：{error}"))?;
+
+    let (content, _) = call_provider(&client, &endpoint, &key, &settings.ai, messages).await?;
+
+    let mut parsed: ParsedMemoryResult = serde_json::from_str(&content)
+        .map_err(|error| format!("AI 记忆分析未返回有效 JSON：{error}"))?;
+    parsed.date = parsed.date.filter(|date| !date.trim().is_empty());
+    parsed.stage = parsed.stage.filter(|stage| !stage.trim().is_empty());
+    validate_parsed_memory_result(&parsed, &stages)?;
+    parsed.content = text;
+    Ok(parsed)
+}
+
+fn memory_analysis_system_prompt(
+    prompt: &str,
+    stages: &[LifeStage],
+    today: &str,
+    memories: &[Memory],
+) -> String {
+    let stages_info = stages
+        .iter()
+        .map(|stage| format!("{}: {} 至 {}", stage.name, stage.start, stage.end))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let or_blank = |value: &str| {
+        if value.trim().is_empty() {
+            "未填".to_string()
+        } else {
+            value.trim().to_string()
+        }
+    };
+    let mut sorted = memories.iter().collect::<Vec<_>>();
+    sorted.sort_by(|a, b| a.date.cmp(&b.date));
+    let memories_info = if sorted.is_empty() {
+        "（暂无）".to_string()
+    } else {
+        sorted
+            .iter()
+            .map(|memory| {
+                format!(
+                    "【{}】日期：{}；阶段：{}；地点：{}；情绪：{} {}\n{}",
+                    or_blank(&memory.song),
+                    or_blank(&memory.date),
+                    or_blank(memory.stage.as_deref().unwrap_or("")),
+                    or_blank(&memory.location),
+                    memory.emotion.emotion_type,
+                    memory.emotion.intensity,
+                    memory.content.trim()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    format!(
+        "{}\n\n自然语言字段应跟随用户输入内容的主要语言；固定情绪代码和 JSON 字段名除外。\n\n今天的日期：{}\n\n当前阶段划分：\n{}\n\n用户已有的全部记忆笔记（共 {} 条，按日期排序）。它们只用于了解用户的人生经历、推断本次回忆的字段，不要把其中的内容写进输出：\n{}\n\nJSON 输出协议：只返回一个有效 JSON object，不要附加 Markdown 代码块或解释。必须包含 song、date、stage、location、emotion、content 字段；无法确定的字段使用 null。date 必须是 YYYYQn（季度，如 2021Q2）或 YYYYMMDD（具体某天，如 20220102）格式，或 null。stage 必须是上方阶段划分中的名称之一，或 null。emotion 可为 null，或包含 type（nostalgic、melancholic、excited、calm、confused、warm 之一或 null）和 intensity（0 到 10 的整数或 null）。content 必须是字符串。",
+        prompt.trim(),
+        today.trim(),
+        stages_info,
+        sorted.len(),
+        memories_info
+    )
+}
+
+/// Memory dates the constellation can place: a quarter (2021Q2) or a calendar day (20220102).
+fn valid_memory_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    match bytes.len() {
+        6 => {
+            bytes[..4].iter().all(u8::is_ascii_digit)
+                && bytes[4] == b'Q'
+                && (b'1'..=b'4').contains(&bytes[5])
+        }
+        8 => {
+            bytes.iter().all(u8::is_ascii_digit)
+                && (1..=12).contains(&value[4..6].parse::<u8>().unwrap_or(0))
+                && (1..=31).contains(&value[6..8].parse::<u8>().unwrap_or(0))
+        }
+        _ => false,
+    }
+}
+
+fn validate_parsed_memory_result(
+    result: &ParsedMemoryResult,
+    stages: &[LifeStage],
+) -> Result<(), String> {
+    if result.content.trim().is_empty() {
+        return Err("AI 返回的记忆正文为空；请检查输入并重新分析".into());
+    }
+    if let Some(date) = &result.date {
+        if !valid_memory_date(date) {
+            return Err(format!(
+                "AI 返回的日期格式无效：{date}；应为 YYYYQn、YYYYMMDD 或 null"
+            ));
+        }
+    }
+    if let Some(stage) = &result.stage {
+        if !stages.iter().any(|item| &item.name == stage) {
+            return Err(format!("AI 返回的阶段不在阶段划分中：{stage}"));
+        }
+    }
+    if let Some(emotion) = &result.emotion {
+        if let Some(emotion_type) = &emotion.emotion_type {
+            if !matches!(
+                emotion_type.as_str(),
+                "nostalgic" | "melancholic" | "excited" | "calm" | "confused" | "warm"
+            ) {
+                return Err(format!(
+                    "AI 返回的情绪类型无效：{emotion_type}；应为 nostalgic、melancholic、excited、calm、confused、warm 或 null"
+                ));
+            }
+        }
+        if let Some(intensity) = emotion.intensity {
+            if !(0..=10).contains(&intensity) {
+                return Err(format!("AI 返回的情绪强度超出 0-10 范围：{intensity}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+// Helper functions
+
+fn parse_memory_markdown(id: &str, content: &str) -> Result<Memory, String> {
+    let parts: Vec<&str> = content.splitn(2, "---").collect();
+    if parts.len() < 2 {
+        return Err("记忆文件格式无效：缺少 frontmatter".into());
+    }
+
+    let frontmatter_parts: Vec<&str> = parts[1].splitn(2, "---").collect();
+    if frontmatter_parts.len() < 2 {
+        return Err("记忆文件格式无效：frontmatter 未正确闭合".into());
+    }
+
+    let frontmatter_str = frontmatter_parts[0].trim();
+    let body = frontmatter_parts[1].trim();
+
+    // 解析 YAML frontmatter（简单实现）
+    let mut song = String::new();
+    let mut date = String::new();
+    let mut stage = None;
+    let mut location = String::new();
+    let mut emotion_type = String::new();
+    let mut emotion_intensity = 0u8;
+    let mut created_at = String::new();
+    let mut updated_at = String::new();
+
+    let mut in_emotion = false;
+    for line in frontmatter_str.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with("emotion:") {
+            in_emotion = true;
+            continue;
+        }
+
+        if in_emotion {
+            if line.starts_with("type:") {
+                emotion_type = line.split(':').nth(1).unwrap_or("").trim().to_string();
+            } else if line.starts_with("intensity:") {
+                emotion_intensity = line
+                    .split(':')
+                    .nth(1)
+                    .unwrap_or("0")
+                    .trim()
+                    .parse()
+                    .unwrap_or(0);
+            } else if !line.starts_with(' ') && line.contains(':') {
+                in_emotion = false;
+            }
+        }
+
+        if !in_emotion && line.contains(':') {
+            let parts: Vec<&str> = line.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let key = parts[0].trim();
+                let value = parts[1].trim().to_string();
+                match key {
+                    "song" => song = value,
+                    "date" => date = value,
+                    "stage" => stage = if value.is_empty() { None } else { Some(value) },
+                    "location" => location = value,
+                    "createdAt" | "created_at" => created_at = value,
+                    "updatedAt" | "updated_at" => updated_at = value,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(Memory {
+        id: id.to_string(),
+        song,
+        date,
+        stage,
+        location,
+        emotion: MemoryEmotion {
+            emotion_type,
+            intensity: emotion_intensity,
+        },
+        content: body.to_string(),
+        created_at,
+        updated_at,
+    })
+}
+
+fn format_memory_markdown(memory: &Memory) -> String {
+    format!(
+        r#"---
+song: {}
+date: {}
+{}location: {}
+emotion:
+  type: {}
+  intensity: {}
+createdAt: {}
+updatedAt: {}
+---
+
+{}
+"#,
+        memory.song,
+        memory.date,
+        memory
+            .stage
+            .as_ref()
+            .map(|s| format!("stage: {}\n", s))
+            .unwrap_or_default(),
+        memory.location,
+        memory.emotion.emotion_type,
+        memory.emotion.intensity,
+        memory.created_at,
+        memory.updated_at,
+        memory.content
+    )
+}
+
+fn update_memory_index(app: &AppHandle, memory: &Memory) -> Result<(), String> {
+    let index_path = memories_index_path(app)?;
+    let mut index = if index_path.exists() {
+        let content = fs::read_to_string(&index_path)
+            .map_err(|error| format!("无法读取记忆索引：{error}"))?;
+        serde_json::from_str::<MemoryIndex>(&content)
+            .map_err(|error| format!("记忆索引格式无效：{error}"))?
+    } else {
+        MemoryIndex {
+            schema_version: SCHEMA_VERSION,
+            memories: Vec::new(),
+        }
+    };
+
+    // 移除旧的元数据（如果存在）
+    index.memories.retain(|m| m.id != memory.id);
+
+    // 添加新的元数据
+    index.memories.push(MemoryMetadata {
+        id: memory.id.clone(),
+        song: memory.song.clone(),
+        date: memory.date.clone(),
+        stage: memory.stage.clone(),
+        location: memory.location.clone(),
+        emotion: memory.emotion.clone(),
+        created_at: memory.created_at.clone(),
+        updated_at: memory.updated_at.clone(),
+    });
+
+    let content = serde_json::to_string_pretty(&index)
+        .map_err(|error| format!("无法序列化记忆索引：{error}"))?;
+    fs::write(&index_path, content).map_err(|error| format!("无法保存记忆索引：{error}"))
+}
+
+fn remove_from_memory_index(app: &AppHandle, id: &str) -> Result<(), String> {
+    let index_path = memories_index_path(app)?;
+    if !index_path.exists() {
+        return Ok(());
+    }
+
+    let content =
+        fs::read_to_string(&index_path).map_err(|error| format!("无法读取记忆索引：{error}"))?;
+    let mut index: MemoryIndex =
+        serde_json::from_str(&content).map_err(|error| format!("记忆索引格式无效：{error}"))?;
+
+    index.memories.retain(|m| m.id != id);
+
+    let content = serde_json::to_string_pretty(&index)
+        .map_err(|error| format!("无法序列化记忆索引：{error}"))?;
+    fs::write(&index_path, content).map_err(|error| format!("无法保存记忆索引：{error}"))
+}
+
+// ========== End Memory Constellation Commands ==========
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2209,6 +2800,13 @@ pub fn run() {
             draft_recall_points,
             generate_recall_evaluation,
             generate_ai_response,
+            load_life_stages,
+            save_life_stages,
+            list_memories,
+            read_memory,
+            save_memory,
+            delete_memory,
+            parse_memory_with_ai,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Beta Life");
@@ -2347,6 +2945,158 @@ mod tests {
             custom.ai.recall_evaluation_prompt,
             "Keep my custom instructions"
         );
+    }
+
+    #[test]
+    fn older_settings_get_a_separate_default_memory_analysis_prompt() {
+        let mut legacy = serde_json::to_value(default_settings()).unwrap();
+        legacy["ai"]
+            .as_object_mut()
+            .unwrap()
+            .remove("memoryAnalysisPrompt");
+
+        let loaded: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            loaded.ai.memory_analysis_prompt,
+            DEFAULT_MEMORY_ANALYSIS_PROMPT
+        );
+        assert_ne!(
+            loaded.ai.memory_analysis_prompt,
+            loaded.ai.extraction_prompt
+        );
+    }
+
+    #[test]
+    fn memory_analysis_prompt_and_provider_request_use_the_json_protocol() {
+        let stages = vec![LifeStage {
+            name: "本科".into(),
+            start: "2019-09".into(),
+            end: "2023-08".into(),
+            color: None,
+        }];
+        let memories = vec![Memory {
+            id: "memory-1".into(),
+            song: "晴天".into(),
+            date: "2021Q2".into(),
+            stage: Some("本科".into()),
+            location: "校园".into(),
+            emotion: MemoryEmotion {
+                emotion_type: "warm".into(),
+                intensity: 8,
+            },
+            content: "校庆夜里和室友走回宿舍。".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }];
+        let prompt = memory_analysis_system_prompt(
+            "Extract memory fields.",
+            &stages,
+            "2026-10-28",
+            &memories,
+        );
+        assert!(prompt.contains("JSON"));
+        assert!(prompt.contains("本科: 2019-09 至 2023-08"));
+        assert!(prompt.contains("今天的日期：2026-10-28"));
+        assert!(prompt.contains("共 1 条"));
+        assert!(prompt.contains(
+            "【晴天】日期：2021Q2；阶段：本科；地点：校园；情绪：warm 8\n校庆夜里和室友走回宿舍。"
+        ));
+        assert!(
+            memory_analysis_system_prompt("x", &stages, "2026-10-28", &[]).contains("（暂无）")
+        );
+
+        let settings = default_settings();
+        let body = provider_request_body(
+            &settings.ai,
+            vec![json!({ "role": "system", "content": prompt })],
+        );
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert!(body["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("JSON"));
+
+        let mut non_json_settings = settings.ai.clone();
+        non_json_settings.use_json_mode = false;
+        let body = provider_request_body(&non_json_settings, vec![json!({ "role": "user" })]);
+        assert!(body.get("response_format").is_none());
+    }
+
+    #[test]
+    fn parsed_memory_response_rejects_invalid_emotion_values() {
+        let valid: ParsedMemoryResult = serde_json::from_str(
+            r#"{"song":null,"date":null,"stage":null,"location":null,"emotion":{"type":"warm","intensity":10},"content":"A vivid memory."}"#,
+        )
+        .unwrap();
+        assert!(validate_parsed_memory_result(&valid, &[]).is_ok());
+
+        let invalid: ParsedMemoryResult = serde_json::from_str(
+            r#"{"song":null,"date":null,"stage":null,"location":null,"emotion":{"type":"unknown","intensity":11},"content":"A vivid memory."}"#,
+        )
+        .unwrap();
+        assert!(validate_parsed_memory_result(&invalid, &[])
+            .unwrap_err()
+            .contains("情绪类型无效"));
+
+        let invalid_intensity: ParsedMemoryResult = serde_json::from_str(
+            r#"{"song":null,"date":null,"stage":null,"location":null,"emotion":{"type":"warm","intensity":11},"content":"A vivid memory."}"#,
+        )
+        .unwrap();
+        assert!(validate_parsed_memory_result(&invalid_intensity, &[])
+            .unwrap_err()
+            .contains("强度超出 0-10"));
+    }
+
+    #[test]
+    fn parsed_memory_response_requires_placeable_dates_and_known_stages() {
+        let stages = vec![LifeStage {
+            name: "本科".into(),
+            start: "2019-09".into(),
+            end: "2023-08".into(),
+            color: None,
+        }];
+        let parse = |date: &str, stage: &str| -> ParsedMemoryResult {
+            serde_json::from_str(&format!(
+                r#"{{"song":null,"date":{date},"stage":{stage},"location":null,"emotion":null,"content":"A vivid memory."}}"#
+            ))
+            .unwrap()
+        };
+        for date in ["\"2021Q2\"", "\"20220102\"", "null"] {
+            assert!(
+                validate_parsed_memory_result(&parse(date, "\"本科\""), &stages).is_ok(),
+                "{date}"
+            );
+        }
+        for date in [
+            "\"高考完暑假\"",
+            "\"2021Q5\"",
+            "\"20221301\"",
+            "\"2025-08\"",
+        ] {
+            assert!(validate_parsed_memory_result(&parse(date, "null"), &stages)
+                .unwrap_err()
+                .contains("日期格式无效"));
+        }
+        assert!(
+            validate_parsed_memory_result(&parse("null", "\"高中\""), &stages)
+                .unwrap_err()
+                .contains("不在阶段划分中")
+        );
+    }
+
+    #[test]
+    fn migrates_only_the_builtin_memory_analysis_prompt() {
+        let mut legacy = default_settings();
+        legacy.ai.memory_analysis_prompt = LEGACY_DEFAULT_MEMORY_ANALYSIS_PROMPT.into();
+        assert!(migrate_memory_analysis_prompt(&mut legacy));
+        assert_eq!(
+            legacy.ai.memory_analysis_prompt,
+            DEFAULT_MEMORY_ANALYSIS_PROMPT
+        );
+
+        let mut custom = default_settings();
+        custom.ai.memory_analysis_prompt = "Keep my custom instructions".into();
+        assert!(!migrate_memory_analysis_prompt(&mut custom));
     }
 
     #[test]

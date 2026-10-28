@@ -9,6 +9,7 @@ import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { WorkspaceDrawer, type WorkspaceSection } from "./components/WorkspaceDrawer";
+import { MemoriesView } from "./components/MemoriesView";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import type {
@@ -409,7 +410,7 @@ export default function App() {
           <div className="brand-lockup">
             <div className="brand-copy">
               <h1>beta-life</h1>
-              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : activeSection === "recall" ? "Recall Space · 本地知识" : `能力森林 · ${state.abilityForest.nodes.length} 个节点`}</span>
+              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : activeSection === "recall" ? "Recall Space · 本地知识" : activeSection === "memories" ? "记忆星云 · 时光回忆" : `能力森林 · ${state.abilityForest.nodes.length} 个节点`}</span>
             </div>
           </div>
         </div>
@@ -442,7 +443,7 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} /> : <main className="workspace-scroll">
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
         <div className="board-intro">
           <div><span className="eyebrow">LIFE TEMPLATE</span><h2>一天，不必精确到每一分钟。</h2></div>
           <nav className="view-mode-switch" aria-label="时间板视图模式">

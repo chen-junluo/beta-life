@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0 - 2026-10-29
+
+- Added the Memories view with a 3D Memory Constellation, memory creation sheet, editor, and insights.
+- Added Rust commands for persisting memories and AI-assisted memory parsing, with a configurable memory analysis prompt in Settings.
+
 ## 0.4.0 - 2026-10-26
 
 - Added the Ability Forest view with a default skill map, map editing, and progress tracking.
