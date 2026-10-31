@@ -146,6 +146,9 @@ export function SettingsPanel({
   const [section, setSection] = useState<SettingsSection>("timeline");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // WKWebView in Tauri does not implement window.confirm, so destructive actions confirm in-app with a second click.
+  const [clearKeyArmed, setClearKeyArmed] = useState(false);
+  const [importArmed, setImportArmed] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -203,7 +206,8 @@ export function SettingsPanel({
   }
 
   async function clearApiKey() {
-    if (!window.confirm("确定从系统安全存储中清除当前 API key 吗？")) return;
+    if (!clearKeyArmed) { setClearKeyArmed(true); return; }
+    setClearKeyArmed(false);
     try {
       await invoke("delete_api_key");
       onApiKeyCleared();
@@ -222,9 +226,18 @@ export function SettingsPanel({
     }
   }
 
+  function openImportPicker() {
+    if (!importArmed) {
+      setImportArmed(true);
+      setStatus("导入会替换当前时间板，建议先导出备份。再次点击选择文件。");
+      return;
+    }
+    setImportArmed(false);
+    importInput.current?.click();
+  }
+
   async function importBoard(file: File | undefined) {
     if (!file) return;
-    if (!window.confirm("导入会替换当前时间板。建议先导出备份，是否继续？")) return;
     try {
       const jsonContents = await file.text();
       const board = await invoke<BoardFile>("import_board", { jsonContents });
@@ -471,7 +484,7 @@ export function SettingsPanel({
                   <input type="checkbox" checked={draft.ai.supportsImages} onChange={(event) => updateAi({ supportsImages: event.target.checked })} />
                   <span><strong>此模型接受图片</strong><small>只有确认当前模型支持 OpenAI-compatible 图片消息时才开启。</small></span>
                 </label>
-                {hasApiKey && <button className="danger-button align-start" onClick={() => void clearApiKey()}>清除已保存的 API key</button>}
+                {hasApiKey && <button className={clearKeyArmed ? "danger-button align-start armed" : "danger-button align-start"} onClick={() => void clearApiKey()}>{clearKeyArmed ? "再次点击确认清除 API key" : "清除已保存的 API key"}</button>}
               </div>
             )}
 
@@ -551,7 +564,7 @@ export function SettingsPanel({
                     hidden
                     onChange={(event) => void importBoard(event.target.files?.[0])}
                   />
-                  <button className="secondary-button" onClick={() => importInput.current?.click()}>导入 Board JSON</button>
+                  <button className="secondary-button" onClick={openImportPicker}>{importArmed ? "再次点击选择文件" : "导入 Board JSON"}</button>
                 </div>
                 <div className="settings-note">所有修改都保存在系统应用数据目录。导入前建议先导出一份备份。</div>
               </div>

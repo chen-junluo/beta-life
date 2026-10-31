@@ -123,6 +123,8 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
   const [collision, setCollision] = useState(false);
   const [collisionPreview, setCollisionPreview] = useState<{ x: number; y: number; size: number } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // WKWebView in Tauri does not implement window.confirm, so import confirms in-app before opening the picker.
+  const [importArmed, setImportArmed] = useState(false);
   const [mapWidth, setMapWidth] = useState(initialMapState.mapWidth ?? 0);
   const [treeHeight, setTreeHeight] = useState(initialMapState.treeHeight ?? 0);
   const importInput = useRef<HTMLInputElement>(null);
@@ -467,16 +469,21 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
     setMessage("能力森林 JSON 已导出");
   }
 
+  function openImportPicker() {
+    if (!importArmed) { setImportArmed(true); return; }
+    setImportArmed(false);
+    importInput.current?.click();
+  }
+
   async function importJson(file: File | undefined) {
     if (!file) return;
     try {
       const next = parseAbilityForestJson(JSON.parse(await file.text()));
-      if (!window.confirm(`导入 ${next.nodes.length} 个节点并替换当前能力森林？`)) return;
       const importedSelectedId = orderedSiblings(next, null)[0]?.id ?? "";
       change(next, true, next.mapState ?? currentMapState({ selectedId: importedSelectedId || null }));
       setSelectedId(next.mapState?.selectedId ?? importedSelectedId);
       setCollapsed(new Set());
-      setMessage("JSON 已导入并保存到本机");
+      setMessage(`已导入 ${next.nodes.length} 个节点并保存到本机`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "无法导入 JSON 文件");
     } finally {
@@ -496,8 +503,8 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
         <button type="button" className={`secondary-button ${mapDrawer === "logs" ? "is-open" : ""}`} onClick={() => setMapDrawer((current) => current === "logs" ? null : "logs")} aria-expanded={mapDrawer === "logs"} aria-label="生成日志" title="查看地图生成日志">
           <ScrollText size={15} /> <span className="topbar-label">生成日志</span>
         </button>
-        <button type="button" className="secondary-button" onClick={() => importInput.current?.click()} aria-label="导入 JSON" title="导入能力森林 JSON">
-          <Upload size={15} /> <span className="topbar-label">导入 JSON</span>
+        <button type="button" className="secondary-button" onClick={openImportPicker} aria-label={importArmed ? "再次点击选择 JSON 并替换当前能力森林" : "导入 JSON"} title={importArmed ? "导入会替换当前能力森林，再次点击选择文件" : "导入能力森林 JSON"}>
+          <Upload size={15} /> <span className="topbar-label">{importArmed ? "再次点击替换" : "导入 JSON"}</span>
         </button>
         <button type="button" className="secondary-button" onClick={exportJson} aria-label="导出 JSON" title="导出能力森林 JSON">
           <Download size={15} /> <span className="topbar-label">导出 JSON</span>

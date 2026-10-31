@@ -71,6 +71,18 @@ describe("AbilityForestView", () => {
     expect(updated.mapState?.selectedId).toBe("technology");
   });
 
+  it("opens the JSON import picker only after a second in-app click", () => {
+    const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const importButton = topbarActions.querySelector<HTMLButtonElement>('[aria-label="导入 JSON"]')!;
+    act(() => importButton.click());
+    expect(pickerClick).not.toHaveBeenCalled();
+    expect(importButton.textContent).toContain("再次点击替换");
+
+    act(() => importButton.click());
+    expect(pickerClick).toHaveBeenCalledTimes(1);
+    pickerClick.mockRestore();
+  });
+
   it("shows the isometric map tools and prototype map controls", () => {
     expect(host.querySelector('canvas[aria-label*="等距地图"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="名称显示范围"]')).not.toBeNull();

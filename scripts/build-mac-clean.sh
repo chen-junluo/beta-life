@@ -74,7 +74,12 @@ detach_previous_installer
 FALLBACK_STAGE_DIR=""
 FALLBACK_IMAGE_DIR=""
 FALLBACK_LOG=""
+STRIP_DIR=""
 cleanup_fallback_files() {
+  if [[ -n "$STRIP_DIR" ]]; then
+    hdiutil detach "$STRIP_DIR/mnt" -force >/dev/null 2>&1 || true
+    rm -rf "$STRIP_DIR" || true
+  fi
   [[ -z "$FALLBACK_STAGE_DIR" ]] || rm -rf "$FALLBACK_STAGE_DIR" || true
   [[ -z "$FALLBACK_IMAGE_DIR" ]] || rm -rf "$FALLBACK_IMAGE_DIR" || true
   [[ -z "$FALLBACK_LOG" ]] || rm -f "$FALLBACK_LOG" || true
@@ -159,10 +164,33 @@ create_fallback_dmg() {
   return "$status"
 }
 
+# Tauri always passes --volicon to bundle_dmg.sh, which leaves .VolumeIcon.icns
+# in the volume root. Finder shows it whenever hidden files are visible, so drop
+# it to keep the installer window to the app and the Applications shortcut.
+strip_volume_icon() {
+  STRIP_DIR="$(mktemp -d /private/tmp/beta-life-dmg-strip.XXXXXX)"
+  local rw_dmg="$STRIP_DIR/rw.dmg"
+  local mount_dir="$STRIP_DIR/mnt"
+  local clean_dmg="$STRIP_DIR/$(basename "$DMG_PATH")"
+
+  echo "==> Removing the volume icon from the installer window"
+  hdiutil convert "$DMG_PATH" -format UDRW -o "$rw_dmg" -quiet
+  mkdir "$mount_dir"
+  hdiutil attach "$rw_dmg" -nobrowse -noverify -noautoopen -mountpoint "$mount_dir" -quiet
+  rm -f "$mount_dir/.VolumeIcon.icns"
+  SetFile -a c "$mount_dir"
+  hdiutil detach "$mount_dir" -quiet
+  hdiutil convert "$rw_dmg" -format UDZO -imagekey zlib-level=9 -o "$clean_dmg" -quiet
+  mv -f "$clean_dmg" "$DMG_PATH"
+  rm -rf "$STRIP_DIR"
+  STRIP_DIR=""
+}
+
 DMG_READY=0
 if [[ -s "$DMG_PATH" ]]; then
   echo "==> Verifying the Tauri DMG"
   if hdiutil verify "$DMG_PATH"; then
+    strip_volume_icon
     DMG_READY=1
   else
     echo "Tauri left an invalid DMG; creating a fresh fallback image." >&2

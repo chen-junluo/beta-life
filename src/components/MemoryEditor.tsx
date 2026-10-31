@@ -31,6 +31,7 @@ export function MemoryEditor({ memory: initialMemory, lifeStages, onSave, onDele
   const [attributesOpen, setAttributesOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
 
   function updateField<K extends keyof Memory>(field: K, value: Memory[K]) {
     setMemory((prev) => ({ ...prev, [field]: value }));
@@ -59,7 +60,8 @@ export function MemoryEditor({ memory: initialMemory, lifeStages, onSave, onDele
   }
 
   async function handleDelete() {
-    if (!confirm("确定删除这条记忆吗？")) return;
+    // WKWebView in Tauri does not implement window.confirm, so confirm in-app with a second click.
+    if (!deleteArmed) { setDeleteArmed(true); return; }
     setSaveError(null);
     try {
       await onDelete(memory.id);
@@ -99,7 +101,7 @@ export function MemoryEditor({ memory: initialMemory, lifeStages, onSave, onDele
 
         <div className="memory-editor-body"><div className="memory-editor-body-heading"><label htmlFor="memory-content">记忆正文</label><span>{bodyLoading ? "正在加载正文…" : "可编辑 · 修改后保存"}</span></div><textarea id="memory-content" value={memory.content} onChange={(event) => updateField("content", event.target.value)} placeholder="写下你的回忆……" disabled={bodyLoading} /></div>
         <div className={`memory-editor-status${saveError ? " error" : bodyLoading ? " loading" : ""}`} role="status" aria-live="polite"><span className="memory-editor-status-dot" aria-hidden="true" /><span>{bodyLoading ? "正在加载记忆正文…" : saveError ?? "正文已载入 · 尚未保存"}</span></div>
-        <footer className="memory-editor-actions"><button type="button" className="danger-button" onClick={() => void handleDelete()}><Trash2 size={16} />删除</button><div className="button-group"><button type="button" className="secondary-button" onClick={onClose}>关闭</button><button type="button" className="primary-button" onClick={() => void handleSave()} disabled={isSaving}>{isSaving ? "保存中..." : "保存"}</button></div></footer>
+        <footer className="memory-editor-actions"><button type="button" className={deleteArmed ? "danger-button armed" : "danger-button"} onClick={() => void handleDelete()}><Trash2 size={16} />{deleteArmed ? "再次点击确认删除" : "删除"}</button><div className="button-group"><button type="button" className="secondary-button" onClick={onClose}>关闭</button><button type="button" className="primary-button" onClick={() => void handleSave()} disabled={isSaving}>{isSaving ? "保存中..." : "保存"}</button></div></footer>
       </div>
     </div>
   );
