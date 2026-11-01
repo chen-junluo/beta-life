@@ -75,7 +75,12 @@ FALLBACK_STAGE_DIR=""
 FALLBACK_IMAGE_DIR=""
 FALLBACK_LOG=""
 STRIP_DIR=""
+CHECK_DIR=""
 cleanup_fallback_files() {
+  if [[ -n "$CHECK_DIR" ]]; then
+    hdiutil detach "$CHECK_DIR" -force >/dev/null 2>&1 || true
+    rm -rf "$CHECK_DIR" || true
+  fi
   if [[ -n "$STRIP_DIR" ]]; then
     hdiutil detach "$STRIP_DIR/mnt" -force >/dev/null 2>&1 || true
     rm -rf "$STRIP_DIR" || true
@@ -204,6 +209,62 @@ fi
 
 echo "==> Verifying the DMG"
 hdiutil verify "$DMG_PATH"
+
+# Finder coordinates of the approved, centered installer layout. They come from
+# the dmg appPosition / applicationFolderPosition in src-tauri/tauri.conf.json
+# ({160,125} and {460,125}); Tauri's bundler shifts them by {+20,+45}.
+EXPECTED_LAYOUT="beta-life.app 180 170
+Applications 480 170"
+
+verify_installer_layout() {
+  echo "==> Verifying the installer window layout"
+  CHECK_DIR="$(mktemp -d /private/tmp/beta-life-dmg-check.XXXXXX)"
+  hdiutil attach "$DMG_PATH" -readonly -nobrowse -noverify -noautoopen -mountpoint "$CHECK_DIR" -quiet
+
+  local volume_icon=0 layout=""
+  [[ ! -e "$CHECK_DIR/.VolumeIcon.icns" ]] || volume_icon=1
+  if [[ -f "$CHECK_DIR/.DS_Store" ]]; then
+    # Iloc records in .DS_Store: UTF-16BE file name, "Ilocblob", length, x, y.
+    layout="$(python3 -I - "$CHECK_DIR/.DS_Store" <<'EOF'
+import re, struct, sys
+data = open(sys.argv[1], "rb").read()
+for match in re.finditer(rb"Ilocblob", data):
+    start = match.start()
+    for length in range(1, 128):
+        name_start = start - 2 * length
+        if name_start < 4:
+            break
+        if struct.unpack(">I", data[name_start - 4:name_start])[0] == length:
+            x, y = struct.unpack(">II", data[start + 12:start + 20])
+            name = data[name_start:start].decode("utf-16-be")
+            if name in ("beta-life.app", "Applications"):
+                print(name, x, y)
+            break
+EOF
+)"
+    layout="$(sort <<<"$layout")"
+  fi
+  hdiutil detach "$CHECK_DIR" -quiet
+  rm -rf "$CHECK_DIR"
+  CHECK_DIR=""
+
+  if (( volume_icon )); then
+    echo "The installer still contains .VolumeIcon.icns." >&2
+    exit 1
+  fi
+  if [[ "$layout" != "$(sort <<<"$EXPECTED_LAYOUT")" ]]; then
+    if (( DMG_READY == 0 )); then
+      echo "Warning: the fallback DMG uses Finder's default icon layout, not the centered one." >&2
+      return 0
+    fi
+    echo "The installer icons are not in the centered layout." >&2
+    echo "Expected:" >&2; echo "$EXPECTED_LAYOUT" >&2
+    echo "Found:" >&2; echo "${layout:-<none>}" >&2
+    exit 1
+  fi
+}
+
+verify_installer_layout
 
 echo "==> Opening the installer window"
 open "$DMG_PATH"
