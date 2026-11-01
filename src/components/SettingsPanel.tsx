@@ -1,11 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, KeyRound, Palette, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, KeyRound, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
-import type { AppSettings, BoardFile, PeriodId } from "../types";
+import type { AppSettings, BoardFile, PeriodId, TabSlogans } from "../types";
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "slogan" | "provider" | "prompt" | "data";
+
+const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
+  { id: "board", label: "时间板" },
+  { id: "recall", label: "回想" },
+  { id: "forest", label: "能力森林" },
+  { id: "memories", label: "记忆星云" },
+];
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -172,6 +179,10 @@ export function SettingsPanel({
     }));
   }
 
+  function updateSlogan(id: keyof TabSlogans, value: string) {
+    setDraft((current) => ({ ...current, slogans: { ...current.slogans, [id]: value } }));
+  }
+
   async function save() {
     const validationError = validatePeriodStarts(draft);
     if (validationError) {
@@ -228,6 +239,7 @@ export function SettingsPanel({
     { id: "timeline", label: "时间与颜色", icon: <Palette size={17} /> },
     { id: "appearance", label: "布局与字号", icon: <SlidersHorizontal size={17} /> },
     { id: "recall", label: "回想与记忆", icon: <Target size={17} /> },
+    { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
     { id: "data", label: "数据", icon: <Database size={17} /> },
@@ -486,6 +498,27 @@ export function SettingsPanel({
                   <p>当前 R 达到或低于此值的知识点会进入优先抽查池；修改后会按新目标重建 FSRS 调度。</p>
                 </div>
                 <div className="settings-note">这条线表示模型的目标保留率，不是对真实脑内记忆率的直接测量。</div>
+              </div>
+            )}
+
+            {section === "slogan" && (
+              <div className="settings-section form-grid slogan-settings">
+                <div className="section-heading">
+                  <Quote size={21} />
+                  <div><h3>Slogan</h3><p>每个面板顶栏显示的一句话；也可以直接点击顶栏里的 slogan 编辑。</p></div>
+                </div>
+                {SLOGAN_FIELDS.map((field) => (
+                  <label className="settings-field-card" key={field.id}>
+                    <span>{field.label}</span>
+                    <input
+                      value={draft.slogans[field.id]}
+                      onChange={(event) => updateSlogan(field.id, event.target.value)}
+                      placeholder="点击添加这个面板的 slogan"
+                      aria-label={`${field.label} slogan`}
+                    />
+                  </label>
+                ))}
+                <div className="settings-note">留空时顶栏只显示占位提示；时间板各时段列里的 slogan 在时间板上单独编辑。</div>
               </div>
             )}
 

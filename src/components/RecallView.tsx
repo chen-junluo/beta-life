@@ -1,17 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, FileText, Pencil, Plus, RefreshCw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, FileText, MessageSquareText, Pencil, Plus, RefreshCw, Save, Shuffle, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { parseSimpleMarkdown } from "../simpleMarkdown";
 import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
 import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnowledge, statusHint, statusLabel } from "../recallLogic";
 import type { SelectionCandidate } from "../recallLogic";
-import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, isAtOrBelowTarget, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
+import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
 import type { AppSettings, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
 
 interface RecallViewProps {
   settings: AppSettings;
   hasApiKey: boolean;
   onOpenSettings: () => void;
+  topbarActions?: HTMLElement | null;
 }
 
 type EditorState = { knowledge: KnowledgeRecord; points: RecallPoint[] };
@@ -276,7 +278,7 @@ function ReviewStatusBadge({ status, feedback }: { status: RecallStatus; feedbac
   return <span className={`review-status status-${status}`} aria-label={statusLabel(status)} title={statusHint(status, feedback)} />;
 }
 
-export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewProps) {
+export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions }: RecallViewProps) {
   const [knowledge, setKnowledge] = useState<KnowledgeRecord[]>([]);
   const [points, setPoints] = useState<RecallPoint[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
@@ -321,11 +323,6 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
   const tagTree = useMemo(() => buildTagTree(knowledge), [knowledge]);
   const filtered = useMemo(() => knowledge.filter((item) => matchesTag(item, selectedTag)), [knowledge, selectedTag]);
   const latest = useMemo(() => latestReviews(reviews), [reviews]);
-  const dueCount = useMemo(() => filtered.filter((item) => {
-    const itemPoints = pointsForKnowledge(points, item.id);
-    const scheduler = schedulers.find((snapshot) => snapshot.knowledgeId === item.id);
-    return itemPoints.length === 0 ? (!item.nextReviewAt || new Date(item.nextReviewAt).getTime() <= Date.now()) : itemPoints.some((point) => isAtOrBelowTarget(scheduler?.cards[point.pointId], desiredRetention, new Date(), scheduler?.parameters));
-  }).length, [desiredRetention, filtered, points, schedulers]);
   const selectedKnowledge = useMemo(() => filtered.find((item) => item.id === selectedKnowledgeId), [filtered, selectedKnowledgeId]);
   const pointCount = (id: string) => pointsForKnowledge(points, id).length;
 
@@ -482,7 +479,12 @@ export function RecallView({ settings, hasApiKey, onOpenSettings }: RecallViewPr
   if (loading) return <main className="recall-loading"><RefreshCw className="spin" size={18} /> 正在读取本地知识…</main>;
 
   return <main className="recall-workspace">
-    <div className="recall-header"><div><span className="eyebrow">RECALL SPACE</span><h2>回想</h2><p>抽查入口始终作用于当前可见的知识列表；切换标签即可改变范围。先回答，再确认反馈。</p></div><div className="recall-header-actions"><span className="recall-count">{filtered.length} 篇知识 · {dueCount} 待抽查</span><button className="secondary-button" type="button" onClick={() => void refresh()} title="重新读取" disabled={Boolean(session)}><RefreshCw size={14} /> 刷新</button><button className="secondary-button" type="button" onClick={() => startScopedReview("random")} title="从当前可见范围均匀随机抽取一题" disabled={filtered.length === 0 || Boolean(session)}>随机一题</button><button className="primary-button" type="button" onClick={() => startScopedReview("smart")} title="按 FSRS 复习优先级，从当前可见范围抽取一个考点" disabled={filtered.length === 0 || Boolean(session)}><Sparkles size={14} /> 智能抽查</button><button className="secondary-button" type="button" onClick={startFullRecall} title="从当前可见范围随机选择一篇知识进行完整复述" disabled={filtered.length === 0 || Boolean(session)}>完整复述</button></div></div>
+    {topbarActions && createPortal(<>
+      <button className="secondary-button" type="button" onClick={() => void refresh()} aria-label="刷新" title="重新读取" disabled={Boolean(session)}><RefreshCw size={14} /> <span className="topbar-label">刷新</span></button>
+      <button className="secondary-button" type="button" onClick={() => startScopedReview("random")} aria-label="随机一题" title="从当前可见范围均匀随机抽取一题" disabled={filtered.length === 0 || Boolean(session)}><Shuffle size={14} /> <span className="topbar-label">随机一题</span></button>
+      <button className="secondary-button" type="button" onClick={startFullRecall} aria-label="完整复述" title="从当前可见范围随机选择一篇知识进行完整复述" disabled={filtered.length === 0 || Boolean(session)}><MessageSquareText size={14} /> <span className="topbar-label">完整复述</span></button>
+      <button className="primary-button" type="button" onClick={() => startScopedReview("smart")} title="按 FSRS 复习优先级，从当前可见范围抽取一个考点" disabled={filtered.length === 0 || Boolean(session)}><Sparkles size={14} /> 智能抽查</button>
+    </>, topbarActions)}
     {browserPreview && <div className="recall-browser-note">浏览器预览模式：演示数据保存在当前浏览器内存/本地存储，不会写入桌面应用数据目录。</div>}
     {error && <div className="inline-error recall-global-error">{error}</div>}
     <div className="recall-layout">

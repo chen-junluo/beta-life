@@ -152,6 +152,28 @@ struct AppSettings {
     #[serde(default = "default_recall")]
     recall: RecallSettings,
     ai: AiSettings,
+    #[serde(default)]
+    slogans: TabSlogans,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct TabSlogans {
+    board: String,
+    recall: String,
+    forest: String,
+    memories: String,
+}
+
+impl Default for TabSlogans {
+    fn default() -> Self {
+        Self {
+            board: "一天，不必精确到每一分钟。".into(),
+            recall: "写下的会忘，复述出来的才真正属于自己。".into(),
+            forest: "每一项能力都是一棵树，慢慢长，终会成林。".into(),
+            memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -700,6 +722,7 @@ fn default_settings() -> AppSettings {
             recall_evaluation_prompt: DEFAULT_RECALL_EVALUATION_PROMPT.into(),
             memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
         },
+        slogans: TabSlogans::default(),
     }
 }
 
@@ -3201,6 +3224,20 @@ mod tests {
         let serialized = serde_json::to_value(habit).expect("habit should serialize");
         assert_eq!(serialized["tags"], "daily, health");
         assert!(serialized.get("frequency").is_none());
+    }
+
+    #[test]
+    fn legacy_settings_without_tab_slogans_get_the_default_slogans() {
+        let mut legacy = serde_json::to_value(default_settings()).unwrap();
+        legacy.as_object_mut().unwrap().remove("slogans");
+
+        let loaded: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(loaded.slogans.board, "一天，不必精确到每一分钟。");
+        assert_eq!(loaded.slogans.forest, TabSlogans::default().forest);
+
+        let partial: TabSlogans = serde_json::from_value(json!({ "board": "" })).unwrap();
+        assert_eq!(partial.board, "");
+        assert_eq!(partial.memories, TabSlogans::default().memories);
     }
 
     #[test]

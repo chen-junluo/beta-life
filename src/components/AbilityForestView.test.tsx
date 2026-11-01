@@ -9,13 +9,15 @@ import { AbilityForestView } from "./AbilityForestView";
 
 describe("AbilityForestView", () => {
   let host: HTMLDivElement;
+  let topbarActions: HTMLDivElement;
   let root: Root;
   let onForestChange: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     host = document.createElement("div");
-    document.body.appendChild(host);
+    topbarActions = document.createElement("div");
+    document.body.append(topbarActions, host);
     root = createRoot(host);
     onForestChange = vi.fn();
     act(() => root.render(
@@ -23,6 +25,7 @@ describe("AbilityForestView", () => {
         forest={structuredClone(DEFAULT_ABILITY_FOREST)}
         saveState="saved"
         onForestChange={onForestChange}
+        topbarActions={topbarActions}
       />,
     ));
   });
@@ -30,6 +33,7 @@ describe("AbilityForestView", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    topbarActions.remove();
   });
 
   it("keeps a single expanded editor and saves the selected node's text", () => {
@@ -70,7 +74,7 @@ describe("AbilityForestView", () => {
   it("shows the isometric map tools and prototype map controls", () => {
     expect(host.querySelector('canvas[aria-label*="等距地图"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="名称显示范围"]')).not.toBeNull();
-    const parameters = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+    const parameters = Array.from(topbarActions.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent?.includes("地图参数"))!;
     act(() => parameters.click());
     expect(host.querySelector('[aria-label="地图生成参数"]')).not.toBeNull();

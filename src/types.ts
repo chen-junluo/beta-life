@@ -70,12 +70,20 @@ export interface RecallSettings {
   desiredRetention: number;
 }
 
+export interface TabSlogans {
+  board: string;
+  recall: string;
+  forest: string;
+  memories: string;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   periods: PeriodSetting[];
   appearance: AppearanceSettings;
   recall: RecallSettings;
   ai: AiSettings;
+  slogans: TabSlogans;
 }
 
 export interface LoadedAppState {

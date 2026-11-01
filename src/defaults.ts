@@ -1,4 +1,4 @@
-import type { AbilityForest, AppSettings, BoardFile, PeriodId } from "./types";
+import type { AbilityForest, AppSettings, BoardFile, PeriodId, TabSlogans } from "./types";
 import abilityForestDefaults from "./ability-forest-default.json";
 
 export const DEFAULT_ABILITY_FOREST = abilityForestDefaults as AbilityForest;
@@ -55,6 +55,13 @@ export const DEFAULT_MEMORY_ANALYSIS_PROMPT = `你负责从用户提供的回忆
 7. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
 8. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。`;
 
+export const DEFAULT_TAB_SLOGANS: TabSlogans = {
+  board: "一天，不必精确到每一分钟。",
+  recall: "写下的会忘，复述出来的才真正属于自己。",
+  forest: "每一项能力都是一棵树，慢慢长，终会成林。",
+  memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。",
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   periods: [
@@ -88,6 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT,
     memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
   },
+  slogans: DEFAULT_TAB_SLOGANS,
 };
 
 export const DEFAULT_BOARD: BoardFile = {

@@ -1,16 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Plus, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { containerForPlacement, reindexItems } from "./boardLogic";
+import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
 import { AiPanel } from "./components/AiPanel";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { TopbarSlogan } from "./components/TopbarSlogan";
 import { WorkspaceDrawer, type WorkspaceSection } from "./components/WorkspaceDrawer";
 import { MemoriesView } from "./components/MemoriesView";
-import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_SETTINGS } from "./defaults";
+import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import type {
   AiProposalItem,
@@ -32,6 +33,22 @@ const PROTOTYPE_PERIOD_COLORS: Record<PeriodId, { legacy: string; current: strin
   evening: { legacy: "#AEBFE3", current: "#6366F1" },
   sleep: { legacy: "#B9BCC4", current: "#64748B" },
 };
+
+const SECTION_LABELS: Record<WorkspaceSection, string> = {
+  board: "时间板",
+  recall: "回想",
+  forest: "能力森林",
+  memories: "记忆星云",
+};
+
+function withDefaultSlogans(settings: AppSettings): AppSettings {
+  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans } };
+}
+
+function shortPeriodLabel(period: AppSettings["periods"][number]): string {
+  if (period.id === "noon" && period.label === "中午") return "下午";
+  return period.label.replace(/[（(].*$/, "").trim() || period.label;
+}
 
 function withPrototypePalette(settings: AppSettings): AppSettings {
   let changed = false;
@@ -85,6 +102,7 @@ export default function App() {
   const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
   const [undoStack, setUndoStack] = useState<BoardFile[]>([]);
   const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
+  const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(null);
   const workspaceDrawerTrigger = useRef<HTMLButtonElement>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const abilityForestSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -103,7 +121,7 @@ export default function App() {
       .then((loaded) => {
         if (active) {
           const settings = withPrototypePalette(loaded.settings);
-          const normalized = settings === loaded.settings ? loaded : { ...loaded, settings };
+          const normalized = { ...loaded, settings: withDefaultSlogans(settings) };
           setState(normalized);
           pendingAbilityForest.current = null;
           setForestSaveState("saved");
@@ -373,6 +391,16 @@ export default function App() {
     void queueSettingsSave(settings).catch((error) => console.error(error));
   }
 
+  function saveTabSlogan(section: WorkspaceSection, slogan: string) {
+    const current = stateRef.current;
+    if (!current) return;
+    const settings = { ...current.settings, slogans: { ...current.settings.slogans, [section]: slogan } };
+    const nextState = { ...current, settings };
+    stateRef.current = nextState;
+    setState(nextState);
+    void queueSettingsSave(settings).catch((error) => console.error(error));
+  }
+
   if (!state) {
     return (
       <main className="loading-screen">
@@ -383,37 +411,60 @@ export default function App() {
   }
 
   const board = state.board.boards.find((item) => item.id === state.board.activeBoardId) ?? state.board.boards[0];
-  const count = board?.items.length ?? 0;
-  const viewModes: Array<{ id: BoardViewMode; label: string }> = [
-    { id: "global", label: "全局模式" },
-    ...state.settings.periods.map((period) => ({
+  const periods = orderedPeriods(state.settings);
+  const viewModes: Array<{ id: BoardViewMode; label: string; title: string; color?: string }> = [
+    { id: "global", label: "全局", title: "全局模式" },
+    ...periods.map((period, index) => ({
       id: period.id,
-      label: period.id === "noon" && period.label === "中午" ? "下午" : period.label,
+      label: shortPeriodLabel(period),
+      title: `${period.label} · ${hourLabel(period.startHour)}–${hourLabel(periods[(index + 1) % periods.length].startHour)}`,
+      color: period.color,
     })),
   ];
+  const globalDot = `conic-gradient(${periods.map((period, index) => `${period.color} 0 ${((index + 1) * 100) / periods.length}%`).join(", ")})`;
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-area">
-          <button
-            ref={workspaceDrawerTrigger}
-            type="button"
-            className="beta-menu-button"
-            aria-label={showWorkspaceDrawer ? "关闭面板导航" : "打开面板导航"}
-            aria-expanded={showWorkspaceDrawer}
-            aria-controls="workspace-drawer"
-            onClick={() => setShowWorkspaceDrawer((open) => !open)}
-          >
-            <span aria-hidden="true">β</span>
-          </button>
-          <div className="brand-lockup">
-            <div className="brand-copy">
-              <h1>beta-life</h1>
-              <span>{activeSection === "board" ? `${board?.name ?? "My Life"} · ${count} 个习惯` : activeSection === "recall" ? "Recall Space · 本地知识" : activeSection === "memories" ? "记忆星云 · 时光回忆" : `能力森林 · ${state.abilityForest.nodes.length} 个节点`}</span>
-            </div>
-          </div>
+      <header className="topbar" data-section={activeSection}>
+        <button
+          ref={workspaceDrawerTrigger}
+          type="button"
+          className="beta-menu-button"
+          aria-label={showWorkspaceDrawer ? "关闭面板导航" : "打开面板导航"}
+          aria-expanded={showWorkspaceDrawer}
+          aria-controls="workspace-drawer"
+          onClick={() => setShowWorkspaceDrawer((open) => !open)}
+        >
+          <span aria-hidden="true">β</span>
+        </button>
+        <h1 className="topbar-tab"><i aria-hidden="true" />{SECTION_LABELS[activeSection]}</h1>
+        <div className="topbar-lead">
+          <Quote size={13} aria-hidden="true" />
+          <TopbarSlogan
+            key={activeSection}
+            value={state.settings.slogans[activeSection]}
+            onSave={(slogan) => saveTabSlogan(activeSection, slogan)}
+          />
         </div>
+
+        {activeSection === "board" && (
+          <nav className="period-switch" aria-label="时间板视图模式">
+            {viewModes.map((mode) => (
+              <button
+                type="button"
+                key={mode.id}
+                className={viewMode === mode.id ? "active" : ""}
+                style={mode.color ? ({ "--c": mode.color } as CSSProperties) : undefined}
+                title={mode.title}
+                aria-pressed={viewMode === mode.id}
+                onClick={() => setViewMode(mode.id)}
+              >
+                <i aria-hidden="true" style={mode.color ? undefined : { background: globalDot }} />
+                {mode.label}
+              </button>
+            ))}
+          </nav>
+        )}
 
         <div className="topbar-actions">
           {activeSection === "board" && <>
@@ -424,13 +475,14 @@ export default function App() {
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
-            <button className="secondary-button" onClick={() => setShowAi(true)}>
-              <Sparkles size={16} /> AI 提取 <kbd>⌘K</kbd>
+            <button className="secondary-button" onClick={() => setShowAi(true)} aria-label="AI 提取" title="AI 提取 ⌘K">
+              <Sparkles size={16} /> <span className="topbar-label">AI 提取</span> <kbd>⌘K</kbd>
             </button>
             <button className="primary-button" onClick={() => openCreate()}>
               <Plus size={16} /> 新习惯 <kbd>N</kbd>
             </button>
           </>}
+          <div className="topbar-tab-actions" ref={setTopbarActions} />
           <button className="icon-button settings-button" onClick={() => setShowSettings(true)} aria-label="设置"><Settings size={19} /></button>
         </div>
       </header>
@@ -443,25 +495,7 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
-        <div className="board-intro">
-          <div><span className="eyebrow">LIFE TEMPLATE</span><h2>一天，不必精确到每一分钟。</h2></div>
-          <nav className="view-mode-switch" aria-label="时间板视图模式">
-            {viewModes.map((mode) => (
-              <button
-                type="button"
-                key={mode.id}
-                className={viewMode === mode.id ? "active" : ""}
-                aria-pressed={viewMode === mode.id}
-                onClick={() => setViewMode(mode.id)}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </nav>
-          <p>先把习惯放进大致时段；需要时再拖到具体小时。拖动卡片左侧把手即可重新安排。</p>
-        </div>
-
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} topbarActions={topbarActions} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
           settings={state.settings}

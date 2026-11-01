@@ -15,6 +15,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   ABILITY_FOREST_COLORS,
   childrenOf,
@@ -49,6 +50,7 @@ interface AbilityForestViewProps {
   forest: AbilityForest;
   saveState: ForestSaveState;
   onForestChange: (forest: AbilityForest, immediate?: boolean) => void;
+  topbarActions?: HTMLElement | null;
 }
 
 const levelNames = ["大节点", "中节点", "小节点"];
@@ -106,7 +108,7 @@ function orderedTree(forest: AbilityForest, collapsed: Set<string>) {
   return rows;
 }
 
-export function AbilityForestView({ forest, saveState, onForestChange }: AbilityForestViewProps) {
+export function AbilityForestView({ forest, saveState, onForestChange, topbarActions }: AbilityForestViewProps) {
   const initialMapState = mapStateFor(forest);
   const [selectedId, setSelectedId] = useState(initialMapState.selectedId ?? "data-literacy");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -143,7 +145,6 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
   const parentOptions = selected
     ? forest.nodes.filter((node) => node.level + 1 + descendantHeight <= 2 && !selectedBranch.has(node.id))
     : [];
-  const rootNodes = orderedSiblings(forest, null);
   const layoutKey = forest.nodes.map((node) => `${node.id}:${node.parentId ?? ""}:${node.level}:${node.order}:${node.color ?? ""}`).join("|");
   const layoutForest = useMemo<AbilityForest>(() => ({
     schemaVersion: forest.schemaVersion,
@@ -483,36 +484,29 @@ export function AbilityForestView({ forest, saveState, onForestChange }: Ability
     }
   }
 
-  const saveLabel = saveState === "saving" ? "正在保存" : saveState === "error" ? "保存失败" : "已保存到本机";
+  const saveLabel = saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存";
 
   return (
     <main className="ability-forest-page">
-      <header className="ability-forest-header">
-        <div className="ability-forest-heading">
-          <span className="eyebrow">ABILITY FOREST · BETA · V4.3</span>
-          <h2>能力森林</h2>
-        </div>
-        <p className="ability-forest-summary">{rootNodes.length} 个群落 · {forest.nodes.length} 项能力 · Seed {seed}</p>
-        <div className="ability-forest-actions">
-          <span className={`forest-save-state ${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
-          <button type="button" className={`secondary-button ${mapDrawer === "parameters" ? "is-open" : ""}`} onClick={() => setMapDrawer((current) => current === "parameters" ? null : "parameters")} aria-expanded={mapDrawer === "parameters"} title="地图生成参数">
-            <Settings2 size={15} /> 地图参数
-          </button>
-          <button type="button" className={`secondary-button ${mapDrawer === "logs" ? "is-open" : ""}`} onClick={() => setMapDrawer((current) => current === "logs" ? null : "logs")} aria-expanded={mapDrawer === "logs"} title="查看地图生成日志">
-            <ScrollText size={15} /> 生成日志
-          </button>
-          <button type="button" className="secondary-button" onClick={() => importInput.current?.click()} title="导入能力森林 JSON">
-            <Upload size={15} /> 导入 JSON
-          </button>
-          <input ref={importInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importJson(event.target.files?.[0])} />
-          <button type="button" className="secondary-button" onClick={exportJson} title="导出能力森林 JSON">
-            <Download size={15} /> 导出 JSON
-          </button>
-          <button type="button" className="primary-button" onClick={addRoot}>
-            <Plus size={15} /> 新建大节点
-          </button>
-        </div>
-      </header>
+      {topbarActions && createPortal(<>
+        <span className={`save-state ${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
+        <button type="button" className={`secondary-button ${mapDrawer === "parameters" ? "is-open" : ""}`} onClick={() => setMapDrawer((current) => current === "parameters" ? null : "parameters")} aria-expanded={mapDrawer === "parameters"} aria-label="地图参数" title="地图生成参数">
+          <Settings2 size={15} /> <span className="topbar-label">地图参数</span>
+        </button>
+        <button type="button" className={`secondary-button ${mapDrawer === "logs" ? "is-open" : ""}`} onClick={() => setMapDrawer((current) => current === "logs" ? null : "logs")} aria-expanded={mapDrawer === "logs"} aria-label="生成日志" title="查看地图生成日志">
+          <ScrollText size={15} /> <span className="topbar-label">生成日志</span>
+        </button>
+        <button type="button" className="secondary-button" onClick={() => importInput.current?.click()} aria-label="导入 JSON" title="导入能力森林 JSON">
+          <Upload size={15} /> <span className="topbar-label">导入 JSON</span>
+        </button>
+        <button type="button" className="secondary-button" onClick={exportJson} aria-label="导出 JSON" title="导出能力森林 JSON">
+          <Download size={15} /> <span className="topbar-label">导出 JSON</span>
+        </button>
+        <button type="button" className="primary-button" onClick={addRoot}>
+          <Plus size={15} /> 新建大节点
+        </button>
+      </>, topbarActions)}
+      <input ref={importInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importJson(event.target.files?.[0])} />
 
       <div className="ability-forest-layout" ref={layoutRef}>
         <section className="ability-map-panel" aria-label="能力森林图">
