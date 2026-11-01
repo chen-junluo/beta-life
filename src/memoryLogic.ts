@@ -115,6 +115,16 @@ function stageYear(date: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+const STAGE_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+export function validateLifeStages(stages: LifeStage[]): string | null {
+  for (const stage of stages) {
+    if (!STAGE_MONTH.test(stage.start) || !STAGE_MONTH.test(stage.end)) return `「${stage.name}」的时间不能识别，请写成 YYYY-MM`;
+    if (stage.start > stage.end) return `「${stage.name}」的开始时间不能晚于结束时间`;
+  }
+  return null;
+}
+
 export function buildEmotionYearTable(memories: MemoryMetadata[], stages: LifeStage[]): EmotionYearTable {
   const datedYears = memories.map((memory) => memoryYear(memory.date)).filter((year): year is number => year !== null);
   const stageYears = stages.flatMap((stage) => [stageYear(stage.start), stageYear(stage.end)]).filter((year): year is number => year !== null);

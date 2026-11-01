@@ -11,9 +11,10 @@ import { MemoryInsights } from "./MemoryInsights";
 interface MemoriesViewProps {
   hasApiKey: boolean;
   onOpenSettings: () => void;
+  lifeStagesRevision: number;
 }
 
-export function MemoriesView({ hasApiKey, onOpenSettings }: MemoriesViewProps) {
+export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: MemoriesViewProps) {
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const topSectionRef = useRef<HTMLElement>(null);
   const splitterDrag = useRef<
@@ -40,6 +41,10 @@ export function MemoriesView({ hasApiKey, onOpenSettings }: MemoriesViewProps) {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (lifeStagesRevision > 0) void loadData(false);
+  }, [lifeStagesRevision]);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {

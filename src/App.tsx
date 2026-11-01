@@ -96,6 +96,7 @@ export default function App() {
   const [editorContainer, setEditorContainer] = useState<ContainerId | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [lifeStagesRevision, setLifeStagesRevision] = useState(0);
   const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
@@ -495,7 +496,7 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} topbarActions={topbarActions} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} /> : <main className="workspace-scroll">
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} topbarActions={topbarActions} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} lifeStagesRevision={lifeStagesRevision} /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
           settings={state.settings}
@@ -541,6 +542,7 @@ export default function App() {
           onSave={saveSettings}
           onApiKeyCleared={() => setState((current) => current ? { ...current, hasApiKey: false } : current)}
           onBoardImported={(imported) => commitBoard(imported)}
+          onLifeStagesSaved={() => setLifeStagesRevision((revision) => revision + 1)}
         />
       )}
     </div>

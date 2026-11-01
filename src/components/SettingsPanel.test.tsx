@@ -30,6 +30,7 @@ describe("SettingsPanel selects", () => {
           onSave={vi.fn().mockResolvedValue(undefined)}
           onApiKeyCleared={vi.fn()}
           onBoardImported={vi.fn()}
+          onLifeStagesSaved={vi.fn()}
         />,
       );
     });
@@ -84,6 +85,7 @@ describe("SettingsPanel destructive actions", () => {
   let host: HTMLDivElement;
   let root: Root;
   let onApiKeyCleared: ReturnType<typeof vi.fn>;
+  let onLifeStagesSaved: ReturnType<typeof vi.fn>;
 
   function openSection(label: string) {
     const tab = Array.from(host.querySelectorAll<HTMLButtonElement>(".settings-nav button"))
@@ -104,6 +106,7 @@ describe("SettingsPanel destructive actions", () => {
     document.body.appendChild(host);
     root = createRoot(host);
     onApiKeyCleared = vi.fn();
+    onLifeStagesSaved = vi.fn();
     act(() => {
       root.render(
         <SettingsPanel
@@ -113,6 +116,7 @@ describe("SettingsPanel destructive actions", () => {
           onSave={vi.fn().mockResolvedValue(undefined)}
           onApiKeyCleared={onApiKeyCleared}
           onBoardImported={vi.fn()}
+          onLifeStagesSaved={onLifeStagesSaved}
         />,
       );
     });
@@ -143,5 +147,30 @@ describe("SettingsPanel destructive actions", () => {
 
     act(() => findButton("再次点击选择文件").click());
     expect(pickerClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("edits life stage ranges and saves them with the settings", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "load_life_stages" ? [{ name: "本科", start: "2019-09", end: "2023-08" }] : undefined,
+    );
+    await act(async () => openSection("记忆阶段"));
+    const endInput = host.querySelector<HTMLInputElement>('[aria-label="本科结束月份"]')!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+
+    act(() => {
+      setValue.call(endInput, "2019-08");
+      endInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => findButton("保存设置").click());
+    expect(invoke).not.toHaveBeenCalledWith("save_life_stages", expect.anything());
+    expect(host.textContent).toContain("开始时间不能晚于结束时间");
+
+    act(() => {
+      setValue.call(endInput, "2024-06");
+      endInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => findButton("保存设置").click());
+    expect(invoke).toHaveBeenCalledWith("save_life_stages", { stages: [{ name: "本科", start: "2019-09", end: "2024-06" }] });
+    expect(onLifeStagesSaved).toHaveBeenCalledTimes(1);
   });
 });

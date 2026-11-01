@@ -130,7 +130,7 @@ describe("MemoriesView", () => {
       return Promise.reject(new Error(`Unexpected command: ${command}`)) as never;
     });
     await act(async () => {
-      root.render(<MemoriesView hasApiKey onOpenSettings={vi.fn()} />);
+      root.render(<MemoriesView hasApiKey onOpenSettings={vi.fn()} lifeStagesRevision={0} />);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   });

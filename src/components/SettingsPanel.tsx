@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, KeyRound, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, KeyRound, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
-import type { AppSettings, BoardFile, PeriodId, TabSlogans } from "../types";
+import { validateLifeStages } from "../memoryLogic";
+import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "slogan" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "board", label: "时间板" },
@@ -21,6 +22,7 @@ interface SettingsPanelProps {
   onSave: (settings: AppSettings, apiKey?: string) => Promise<void>;
   onApiKeyCleared: () => void;
   onBoardImported: (board: BoardFile) => void;
+  onLifeStagesSaved: () => void;
 }
 
 interface SelectOption {
@@ -140,6 +142,7 @@ export function SettingsPanel({
   onSave,
   onApiKeyCleared,
   onBoardImported,
+  onLifeStagesSaved,
 }: SettingsPanelProps) {
   const [draft, setDraft] = useState<AppSettings>(() => structuredClone(settings));
   const [apiKey, setApiKey] = useState("");
@@ -150,12 +153,26 @@ export function SettingsPanel({
   const [clearKeyArmed, setClearKeyArmed] = useState(false);
   const [importArmed, setImportArmed] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
+  // Life stages live in their own file, so they load on first visit and save only when edited.
+  const [lifeStages, setLifeStages] = useState<LifeStage[] | null>(null);
+  const [stagesError, setStagesError] = useState<string | null>(null);
+  const savedStages = useRef<string | null>(null);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, [onClose]);
+
+  useEffect(() => {
+    if (section !== "stages" || lifeStages) return;
+    invoke<LifeStage[]>("load_life_stages")
+      .then((stages) => {
+        savedStages.current = JSON.stringify(stages);
+        setLifeStages(stages);
+      })
+      .catch((error) => setStagesError(typeof error === "string" ? error : "阶段读取失败"));
+  }, [section, lifeStages]);
 
   function updatePeriod(id: PeriodId, patch: Partial<AppSettings["periods"][number]>) {
     setDraft((current) => ({
@@ -186,8 +203,13 @@ export function SettingsPanel({
     setDraft((current) => ({ ...current, slogans: { ...current.slogans, [id]: value } }));
   }
 
+  function updateStage(index: number, patch: Partial<LifeStage>) {
+    setLifeStages((current) => current && current.map((stage, stageIndex) => (stageIndex === index ? { ...stage, ...patch } : stage)));
+  }
+
   async function save() {
-    const validationError = validatePeriodStarts(draft);
+    const stagesChanged = lifeStages !== null && JSON.stringify(lifeStages) !== savedStages.current;
+    const validationError = validatePeriodStarts(draft) ?? (stagesChanged ? validateLifeStages(lifeStages) : null);
     if (validationError) {
       setStatus(validationError);
       return;
@@ -196,6 +218,11 @@ export function SettingsPanel({
     setStatus(null);
     try {
       await onSave(draft, apiKey.trim() || undefined);
+      if (stagesChanged) {
+        await invoke("save_life_stages", { stages: lifeStages });
+        savedStages.current = JSON.stringify(lifeStages);
+        onLifeStagesSaved();
+      }
       setApiKey("");
       setStatus("设置已保存");
     } catch (error) {
@@ -252,6 +279,7 @@ export function SettingsPanel({
     { id: "timeline", label: "时间与颜色", icon: <Palette size={17} /> },
     { id: "appearance", label: "布局与字号", icon: <SlidersHorizontal size={17} /> },
     { id: "recall", label: "回想与记忆", icon: <Target size={17} /> },
+    { id: "stages", label: "记忆阶段", icon: <Orbit size={17} /> },
     { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
@@ -511,6 +539,38 @@ export function SettingsPanel({
                   <p>当前 R 达到或低于此值的知识点会进入优先抽查池；修改后会按新目标重建 FSRS 调度。</p>
                 </div>
                 <div className="settings-note">这条线表示模型的目标保留率，不是对真实脑内记忆率的直接测量。</div>
+              </div>
+            )}
+
+            {section === "stages" && (
+              <div className="settings-section">
+                <div className="section-heading">
+                  <Orbit size={21} />
+                  <div><h3>记忆阶段</h3><p>记忆星云按这些时间范围排列阶段星系；没有手动选择阶段的记忆按日期自动归入。</p></div>
+                </div>
+                {lifeStages ? (
+                  <div className="period-settings-grid">
+                    {lifeStages.map((stage, index) => (
+                      <div className="period-setting-row stage-setting-row" key={index}>
+                        <strong className="stage-setting-name" title={stage.name}>
+                          <i style={{ background: stage.color }} aria-hidden="true" />
+                          <span>{stage.name}</span>
+                        </strong>
+                        <label>
+                          <span>开始月份</span>
+                          <input value={stage.start} placeholder="YYYY-MM" onChange={(event) => updateStage(index, { start: event.target.value.trim() })} aria-label={`${stage.name}开始月份`} />
+                        </label>
+                        <label>
+                          <span>结束月份</span>
+                          <input value={stage.end} placeholder="YYYY-MM" onChange={(event) => updateStage(index, { end: event.target.value.trim() })} aria-label={`${stage.name}结束月份`} />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="settings-note">{stagesError ?? "正在读取阶段…"}</div>
+                )}
+                <div className="settings-note">格式为 YYYY-MM，结束月份包含在阶段内。阶段名称被已有记忆引用，这里只调整时间范围。</div>
               </div>
             )}
 

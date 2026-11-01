@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LifeStage, MemoryMetadata } from "./types";
-import { buildEmotionYearTable, getSimilarMemoryGroups, matchesSongQuery, memoryHasLocation, memoryStarSize, memoryYear, songMatchScore, splitMemoryLocations } from "./memoryLogic";
+import { buildEmotionYearTable, getSimilarMemoryGroups, matchesSongQuery, memoryHasLocation, memoryStarSize, memoryYear, songMatchScore, splitMemoryLocations, validateLifeStages } from "./memoryLogic";
 
 const stages: LifeStage[] = [
   { name: "School", start: "2010-09", end: "2014-06" },
@@ -102,5 +102,14 @@ describe("memory visual data", () => {
       memory("remote", { location: "Remote" }),
     ], selected);
     expect(groups.sameLocation.map(({ id }) => id)).toEqual(["office"]);
+  });
+});
+
+describe("life stage validation", () => {
+  it("accepts YYYY-MM ranges and rejects malformed or reversed ranges", () => {
+    expect(validateLifeStages(stages)).toBeNull();
+    expect(validateLifeStages([{ name: "School", start: "2010-9", end: "2014-06" }])).toContain("YYYY-MM");
+    expect(validateLifeStages([{ name: "School", start: "2010-13", end: "2014-06" }])).toContain("YYYY-MM");
+    expect(validateLifeStages([{ name: "School", start: "2014-07", end: "2014-06" }])).toContain("不能晚于");
   });
 });

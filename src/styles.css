@@ -1132,6 +1132,18 @@ select {
   height: 36px;
   font-size: 12px;
 }
+.stage-setting-row { grid-template-columns: minmax(0, 1fr) 128px 128px; }
+.stage-setting-name {
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 12px;
+}
+.stage-setting-name i { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--line); }
+.stage-setting-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-note {
   margin-top: 16px;
   padding: 12px 13px;
