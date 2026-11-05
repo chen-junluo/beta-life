@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../defaults";
+import type { Habit } from "../types";
 import { HabitEditor } from "./HabitEditor";
 
 describe("HabitEditor tag suggestions", () => {
@@ -50,5 +51,36 @@ describe("HabitEditor tag suggestions", () => {
     act(() => options[0].click());
     expect(input.value).toBe("饮食，调理温湿, ");
     expect([...host.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(["# 口才突破"]);
+  });
+
+  it("keeps the daily done check when an existing habit is edited", () => {
+    const habit: Habit = {
+      id: "tea",
+      title: "喝茶",
+      description: "",
+      tags: "",
+      placement: { kind: "hour", hour: 9 },
+      order: 0,
+      createdAt: "2026-11-05T00:00:00Z",
+      updatedAt: "2026-11-05T00:00:00Z",
+      done: true,
+    };
+    const onSave = vi.fn();
+    act(() => {
+      root.render(
+        <HabitEditor
+          habit={habit}
+          initialContainer={null}
+          settings={structuredClone(DEFAULT_SETTINGS)}
+          knownTags={[]}
+          onClose={vi.fn()}
+          onSave={onSave}
+          onDelete={vi.fn()}
+        />,
+      );
+    });
+
+    act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "tea", done: true }));
   });
 });

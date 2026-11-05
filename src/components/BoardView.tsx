@@ -85,6 +85,7 @@ interface ContainerProps {
   compact?: boolean;
   onCreate: (container: ContainerId) => void;
   onEdit: (habit: Habit) => void;
+  onToggleDone: (id: string) => void;
 }
 
 function fontSizeStyles(settings: AppSettings): CSSProperties {
@@ -186,7 +187,25 @@ function HabitTags({ value }: { value: string }) {
   );
 }
 
-function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Habit) => void }) {
+/** Check box and gray DONE stamp share one spot; CSS swaps them on .is-done. */
+function DoneMark() {
+  return (
+    <>
+      <span className="habit-done-box"><Check size={11} strokeWidth={3.4} /></span>
+      <span className="habit-done-stamp" aria-hidden="true">DONE</span>
+    </>
+  );
+}
+
+function SortableHabitCard({
+  habit,
+  onEdit,
+  onToggleDone,
+}: {
+  habit: Habit;
+  onEdit: (habit: Habit) => void;
+  onToggleDone: (id: string) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: habit.id,
   });
@@ -224,7 +243,7 @@ function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Ha
     <article
       ref={setCardRef}
       style={style}
-      className={`habit-card ${
+      className={`habit-card ${habit.done ? "is-done" : ""} ${
         focusTags.length === 0 ? "" : hasAnyTag(habit, focusTags) ? "is-tag-hit" : "is-tag-dimmed"
       }`}
       data-droppable-id={habit.id}
@@ -243,18 +262,31 @@ function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Ha
         <HabitTitle title={habit.title} />
         <HabitTags value={habit.tags} />
       </div>
+      <button
+        type="button"
+        className="habit-done-toggle"
+        aria-pressed={habit.done === true}
+        aria-label={habit.done ? `取消完成 ${habit.title}` : `标记完成 ${habit.title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleDone(habit.id);
+        }}
+      >
+        <DoneMark />
+      </button>
     </article>
   );
 }
 
 function HabitCardPreview({ habit, settings }: { habit: Habit; settings: AppSettings }) {
   return (
-    <article className="habit-card habit-card-preview" style={fontSizeStyles(settings)}>
+    <article className={`habit-card habit-card-preview ${habit.done ? "is-done" : ""}`} style={fontSizeStyles(settings)}>
       <GripVertical size={15} />
       <div className="habit-card-copy">
         <HabitTitle title={habit.title} />
         <HabitTags value={habit.tags} />
       </div>
+      <span className="habit-done-toggle"><DoneMark /></span>
     </article>
   );
 }
@@ -267,6 +299,7 @@ function SortableContainer({
   compact = false,
   onCreate,
   onEdit,
+  onToggleDone,
 }: ContainerProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -285,7 +318,7 @@ function SortableContainer({
       >
         <div className="card-stack">
           {items.map((habit) => (
-            <SortableHabitCard key={habit.id} habit={habit} onEdit={onEdit} />
+            <SortableHabitCard key={habit.id} habit={habit} onEdit={onEdit} onToggleDone={onToggleDone} />
           ))}
         </div>
       </SortableContext>
@@ -371,6 +404,7 @@ function PeriodGroup({
   focused,
   onCreate,
   onEdit,
+  onToggleDone,
   onSloganChange,
 }: {
   period: PeriodSetting;
@@ -379,6 +413,7 @@ function PeriodGroup({
   focused: boolean;
   onCreate: (container: ContainerId) => void;
   onEdit: (habit: Habit) => void;
+  onToggleDone: (id: string) => void;
   onSloganChange: (periodId: PeriodSetting["id"], slogan: string) => void;
 }) {
   const hours = hoursForPeriod(period.id, settings);
@@ -387,6 +422,8 @@ function PeriodGroup({
   const { tags: focusTags } = useContext(TagFocusContext);
   const periodHabits = [periodItems, ...hours.map((hour) => itemsInContainer(items, `hour:${hour}`))].flat();
   const periodHits = periodHabits.filter((habit) => hasAnyTag(habit, focusTags)).length;
+  const periodDone = periodHabits.filter((habit) => habit.done).length;
+  const allDone = periodHabits.length > 0 && periodDone === periodHabits.length;
 
   return (
     <section
@@ -399,10 +436,23 @@ function PeriodGroup({
       data-period-id={period.id}
       data-layout={focused ? "focus" : "global"}
     >
-      <header className="period-heading">
+      <header
+        className="period-heading"
+        style={{ "--done-ratio": periodHabits.length > 0 ? periodDone / periodHabits.length : 0 } as CSSProperties}
+      >
         <div>
           <span className="period-dot" />
           <strong>{period.label}</strong>
+          {periodHabits.length > 0 && (
+            <span
+              className={`period-done-count ${allDone ? "is-all" : ""}`}
+              title="今日完成"
+              aria-label={`今日完成 ${periodDone} / ${periodHabits.length}`}
+            >
+              {allDone && <Check size={10} strokeWidth={3.4} />}
+              <b>{periodDone}</b>/{periodHabits.length}
+            </span>
+          )}
           {focusTags.length > 0 && (
             <span className="period-tag-count" aria-label={`命中 ${periodHits} / ${periodHabits.length}`}>
               <b>{periodHits}</b> / {periodHabits.length}
@@ -436,6 +486,7 @@ function PeriodGroup({
               compact
               onCreate={onCreate}
               onEdit={onEdit}
+              onToggleDone={onToggleDone}
             />
           </div>
 
@@ -451,6 +502,7 @@ function PeriodGroup({
                   label={hourLabel(hour)}
                   onCreate={onCreate}
                   onEdit={onEdit}
+                  onToggleDone={onToggleDone}
                 />
               </div>
             );
@@ -471,6 +523,7 @@ function PeriodGroup({
               compact
               onCreate={onCreate}
               onEdit={onEdit}
+              onToggleDone={onToggleDone}
             />
           </div>
 
@@ -487,6 +540,7 @@ function PeriodGroup({
                     label={hourLabel(hour)}
                     onCreate={onCreate}
                     onEdit={onEdit}
+                    onToggleDone={onToggleDone}
                   />
                 </div>
               );
@@ -512,6 +566,11 @@ export function BoardView({
   const [pinnedTags, setPinnedTags] = useState<string[]>([]);
   const [previewTag, setPreviewTag] = useState<string | null>(null);
   const usage = useMemo(() => tagUsage(items.map((item) => item.tags)), [items]);
+  const doneByTag = useMemo(
+    () => Object.fromEntries(tagUsage(items.filter((item) => item.done).map((item) => item.tags))
+      .map(({ tag, count }) => [tag, count])),
+    [items],
+  );
   const pinned = pinnedTags.filter((tag) => usage.some((entry) => entry.tag === tag));
   const previewing = previewTag !== null && activeId === null;
   const togglePinnedTag = useCallback((tag: string) => setPinnedTags((current) =>
@@ -523,6 +582,10 @@ export function BoardView({
     toggle: togglePinnedTag,
   };
   const clearPinnedTags = useCallback(() => setPinnedTags([]), []);
+  const doneCount = items.filter((item) => item.done).length;
+  const toggleDone = (id: string) =>
+    onItemsChange(items.map((item) => item.id === id ? { ...item, done: !item.done } : item));
+  const resetDone = () => onItemsChange(items.map((item) => item.done ? { ...item, done: false } : item));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -570,6 +633,7 @@ export function BoardView({
     <TagFocusContext.Provider value={tagFocus}>
       <TagBar
         usage={usage}
+        doneByTag={doneByTag}
         tagIcons={settings.tagIcons}
         pinned={pinned}
         pinnedHabitCount={items.filter((item) => hasAnyTag(item, pinned)).length}
@@ -578,6 +642,9 @@ export function BoardView({
         onToggle={togglePinnedTag}
         onClear={clearPinnedTags}
         onIconChange={onTagIconChange}
+        doneCount={doneCount}
+        totalCount={items.length}
+        onResetDone={resetDone}
       />
       <DndContext
         key={layoutKey}
@@ -604,6 +671,7 @@ export function BoardView({
                 focused={viewMode !== "global"}
                 onCreate={onCreate}
                 onEdit={onEdit}
+                onToggleDone={toggleDone}
                 onSloganChange={onSloganChange}
               />
             ))}

@@ -146,7 +146,7 @@ describe("BoardView tag focus", () => {
 
   it("lists tags by usage with icons, falling back to # when a tag has no icon", () => {
     render();
-    expect([...host.querySelectorAll(".tag-pill")].map((item) => item.textContent)).toEqual(["🍵饮食2", "#口才突破1", "#睡前1"]);
+    expect([...host.querySelectorAll(".tag-pill")].map((item) => item.textContent)).toEqual(["🍵饮食0/2", "#口才突破0/1", "#睡前0/1"]);
     expect(card("tea").querySelector(".habit-tag")?.textContent).toBe("🍵饮食");
   });
 
@@ -183,12 +183,119 @@ describe("BoardView tag focus", () => {
   it("chooses an icon for a tag in edit mode", () => {
     const onTagIconChange = vi.fn();
     render(onTagIconChange);
-    act(() => [...host.querySelectorAll<HTMLButtonElement>(".tag-bar-action")].at(-1)!.click());
+    act(() => [...host.querySelectorAll<HTMLButtonElement>(".tag-bar-action")].find((button) => button.textContent === "编辑 icon")!.click());
     act(() => pill("睡前").click());
     const options = host.querySelectorAll<HTMLButtonElement>('[role="option"]');
     act(() => options[0].click());
     expect(onTagIconChange).toHaveBeenCalledWith("睡前", options[0].textContent);
     expect(host.querySelector('[role="listbox"]')).toBeNull();
     expect(focus()).toBeUndefined();
+  });
+});
+
+describe("BoardView daily to-do", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const habit = (id: string, hour: number, done = false, tags = ""): Habit => ({
+    id,
+    title: id,
+    description: "",
+    tags,
+    placement: { kind: "hour", hour },
+    order: 0,
+    createdAt: "2026-11-05T00:00:00Z",
+    updatedAt: "2026-11-05T00:00:00Z",
+    done,
+  });
+
+  function render(items: Habit[], handlers = { onItemsChange: vi.fn(), onEdit: vi.fn() }) {
+    act(() => {
+      root.render(
+        <BoardView
+          items={items}
+          settings={structuredClone(DEFAULT_SETTINGS)}
+          viewMode="global"
+          onItemsChange={handlers.onItemsChange}
+          onCreate={vi.fn()}
+          onEdit={handlers.onEdit}
+          onSloganChange={vi.fn()}
+          onTagIconChange={vi.fn()}
+        />,
+      );
+    });
+    return handlers;
+  }
+  const card = (id: string) => host.querySelector<HTMLElement>(`.habit-card[data-droppable-id="${id}"]`)!;
+  const toggle = (id: string) => card(id).querySelector<HTMLButtonElement>(".habit-done-toggle")!;
+  const heading = (period: string) => host.querySelector<HTMLElement>(`.period-group[data-period-id="${period}"] .period-heading`)!;
+  const resetButton = () => host.querySelector<HTMLButtonElement>(".tag-bar-reset")!;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    globalThis.ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("toggles a habit done without opening the editor", () => {
+    const items = [habit("tea", 8), habit("read", 9, true)];
+    const { onItemsChange, onEdit } = render(items);
+
+    expect(card("read").classList).toContain("is-done");
+    expect(toggle("read").getAttribute("aria-pressed")).toBe("true");
+    expect(card("tea").classList).not.toContain("is-done");
+
+    act(() => toggle("tea").click());
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onItemsChange).toHaveBeenCalledWith([{ ...items[0], done: true }, items[1]]);
+  });
+
+  it("shows per-period progress and marks a fully done period", () => {
+    render([habit("tea", 8, true), habit("read", 9), habit("nap", 13, true)]);
+
+    const morning = heading("morning");
+    expect(morning.querySelector(".period-done-count")?.textContent).toBe("1/2");
+    expect(morning.style.getPropertyValue("--done-ratio")).toBe("0.5");
+    expect(heading("evening").style.getPropertyValue("--done-ratio")).toBe("0");
+    expect(heading("noon").querySelector(".period-done-count")?.classList).toContain("is-all");
+    expect(heading("evening").querySelector(".period-done-count")).toBeNull();
+    expect(host.querySelector(".tag-bar-today")?.textContent).toContain("今日完成 2/3");
+  });
+
+  it("resets every done habit only after a confirming second click", () => {
+    const items = [habit("tea", 8, true), habit("read", 9), habit("nap", 13, true)];
+    const { onItemsChange } = render(items);
+
+    act(() => resetButton().click());
+    expect(onItemsChange).not.toHaveBeenCalled();
+    expect(resetButton().textContent).toBe("再点一次确认");
+
+    act(() => resetButton().click());
+    expect(onItemsChange).toHaveBeenCalledWith(items.map((item) => ({ ...item, done: false })));
+    expect(resetButton().textContent).toBe("重置今日");
+  });
+
+  it("fills each tag pill with the share of its habits done", () => {
+    render([habit("tea", 8, true, "饮食"), habit("rice", 12, false, "饮食, 睡前"), habit("bath", 22, true, "睡前, 调理")]);
+    const pill = (tag: string) =>
+      [...host.querySelectorAll<HTMLElement>(".tag-pill")].find((item) => item.textContent?.includes(tag))!;
+
+    expect(pill("饮食").style.getPropertyValue("--done-ratio")).toBe("0.5");
+    expect(pill("饮食").querySelector("small")?.textContent).toBe("1/2");
+    expect(pill("饮食").classList).not.toContain("is-all-done");
+    expect(pill("调理").classList).toContain("is-all-done");
+    expect(pill("调理").querySelector("small svg")).not.toBeNull();
+  });
+
+  it("keeps the reset bar for untagged habits and disables reset when nothing is done", () => {
+    render([habit("tea", 8)]);
+    expect(host.querySelector(".tag-pill")).toBeNull();
+    expect(resetButton().disabled).toBe(true);
   });
 });

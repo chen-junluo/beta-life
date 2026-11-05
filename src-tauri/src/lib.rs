@@ -124,6 +124,9 @@ struct Habit {
     source_excerpt: Option<String>,
     created_at: String,
     updated_at: String,
+    /// Daily to-do check; cleared by the board's "reset today" action.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3228,6 +3231,27 @@ mod tests {
         let serialized = serde_json::to_value(habit).expect("habit should serialize");
         assert_eq!(serialized["tags"], "daily, health");
         assert!(serialized.get("frequency").is_none());
+    }
+
+    #[test]
+    fn habit_done_defaults_to_false_and_round_trips() {
+        let mut habit: Habit = serde_json::from_value(json!({
+            "id": "habit-1",
+            "title": "Drink water",
+            "placement": { "kind": "period", "period": "morning" },
+            "order": 0,
+            "createdAt": "2026-11-05T00:00:00Z",
+            "updatedAt": "2026-11-05T00:00:00Z"
+        }))
+        .expect("habit without done should deserialize");
+        assert!(!habit.done);
+        assert!(serde_json::to_value(&habit).unwrap().get("done").is_none());
+
+        habit.done = true;
+        let serialized = serde_json::to_value(&habit).unwrap();
+        assert_eq!(serialized["done"], true);
+        let reloaded: Habit = serde_json::from_value(serialized).unwrap();
+        assert!(reloaded.done);
     }
 
     #[test]

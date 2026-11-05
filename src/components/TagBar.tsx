@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { Check, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { TAG_ICON_CHOICES, tagIcon } from "../tagIcons";
 
 interface TagBarProps {
   usage: Array<{ tag: string; count: number }>;
+  /** Tag -> number of done habits carrying it; missing means none. */
+  doneByTag: Record<string, number>;
   tagIcons: Record<string, string>;
   pinned: string[];
   pinnedHabitCount: number;
@@ -11,10 +14,14 @@ interface TagBarProps {
   onToggle: (tag: string) => void;
   onClear: () => void;
   onIconChange: (tag: string, icon: string) => void;
+  doneCount: number;
+  totalCount: number;
+  onResetDone: () => void;
 }
 
 export function TagBar({
   usage,
+  doneByTag,
   tagIcons,
   pinned,
   pinnedHabitCount,
@@ -23,8 +30,12 @@ export function TagBar({
   onToggle,
   onClear,
   onIconChange,
+  doneCount,
+  totalCount,
+  onResetDone,
 }: TagBarProps) {
   const [editing, setEditing] = useState(false);
+  const [resetArmed, setResetArmed] = useState(false);
   const [pickerTag, setPickerTag] = useState<string | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -46,7 +57,13 @@ export function TagBar({
     };
   }, [editing, onClear, pickerTag, pinned.length]);
 
-  if (usage.length === 0) return null;
+  useEffect(() => {
+    if (!resetArmed) return;
+    const timer = window.setTimeout(() => setResetArmed(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [resetArmed]);
+
+  if (usage.length === 0 && totalCount === 0) return null;
 
   const status = editing
     ? "点击 tag 选择 icon"
@@ -61,16 +78,19 @@ export function TagBar({
 
   return (
     <div ref={barRef} className={`tag-bar ${editing ? "is-editing" : ""}`} data-view-mode={viewMode} role="toolbar" aria-label="Tags">
-      <span className="tag-bar-label">TAGS</span>
+      {usage.length > 0 && <span className="tag-bar-label">TAGS</span>}
       {usage.map(({ tag, count }) => {
         const icon = tagIcon(tagIcons, tag);
         const on = pinned.includes(tag);
+        const done = doneByTag[tag] ?? 0;
+        const allDone = done === count;
         return (
           <span className="tag-pill-wrap" key={tag}>
             <button
               type="button"
-              className={`tag-pill ${on && !editing ? "is-on" : ""}`}
-              title={editing ? `为「${tag}」选择 icon` : tag}
+              className={`tag-pill ${on && !editing ? "is-on" : ""} ${allDone ? "is-all-done" : ""}`}
+              style={{ "--done-ratio": done / count } as CSSProperties}
+              title={editing ? `为「${tag}」选择 icon` : `${tag} · 今日完成 ${done}/${count}`}
               aria-pressed={editing ? undefined : on}
               aria-haspopup={editing ? "listbox" : undefined}
               aria-expanded={editing ? pickerTag === tag : undefined}
@@ -80,7 +100,7 @@ export function TagBar({
             >
               <span className={`tag-icon ${icon ? "" : "is-empty"}`} aria-hidden="true">{icon || "#"}</span>
               <span className="tag-pill-name">{tag}</span>
-              <small>{count}</small>
+              <small>{allDone && <Check size={10} strokeWidth={3.4} />}{done}/{count}</small>
             </button>
             {pickerTag === tag && (
               <div className="settings-select-menu tag-icon-menu" role="listbox" aria-label={`为「${tag}」选择 icon`}>
@@ -113,21 +133,44 @@ export function TagBar({
           </span>
         );
       })}
-      <span className="tag-bar-status">{status}</span>
-      {pinned.length > 0 && !editing && (
-        <button type="button" className="tag-bar-action" onClick={onClear}>清除</button>
+      {usage.length > 0 && (
+        <>
+          <span className="tag-bar-status">{status}</span>
+          {pinned.length > 0 && !editing && (
+            <button type="button" className="tag-bar-action" onClick={onClear}>清除</button>
+          )}
+          <button
+            type="button"
+            className="tag-bar-action"
+            onClick={() => {
+              setEditing((current) => !current);
+              setPickerTag(null);
+              onPreview(null);
+            }}
+          >
+            {editing ? "完成" : "编辑 icon"}
+          </button>
+        </>
       )}
-      <button
-        type="button"
-        className="tag-bar-action"
-        onClick={() => {
-          setEditing((current) => !current);
-          setPickerTag(null);
-          onPreview(null);
-        }}
-      >
-        {editing ? "完成" : "编辑 icon"}
-      </button>
+      <span className="tag-bar-today">
+        <span aria-label={`今日完成 ${doneCount} / ${totalCount}`}>今日完成 <b>{doneCount}</b>/{totalCount}</span>
+        <button
+          type="button"
+          className={`tag-bar-action tag-bar-reset ${resetArmed ? "is-armed" : ""}`}
+          disabled={doneCount === 0}
+          onClick={() => {
+            if (!resetArmed) {
+              setResetArmed(true);
+              return;
+            }
+            setResetArmed(false);
+            onResetDone();
+          }}
+        >
+          <RotateCcw size={12} />
+          {resetArmed ? "再点一次确认" : "重置今日"}
+        </button>
+      </span>
     </div>
   );
 }

@@ -74,6 +74,7 @@ export function HabitEditor({
       sourceExcerpt: habit?.sourceExcerpt,
       createdAt: habit?.createdAt ?? now,
       updatedAt: now,
+      done: habit?.done,
     });
   }
 

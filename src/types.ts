@@ -18,6 +18,8 @@ export interface Habit {
   sourceExcerpt?: string;
   createdAt: string;
   updatedAt: string;
+  /** Daily to-do check; cleared by the board's "reset today" action. */
+  done?: boolean;
 }
 
 export interface Board {
