@@ -100,7 +100,12 @@ export function moveHabit(
       ? sourceItems
       : itemsInContainer(items, targetContainer).filter((item) => item.id !== activeId);
 
-  const overIndex = overId ? targetItems.findIndex((item) => item.id === overId) : -1;
+  // Within one container, match dnd-kit's arrayMove preview: dropping on a lower card lands after it.
+  const overIndex = !overId
+    ? -1
+    : sourceContainer === targetContainer
+      ? itemsInContainer(items, sourceContainer).findIndex((item) => item.id === overId)
+      : targetItems.findIndex((item) => item.id === overId);
   const insertAt = overIndex >= 0 ? overIndex : targetItems.length;
   targetItems.splice(insertAt, 0, {
     ...active,

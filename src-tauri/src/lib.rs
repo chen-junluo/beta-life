@@ -154,6 +154,9 @@ struct AppSettings {
     ai: AiSettings,
     #[serde(default)]
     slogans: TabSlogans,
+    /// Tag name -> emoji shown before the tag. An empty string means "no icon".
+    #[serde(default)]
+    tag_icons: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -723,6 +726,7 @@ fn default_settings() -> AppSettings {
             memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
         },
         slogans: TabSlogans::default(),
+        tag_icons: HashMap::new(),
     }
 }
 
@@ -3238,6 +3242,22 @@ mod tests {
         let partial: TabSlogans = serde_json::from_value(json!({ "board": "" })).unwrap();
         assert_eq!(partial.board, "");
         assert_eq!(partial.memories, TabSlogans::default().memories);
+    }
+
+    #[test]
+    fn legacy_settings_without_tag_icons_load_and_tag_icons_round_trip() {
+        let mut legacy = serde_json::to_value(default_settings()).unwrap();
+        legacy.as_object_mut().unwrap().remove("tagIcons");
+        let loaded: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(loaded.tag_icons.is_empty());
+
+        let mut settings = default_settings();
+        settings.tag_icons.insert("饮食".into(), "🍵".into());
+        settings.tag_icons.insert("睡不着".into(), String::new());
+        let serialized = serde_json::to_value(&settings).unwrap();
+        assert_eq!(serialized["tagIcons"]["饮食"], "🍵");
+        let reloaded: AppSettings = serde_json::from_value(serialized).unwrap();
+        assert_eq!(reloaded.tag_icons, settings.tag_icons);
     }
 
     #[test]

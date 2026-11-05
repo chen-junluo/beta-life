@@ -22,7 +22,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { Check, Clock3, GripVertical, Pencil, Plus, Quote, X } from "lucide-react";
 import {
   Fragment,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -39,7 +41,9 @@ import {
   moveHabit,
   orderedPeriods,
 } from "../boardLogic";
-import { parseSimpleMarkdown, splitTags } from "../simpleMarkdown";
+import { parseSimpleMarkdown, splitTags, tagUsage } from "../simpleMarkdown";
+import { tagIcon } from "../tagIcons";
+import { TagBar } from "./TagBar";
 import type {
   AppSettings,
   BoardViewMode,
@@ -55,7 +59,22 @@ interface BoardViewProps {
   onCreate: (container: ContainerId) => void;
   onEdit: (habit: Habit) => void;
   onSloganChange: (periodId: PeriodSetting["id"], slogan: string) => void;
+  onTagIconChange: (tag: string, icon: string) => void;
   viewMode: BoardViewMode;
+}
+
+interface TagFocus {
+  /** Tags being previewed (hover) or pinned (click); empty when nothing is focused. */
+  tags: string[];
+  tagIcons: Record<string, string>;
+  preview: (tag: string | null) => void;
+  toggle: (tag: string) => void;
+}
+
+const TagFocusContext = createContext<TagFocus>({ tags: [], tagIcons: {}, preview: () => {}, toggle: () => {} });
+
+function hasAnyTag(habit: Habit, tags: string[]): boolean {
+  return splitTags(habit.tags).some((tag) => tags.includes(tag));
 }
 
 interface ContainerProps {
@@ -77,25 +96,39 @@ function fontSizeStyles(settings: AppSettings): CSSProperties {
   } as CSSProperties;
 }
 
-const visualPointerCollision: CollisionDetection = (args) => {
-  if (!args.pointerCoordinates) return closestCenter(args);
+export const pointerCollision: CollisionDetection = (args) => {
+  const pointer = args.pointerCoordinates;
+  if (!pointer) return closestCenter(args);
 
-  const droppableIds = new Set(
-    args.droppableContainers
-      .filter((container) => !container.disabled)
-      .map((container) => String(container.id)),
-  );
+  // Containers never move while sorting, so DOM hit-testing them is stable.
+  const container = document
+    .elementsFromPoint(pointer.x, pointer.y)
+    .map((element) => element.closest<HTMLElement>("[data-container-id]"))
+    .find((element): element is HTMLElement => element !== null);
+  if (!container) return [];
+  const containerId = container.dataset.containerId!;
 
-  for (const element of document.elementsFromPoint(
-    args.pointerCoordinates.x,
-    args.pointerCoordinates.y,
-  )) {
-    const droppable = element.closest<HTMLElement>("[data-droppable-id]");
-    const id = droppable?.dataset.droppableId;
-    if (id && droppableIds.has(id)) return [{ id }];
+  // Cards slide under the pointer while sorting. Hit-testing them in the DOM feeds the shift back
+  // into the next collision and makes the stack oscillate, so use their untransformed rects instead.
+  const cards = Array.from(container.querySelectorAll<HTMLElement>(".habit-card[data-droppable-id]"))
+    .map((card) => ({ id: card.dataset.droppableId!, rect: args.droppableRects.get(card.dataset.droppableId!) }))
+    .filter((card): card is { id: string; rect: NonNullable<typeof card.rect> } => card.rect !== undefined);
+  if (cards.length === 0) return [{ id: containerId }];
+
+  const hit = cards.find(({ rect }) =>
+    pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top && pointer.y <= rect.bottom);
+  if (hit) return [{ id: hit.id }];
+
+  if (pointer.y > Math.max(...cards.map(({ rect }) => rect.bottom))) {
+    // Below every card: same-container drags target the last card (arrayMove to the end),
+    // cross-container drags target the container (append).
+    const sameContainer = cards.some(({ id }) => id === String(args.active.id));
+    return [{ id: sameContainer ? cards.at(-1)!.id : containerId }];
   }
 
-  return [];
+  const distance = ({ rect }: (typeof cards)[number]) =>
+    Math.hypot(rect.left + rect.width / 2 - pointer.x, rect.top + rect.height / 2 - pointer.y);
+  return [{ id: cards.reduce((nearest, card) => distance(card) < distance(nearest) ? card : nearest).id }];
 };
 
 function HabitTitle({ title }: { title: string }) {
@@ -124,15 +157,40 @@ function HabitTitle({ title }: { title: string }) {
 }
 
 function HabitTags({ value }: { value: string }) {
+  const focus = useContext(TagFocusContext);
   const tags = splitTags(value);
   if (tags.length === 0) return null;
-  return <div className="habit-tags">{tags.map((tag, index) => <span key={`${tag}-${index}`}>#{tag}</span>)}</div>;
+  return (
+    <div className="habit-tags">
+      {tags.map((tag, index) => {
+        const icon = tagIcon(focus.tagIcons, tag);
+        return (
+          <button
+            type="button"
+            key={`${tag}-${index}`}
+            className={`habit-tag ${focus.tags.includes(tag) ? "is-match" : ""}`}
+            title={`聚焦「${tag}」`}
+            onMouseEnter={() => focus.preview(tag)}
+            onMouseLeave={() => focus.preview(null)}
+            onClick={(event) => {
+              event.stopPropagation();
+              focus.toggle(tag);
+            }}
+          >
+            <span className={`tag-icon ${icon ? "" : "is-empty"}`} aria-hidden="true">{icon || "#"}</span>
+            {tag}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Habit) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: habit.id,
   });
+  const { tags: focusTags } = useContext(TagFocusContext);
   const cardRef = useRef<HTMLElement | null>(null);
   const [rowSpan, setRowSpan] = useState(1);
   const setCardRef = useCallback((node: HTMLElement | null) => {
@@ -155,9 +213,9 @@ function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Ha
   }, []);
 
   const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Translate.toString(transform),
     transition,
-    opacity: isDragging ? 0.28 : 1,
+    opacity: isDragging ? 0.28 : undefined,
     pointerEvents: isDragging ? "none" : undefined,
     gridRowEnd: `span ${rowSpan}`,
   };
@@ -166,7 +224,9 @@ function SortableHabitCard({ habit, onEdit }: { habit: Habit; onEdit: (habit: Ha
     <article
       ref={setCardRef}
       style={style}
-      className="habit-card"
+      className={`habit-card ${
+        focusTags.length === 0 ? "" : hasAnyTag(habit, focusTags) ? "is-tag-hit" : "is-tag-dimmed"
+      }`}
       data-droppable-id={habit.id}
       onClick={() => onEdit(habit)}
     >
@@ -324,6 +384,9 @@ function PeriodGroup({
   const hours = hoursForPeriod(period.id, settings);
   const periodContainer = `period:${period.id}` as ContainerId;
   const periodItems = itemsInContainer(items, periodContainer);
+  const { tags: focusTags } = useContext(TagFocusContext);
+  const periodHabits = [periodItems, ...hours.map((hour) => itemsInContainer(items, `hour:${hour}`))].flat();
+  const periodHits = periodHabits.filter((habit) => hasAnyTag(habit, focusTags)).length;
 
   return (
     <section
@@ -340,6 +403,11 @@ function PeriodGroup({
         <div>
           <span className="period-dot" />
           <strong>{period.label}</strong>
+          {focusTags.length > 0 && (
+            <span className="period-tag-count" aria-label={`命中 ${periodHits} / ${periodHabits.length}`}>
+              <b>{periodHits}</b> / {periodHabits.length}
+            </span>
+          )}
         </div>
         <span>
           {hourLabel(hours[0])}–{hourLabel((hours.at(-1)! + 1) % 24)}
@@ -437,9 +505,24 @@ export function BoardView({
   onCreate,
   onEdit,
   onSloganChange,
+  onTagIconChange,
   viewMode,
 }: BoardViewProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [pinnedTags, setPinnedTags] = useState<string[]>([]);
+  const [previewTag, setPreviewTag] = useState<string | null>(null);
+  const usage = useMemo(() => tagUsage(items.map((item) => item.tags)), [items]);
+  const pinned = pinnedTags.filter((tag) => usage.some((entry) => entry.tag === tag));
+  const previewing = previewTag !== null && activeId === null;
+  const togglePinnedTag = useCallback((tag: string) => setPinnedTags((current) =>
+    current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]), []);
+  const tagFocus: TagFocus = {
+    tags: previewing ? [previewTag] : pinned,
+    tagIcons: settings.tagIcons,
+    preview: setPreviewTag,
+    toggle: togglePinnedTag,
+  };
+  const clearPinnedTags = useCallback(() => setPinnedTags([]), []);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -484,38 +567,52 @@ export function BoardView({
   }
 
   return (
-    <DndContext
-      key={layoutKey}
-      sensors={sensors}
-      collisionDetection={visualPointerCollision}
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-      onDragStart={handleDragStart}
-      onDragCancel={() => setActiveId(null)}
-      onDragEnd={handleDragEnd}
-    >
-      <div
-        className="timeline-scroll"
-        aria-label={viewMode === "global" ? "全局模式生活时间板" : "聚焦模式生活时间板"}
-        data-view-mode={viewMode}
+    <TagFocusContext.Provider value={tagFocus}>
+      <TagBar
+        usage={usage}
+        tagIcons={settings.tagIcons}
+        pinned={pinned}
+        pinnedHabitCount={items.filter((item) => hasAnyTag(item, pinned)).length}
+        viewMode={viewMode}
+        onPreview={setPreviewTag}
+        onToggle={togglePinnedTag}
+        onClear={clearPinnedTags}
+        onIconChange={onTagIconChange}
+      />
+      <DndContext
+        key={layoutKey}
+        sensors={sensors}
+        collisionDetection={pointerCollision}
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        onDragStart={handleDragStart}
+        onDragCancel={() => setActiveId(null)}
+        onDragEnd={handleDragEnd}
       >
-        <div className={`timeline-canvas ${viewMode === "global" ? "global-mode" : "focus-mode"}`}>
-          {visiblePeriods.map((period) => (
-            <PeriodGroup
-              key={period.id}
-              period={period}
-              settings={settings}
-              items={items}
-              focused={viewMode !== "global"}
-              onCreate={onCreate}
-              onEdit={onEdit}
-              onSloganChange={onSloganChange}
-            />
-          ))}
+        <div
+          className="timeline-scroll"
+          aria-label={viewMode === "global" ? "全局模式生活时间板" : "聚焦模式生活时间板"}
+          data-view-mode={viewMode}
+          data-tag-focus={tagFocus.tags.length === 0 ? undefined : previewing ? "preview" : "pinned"}
+        >
+          <div className={`timeline-canvas ${viewMode === "global" ? "global-mode" : "focus-mode"}`}>
+            {visiblePeriods.map((period) => (
+              <PeriodGroup
+                key={period.id}
+                period={period}
+                settings={settings}
+                items={items}
+                focused={viewMode !== "global"}
+                onCreate={onCreate}
+                onEdit={onEdit}
+                onSloganChange={onSloganChange}
+              />
+            ))}
+          </div>
         </div>
-      </div>
-      <DragOverlay style={{ pointerEvents: "none" }}>
-        {activeHabit ? <HabitCardPreview habit={activeHabit} settings={settings} /> : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay style={{ pointerEvents: "none" }}>
+          {activeHabit ? <HabitCardPreview habit={activeHabit} settings={settings} /> : null}
+        </DragOverlay>
+      </DndContext>
+    </TagFocusContext.Provider>
   );
 }

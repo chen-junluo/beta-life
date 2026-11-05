@@ -3,6 +3,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
+import { collectTags } from "./simpleMarkdown";
+import { assignTagIcons } from "./tagIcons";
 import { AiPanel } from "./components/AiPanel";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
@@ -115,6 +117,13 @@ export default function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  const boardFile = state?.board;
+  useEffect(() => {
+    if (!boardFile) return;
+    const tags = collectTags(activeItems(boardFile).map((item) => item.tags));
+    saveTagIcons((tagIcons) => assignTagIcons(tagIcons, tags));
+  }, [boardFile]);
 
   useEffect(() => {
     let active = true;
@@ -402,6 +411,18 @@ export default function App() {
     void queueSettingsSave(settings).catch((error) => console.error(error));
   }
 
+  function saveTagIcons(update: (tagIcons: Record<string, string>) => Record<string, string>) {
+    const current = stateRef.current;
+    if (!current) return;
+    const tagIcons = update(current.settings.tagIcons);
+    if (tagIcons === current.settings.tagIcons) return;
+    const settings = { ...current.settings, tagIcons };
+    const nextState = { ...current, settings };
+    stateRef.current = nextState;
+    setState(nextState);
+    void queueSettingsSave(settings).catch((error) => console.error(error));
+  }
+
   if (!state) {
     return (
       <main className="loading-screen">
@@ -505,6 +526,7 @@ export default function App() {
           onCreate={openCreate}
           onEdit={openEdit}
           onSloganChange={savePeriodSlogan}
+          onTagIconChange={(tag, icon) => saveTagIcons((tagIcons) => ({ ...tagIcons, [tag]: icon }))}
         />
       </main>}
 
@@ -518,6 +540,7 @@ export default function App() {
           habit={editorHabit}
           initialContainer={editorContainer}
           settings={state.settings}
+          knownTags={collectTags(activeItems(state.board).map((item) => item.tags))}
           onClose={() => setShowEditor(false)}
           onSave={saveHabit}
           onDelete={deleteHabit}

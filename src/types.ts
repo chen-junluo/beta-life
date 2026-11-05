@@ -84,6 +84,8 @@ export interface AppSettings {
   recall: RecallSettings;
   ai: AiSettings;
   slogans: TabSlogans;
+  /** Tag name -> emoji shown before the tag; "" means no icon (show #). */
+  tagIcons: Record<string, string>;
 }
 
 export interface LoadedAppState {

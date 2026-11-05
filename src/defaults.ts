@@ -96,6 +96,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
+  tagIcons: {},
 };
 
 export const DEFAULT_BOARD: BoardFile = {

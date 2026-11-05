@@ -1,12 +1,15 @@
 import { Check, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { hourLabel, periodForHour } from "../boardLogic";
+import { applyTagSuggestion, suggestTags } from "../simpleMarkdown";
+import { tagIcon } from "../tagIcons";
 import type { AppSettings, ContainerId, Habit, PeriodId, Placement } from "../types";
 
 interface HabitEditorProps {
   habit: Habit | null;
   initialContainer: ContainerId | null;
   settings: AppSettings;
+  knownTags: string[];
   onClose: () => void;
   onSave: (habit: Habit) => void;
   onDelete: (id: string) => void;
@@ -24,6 +27,7 @@ export function HabitEditor({
   habit,
   initialContainer,
   settings,
+  knownTags,
   onClose,
   onSave,
   onDelete,
@@ -43,6 +47,9 @@ export function HabitEditor({
   );
   const [hour, setHour] = useState(initialPlacement.kind === "hour" ? initialPlacement.hour : 9);
   const [deleteArmed, setDeleteArmed] = useState(false);
+  const [tagsFocused, setTagsFocused] = useState(false);
+  const [highlightedTag, setHighlightedTag] = useState(-1);
+  const suggestions = tagsFocused ? suggestTags(tags, knownTags) : [];
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -68,6 +75,11 @@ export function HabitEditor({
       createdAt: habit?.createdAt ?? now,
       updatedAt: now,
     });
+  }
+
+  function pickTag(tag: string) {
+    setTags(applyTagSuggestion(tags, tag));
+    setHighlightedTag(-1);
   }
 
   function deleteHabit() {
@@ -149,11 +161,54 @@ export function HabitEditor({
 
           <label>
             <span>Tags</span>
-            <input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="例如：健康, 每天, 低强度"
-            />
+            <div className="tag-input">
+              <input
+                value={tags}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={suggestions.length > 0}
+                aria-controls="habit-tag-suggestions"
+                onChange={(event) => {
+                  setTags(event.target.value);
+                  setHighlightedTag(-1);
+                }}
+                onFocus={() => setTagsFocused(true)}
+                onBlur={() => setTagsFocused(false)}
+                onKeyDown={(event) => {
+                  if (suggestions.length === 0) return;
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const step = event.key === "ArrowDown" ? 1 : -1;
+                    setHighlightedTag((current) => (current + step + suggestions.length) % suggestions.length);
+                  } else if (event.key === "Enter" && highlightedTag >= 0) {
+                    event.preventDefault();
+                    pickTag(suggestions[highlightedTag]);
+                  } else if (event.key === "Escape") {
+                    event.stopPropagation();
+                    setTagsFocused(false);
+                  }
+                }}
+                placeholder="例如：健康, 每天, 低强度"
+              />
+              {suggestions.length > 0 && (
+                <div className="settings-select-menu" id="habit-tag-suggestions" role="listbox" aria-label="已有 tags">
+                  {suggestions.map((tag, index) => (
+                    <button
+                      type="button"
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === highlightedTag}
+                      className={`settings-select-option ${index === highlightedTag ? "is-selected" : ""}`}
+                      key={tag}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => pickTag(tag)}
+                    >
+                      <span>{tagIcon(settings.tagIcons, tag) || "#"} {tag}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </label>
 
           <label>

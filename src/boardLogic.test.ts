@@ -50,6 +50,22 @@ describe("moveHabit", () => {
         .map((item) => item.id),
     ).toEqual(["a", "c"]);
   });
+
+  it("moves a card to the bottom when dropped on the last card of the same hour", () => {
+    const items = [habit("a", 9, 0), habit("b", 9, 1), habit("c", 9, 2)];
+    const moved = moveHabit(items, "a", "hour:9", "c");
+    expect(
+      moved.sort((left, right) => left.order - right.order).map((item) => item.id),
+    ).toEqual(["b", "c", "a"]);
+  });
+
+  it("moves a card up when dropped on an earlier card of the same hour", () => {
+    const items = [habit("a", 9, 0), habit("b", 9, 1), habit("c", 9, 2)];
+    const moved = moveHabit(items, "c", "hour:9", "a");
+    expect(
+      moved.sort((left, right) => left.order - right.order).map((item) => item.id),
+    ).toEqual(["c", "a", "b"]);
+  });
 });
 
 describe("masonryRowSpan", () => {
