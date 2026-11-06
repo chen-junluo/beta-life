@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Save, Sparkles, X } from "lucide-react";
 import type { EmotionType, LifeStage, Memory } from "../types";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { EMOTION_TYPES, MemoryFieldChips } from "./MemoryFields";
 
 interface MemoryCreateSheetProps {
   initialMemory: Memory;
@@ -12,17 +13,6 @@ interface MemoryCreateSheetProps {
   onClose: () => void;
   onOpenSettings: () => void;
 }
-
-type IntakeMode = "manual" | "ai";
-
-const EMOTION_TYPES: { value: EmotionType; label: string }[] = [
-  { value: "nostalgic", label: "怀念" },
-  { value: "melancholic", label: "伤感" },
-  { value: "excited", label: "兴奋" },
-  { value: "calm", label: "平静" },
-  { value: "confused", label: "迷茫" },
-  { value: "warm", label: "温暖" },
-];
 
 const EMOTION_VALUES = new Set<EmotionType>(EMOTION_TYPES.map(({ value }) => value));
 
@@ -35,7 +25,6 @@ export function MemoryCreateSheet({
   onOpenSettings,
 }: MemoryCreateSheetProps) {
   const [memory, setMemory] = useState(initialMemory);
-  const [intakeMode, setIntakeMode] = useState<IntakeMode>("manual");
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +88,6 @@ export function MemoryCreateSheet({
           intensity: analyzed.emotion?.intensity ?? current.emotion.intensity,
         },
       }));
-      setIntakeMode("manual");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -132,115 +120,43 @@ export function MemoryCreateSheet({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <section className="side-sheet memory-create-sheet" role="dialog" aria-modal="true" aria-labelledby="memory-create-title">
-        <header className="sheet-header">
-          <div>
-            <span className="eyebrow">MEMORY CONSTELLATION</span>
-            <h2 id="memory-create-title">新建记忆</h2>
+      <section className="side-sheet memory-create-sheet" role="dialog" aria-modal="true" aria-label="新建记忆">
+        <header className="sheet-header title-header">
+          <div className="title-header-main">
+            <span className="eyebrow">MEMORY · 新建</span>
+            <input id="memory-create-song" className="sheet-title-input" value={memory.song} onChange={(event) => update("song", event.target.value)} placeholder="歌曲名，例如：南山南" aria-label="歌曲名" />
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="关闭新建记忆">
             <X size={18} />
           </button>
         </header>
 
-        <div className="sheet-form memory-create-form">
-          <div className="recall-intake-switch memory-intake-switch" role="tablist" aria-label="记忆录入方式">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={intakeMode === "manual"}
-              className={intakeMode === "manual" ? "active" : ""}
-              onClick={() => { setIntakeMode("manual"); setError(null); }}
-            >
-              手动录入
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={intakeMode === "ai"}
-              className={intakeMode === "ai" ? "active" : ""}
-              onClick={() => { setIntakeMode("ai"); setError(null); }}
-            >
-              粘贴回忆 · AI 识别
-            </button>
+        <div className="sheet-form memory-create-form title-sheet-body">
+          <div className="chip-row">
+            <MemoryFieldChips memory={memory} lifeStages={lifeStages} idPrefix="memory-create" onField={update} onEmotion={updateEmotion} />
           </div>
-
-          {intakeMode === "ai" && (
-            <section className="recall-import-panel memory-ai-panel">
-              <div className="recall-import-heading">
-                <div>
-                  <span>回忆正文</span>
-                  <small>AI 会参考今天的日期、阶段划分和全部已有记忆来推断字段；结果只填入下方表单，检查、修改后再保存。</small>
-                </div>
-                <Sparkles size={17} aria-hidden="true" />
-              </div>
-              <MarkdownEditor
-                value={memory.content}
-                onChange={(value) => update("content", value)}
-                placeholder="写下发生了什么、当时在哪里，以及与哪首歌有关……"
-                aria-label="用于 AI 识别的记忆正文"
-              />
-              <div className="recall-import-actions">
-                <button className="primary-button" type="button" onClick={() => void analyzeMemory()} disabled={parsing}>
-                  <Sparkles size={15} aria-hidden="true" />
-                  {parsing ? "识别中…" : "AI 识别并填入"}
-                </button>
-                {!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}
-              </div>
-            </section>
-          )}
-
-          <div className="two-column-fields memory-create-fields">
-            <label>
-              <span>歌曲名</span>
-              <input id="memory-create-song" value={memory.song} onChange={(event) => update("song", event.target.value)} placeholder="例如：南山南" />
-            </label>
-            <label>
-              <span>日期</span>
-              <input id="memory-create-date" value={memory.date} onChange={(event) => update("date", event.target.value)} placeholder="2021Q2 或 20220102" />
-            </label>
-            <label>
-              <span>阶段</span>
-              <select id="memory-create-stage" value={memory.stage} onChange={(event) => update("stage", event.target.value)}>
-                <option value="">请选择</option>
-                {lifeStages.map((stage) => <option key={stage.name} value={stage.name}>{stage.name}（{stage.start} - {stage.end}）</option>)}
-              </select>
-            </label>
-            <label>
-              <span>地点</span>
-              <input id="memory-create-location" value={memory.location} onChange={(event) => update("location", event.target.value)} placeholder="校园、城市或旅行地" />
-            </label>
-            <label>
-              <span>情绪类型</span>
-              <select id="memory-create-emotion" value={memory.emotion.type} onChange={(event) => updateEmotion("type", event.target.value)}>
-                {EMOTION_TYPES.map((emotion) => <option key={emotion.value} value={emotion.value}>{emotion.label}</option>)}
-              </select>
-            </label>
-            <label className="memory-create-intensity">
-              <span>情绪强度 <output>{memory.emotion.intensity}</output></span>
-              <input
-                type="range"
-                min="0"
-                max="10"
-                step="1"
-                value={memory.emotion.intensity}
-                onChange={(event) => updateEmotion("intensity", event.target.value)}
-                aria-label="情绪强度"
-              />
-            </label>
-          </div>
-
-          {intakeMode === "manual" && (
-            <label className="memory-create-content-field">
-              <span>记忆正文</span>
-              <MarkdownEditor value={memory.content} onChange={(value) => update("content", value)} placeholder="写下这段记忆……" aria-label="记忆正文" />
-            </label>
-          )}
-
+          <MarkdownEditor
+            className="sheet-main-editor"
+            autoFocus
+            value={memory.content}
+            onChange={(value) => update("content", value)}
+            placeholder={"写下发生了什么、当时在哪里，以及与哪首歌有关……\n也可以先粘贴一段回忆，再点「AI 识别并填入」补全上面的字段。"}
+            aria-label="记忆正文"
+          />
           {error && <div className="inline-error memory-create-error" role="alert">{error}</div>}
         </div>
 
         <footer className="settings-footer memory-create-footer">
+          <button
+            className="secondary-button footer-start"
+            type="button"
+            onClick={() => void analyzeMemory()}
+            disabled={parsing}
+            title="AI 会参考今天的日期、阶段划分和全部已有记忆来推断字段；结果只填入表单，检查、修改后再保存。"
+          >
+            <Sparkles size={15} aria-hidden="true" />
+            {parsing ? "识别中…" : hasApiKey ? "AI 识别并填入" : "配置 Provider 后用 AI 识别"}
+          </button>
           <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>取消</button>
           <button className="primary-button" type="button" onClick={() => void saveMemory()} disabled={saving || parsing}>
             <Save size={15} aria-hidden="true" /> {saving ? "保存中…" : "保存记忆"}

@@ -57,6 +57,27 @@ describe("SettingsPanel selects", () => {
     expect(host.querySelector('[role="listbox"][aria-label="早上开始时间"]')).toBeNull();
   });
 
+  it("edits one AI prompt at a time through the prompt tabs", () => {
+    const promptNav = Array.from(host.querySelectorAll<HTMLButtonElement>(".settings-nav button")).find((button) => button.textContent?.includes("AI Prompt"))!;
+    act(() => promptNav.click());
+    expect(host.querySelectorAll(".prompt-field-card textarea")).toHaveLength(1);
+
+    const memoryTab = Array.from(host.querySelectorAll<HTMLButtonElement>('.prompt-nav [role="tab"]')).find((tab) => tab.textContent === "记忆分析")!;
+    act(() => memoryTab.click());
+    const textarea = host.querySelector<HTMLTextAreaElement>(".prompt-field-card textarea")!;
+    expect(textarea.value).toBe(DEFAULT_SETTINGS.ai.memoryAnalysisPrompt);
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "自定义记忆分析");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const extractionTab = Array.from(host.querySelectorAll<HTMLButtonElement>('.prompt-nav [role="tab"]')).find((tab) => tab.textContent === "习惯提取")!;
+    act(() => extractionTab.click());
+    expect(host.querySelector<HTMLTextAreaElement>(".prompt-field-card textarea")!.value).toBe(DEFAULT_SETTINGS.ai.extractionPrompt);
+    act(() => memoryTab.click());
+    expect(host.querySelector<HTMLTextAreaElement>(".prompt-field-card textarea")!.value).toBe("自定义记忆分析");
+  });
+
   it("keeps the settings dialog open when Escape only dismisses a select menu", () => {
     const trigger = host.querySelector<HTMLButtonElement>('[aria-label="早上开始时间"]')!;
     act(() => trigger.click());

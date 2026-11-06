@@ -88,7 +88,7 @@ describe("HabitEditor", () => {
 
     act(() => chip().click());
     act(() => button("晚上").click());
-    act(() => [...host.querySelectorAll<HTMLButtonElement>(".habit-whole-period")][0].click());
+    act(() => [...host.querySelectorAll<HTMLButtonElement>(".whole-period")][0].click());
     expect(chip().textContent).toContain("整个晚上");
     act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
     expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ placement: { kind: "period", period: "evening" } }));
@@ -96,7 +96,7 @@ describe("HabitEditor", () => {
     act(() => chip().click());
     act(() => button("中午").click());
     act(() => button("14:00").click());
-    expect(host.querySelector(".habit-time-popover")).toBeNull();
+    expect(host.querySelector(".time-popover")).toBeNull();
     act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
     expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ placement: { kind: "hour", hour: 14 } }));
   });
@@ -122,8 +122,8 @@ describe("HabitEditor", () => {
       );
     });
     act(() => host.querySelector<HTMLButtonElement>('[aria-label^="时间："]')!.click());
-    act(() => host.querySelector(".habit-time-popover button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(host.querySelector(".habit-time-popover")).toBeNull();
+    act(() => host.querySelector(".time-popover button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(host.querySelector(".time-popover")).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
   });
 

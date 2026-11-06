@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, FileText, MessageSquareText, Pencil, Plus, RefreshCw, Save, Shuffle, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, Check, ChevronDown, ChevronRight, FileText, FolderTree, Link2, MessageSquareText, Pencil, Plus, RefreshCw, Save, Shuffle, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
@@ -7,6 +7,7 @@ import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnow
 import type { SelectionCandidate } from "../recallLogic";
 import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
 import type { AppSettings, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
+import { ChipPopover, ChipTextInput } from "./ChipFields";
 import { MarkdownContent, MarkdownEditor } from "./MarkdownEditor";
 
 interface RecallViewProps {
@@ -17,7 +18,6 @@ interface RecallViewProps {
 }
 
 type EditorState = { knowledge: KnowledgeRecord; points: RecallPoint[] };
-type KnowledgeIntakeMode = "manual" | "ai";
 type RecallSessionState = {
   knowledge: KnowledgeRecord;
   point?: RecallPoint;
@@ -45,6 +45,15 @@ function replayAndMarkMigration(record: KnowledgeRecord, points: RecallPoint[], 
 function knowledgeCreatedAt(record: KnowledgeRecord): Date {
   const date = new Date(record.createdAt);
   return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function formatJoinedAt(iso: string): string {
+  return toLocalDateTimeValue(iso).replace("T", " ") || "加入时间";
+}
+
+function hostOf(url?: string): string {
+  if (!url?.trim()) return "";
+  try { return new URL(url).hostname; } catch { return url.trim(); }
 }
 
 function toLocalDateTimeValue(iso: string): string {
@@ -120,8 +129,9 @@ function TagTreeNode({ node, selected, expanded, onSelect, onToggle }: {
   </div>;
 }
 
-function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSettings, onClose, onSaved, onDeleted }: {
+function KnowledgeEditor({ initial, points: initialPoints, knownTagPaths, hasApiKey, onOpenSettings, onClose, onSaved, onDeleted }: {
   initial: KnowledgeRecord;
+  knownTagPaths: string[];
   points: RecallPoint[];
   hasApiKey: boolean;
   onOpenSettings: () => void;
@@ -136,8 +146,6 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [parsing, setParsing] = useState(false);
-  const [intakeMode, setIntakeMode] = useState<KnowledgeIntakeMode>("manual");
-  const [importText, setImportText] = useState(initial.markdown);
   const [activePointId, setActivePointId] = useState<string | null>(initialPoints[0]?.pointId ?? null);
   const isNew = !initial.title && !initial.markdown;
 
@@ -146,13 +154,12 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
   }
 
   async function parseKnowledge() {
-    if (!importText.trim()) { setError("请先粘贴 Markdown 纯文本。"); return; }
+    if (!knowledge.markdown.trim()) { setError("请先在正文里粘贴或写下 Markdown。"); return; }
     if (!hasApiKey) { setError("请先在 Settings 中配置 AI Provider 和 API key。"); return; }
     setParsing(true); setError(null);
     try {
-      const parsed = await invoke<{ title: string; tags: string; sourceUrl: string; sourceNote: string }>("parse_knowledge_content", { request: { content: importText } });
-      setKnowledge((current) => ({ ...current, title: parsed.title.trim(), markdown: importText, tags: parsed.tags.trim(), sourceUrl: parsed.sourceUrl.trim() || undefined, sourceNote: parsed.sourceNote.trim() || undefined, updatedAt: new Date().toISOString() }));
-      setIntakeMode("manual");
+      const parsed = await invoke<{ title: string; tags: string; sourceUrl: string; sourceNote: string }>("parse_knowledge_content", { request: { content: knowledge.markdown } });
+      setKnowledge((current) => ({ ...current, title: parsed.title.trim(), tags: parsed.tags.trim(), sourceUrl: parsed.sourceUrl.trim() || undefined, sourceNote: parsed.sourceNote.trim() || undefined, updatedAt: new Date().toISOString() }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setParsing(false); }
@@ -220,21 +227,54 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
     onDeleted(knowledge.id);
   }
 
+  const tagPath = knowledge.tags.split("/").map((part) => part.trim()).filter(Boolean).join(" / ");
+  const tagQuery = knowledge.tags.trim().toLowerCase();
+  const tagSuggestions = knownTagPaths.filter((path) => path !== knowledge.tags && path.toLowerCase().includes(tagQuery)).slice(0, 6);
+  const sourceLabel = knowledge.sourceNote?.trim() || hostOf(knowledge.sourceUrl);
+
   return <div className="sheet-backdrop recall-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="side-sheet recall-editor-sheet" aria-labelledby="recall-editor-title">
-      <header className="sheet-header"><div><span className="eyebrow">KNOWLEDGE NOTE</span><h2 id="recall-editor-title">{isNew ? "加入知识" : "编辑知识"}</h2></div><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
-      <div className="sheet-form recall-editor-form">
-        {isNew && <div className="recall-intake-switch" role="tablist" aria-label="知识录入方式"><button type="button" role="tab" aria-selected={intakeMode === "manual"} className={intakeMode === "manual" ? "active" : ""} onClick={() => setIntakeMode("manual")}>手动添加</button><button type="button" role="tab" aria-selected={intakeMode === "ai"} className={intakeMode === "ai" ? "active" : ""} onClick={() => setIntakeMode("ai")}>粘贴 Markdown · AI 识别</button></div>}
-        {isNew && intakeMode === "ai" && <section className="recall-import-panel"><div className="recall-import-heading"><div><span>粘贴 Markdown 纯文本</span><small>AI 会推荐标题、层级标签和来源字段；正文仍保留你的原文，解析后可继续手动修改。</small></div><Sparkles size={17} /></div><MarkdownEditor value={importText} onChange={setImportText} placeholder="粘贴一段 Markdown 知识…" aria-label="粘贴 Markdown 知识" /><div className="recall-import-actions"><button className="primary-button" type="button" onClick={() => void parseKnowledge()} disabled={parsing || !hasApiKey}><Sparkles size={15} /> {parsing ? "识别中" : "AI 识别并填充"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div></section>}
-        <label><span>标题</span><input value={knowledge.title} onChange={(event) => update("title", event.target.value)} placeholder="例如：制度同形化" autoFocus /></label>
-        <label><span>层级标签</span><input value={knowledge.tags} onChange={(event) => update("tags", event.target.value)} placeholder="组织理论/制度理论/制度同形化" /></label>
-        <label><span>加入时间</span><input type="datetime-local" value={toLocalDateTimeValue(knowledge.createdAt)} onChange={(event) => update("createdAt", fromLocalDateTimeValue(event.target.value))} /><small className="recall-field-help">默认使用系统审计时间；你可以改成知识实际加入回想的时间。</small></label>
-        <div className="two-column-fields">
-          <label><span>来源链接 <em>可选</em></span><input value={knowledge.sourceUrl ?? ""} onChange={(event) => update("sourceUrl", event.target.value)} placeholder="https://…" /></label>
-          <label><span>来源备注 <em>可选</em></span><input value={knowledge.sourceNote ?? ""} onChange={(event) => update("sourceNote", event.target.value)} placeholder="书目、页码或备注" /></label>
+    <section className="side-sheet recall-editor-sheet" role="dialog" aria-modal="true" aria-label={isNew ? "加入知识" : "编辑知识"}>
+      <header className="sheet-header title-header">
+        <div className="title-header-main">
+          <span className="eyebrow">KNOWLEDGE · {isNew ? "新建" : "编辑"}</span>
+          <input className="sheet-title-input" value={knowledge.title} onChange={(event) => update("title", event.target.value)} placeholder="知识标题，例如：制度同形化" aria-label="标题" autoFocus />
         </div>
-        <label><span>Markdown 正文</span><MarkdownEditor className="recall-markdown-input" value={knowledge.markdown} onChange={(value) => update("markdown", value)} placeholder="用 Markdown 写下你希望长期保留的知识…" aria-label="Markdown 正文" /></label>
-        <details className="recall-editor-preview"><summary>实时预览 Markdown</summary><MarkdownPreview value={knowledge.markdown} /></details>
+        <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={18} /></button>
+      </header>
+      <div className="sheet-form recall-editor-form title-sheet-body">
+        <div className="chip-row">
+          <ChipPopover
+            label={tagPath || "层级标签"}
+            tone={tagPath ? "tag" : "ghost"}
+            icon={tagPath ? <FolderTree size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
+            ariaLabel={`层级标签：${tagPath || "未设置"}`}
+            popoverLabel="层级标签"
+            popoverClassName="tag-path-popover"
+          >
+            {(close) => <>
+              <ChipTextInput label="层级标签" hint="用 / 分隔层级。" value={knowledge.tags} onChange={(value) => update("tags", value)} close={close} placeholder="组织理论/制度理论/制度同形化" />
+              {tagSuggestions.length > 0 && <div className="chip-options" role="listbox" aria-label="已有层级标签">
+                {tagSuggestions.map((path) => <button type="button" role="option" aria-selected={path === knowledge.tags} key={path} className="settings-select-option" onClick={() => { update("tags", path); close(); }}><span>{path.split("/").join(" / ")}</span></button>)}
+              </div>}
+            </>}
+          </ChipPopover>
+          <ChipPopover label={formatJoinedAt(knowledge.createdAt)} icon={<CalendarClock size={13} aria-hidden="true" />} ariaLabel={`加入时间：${formatJoinedAt(knowledge.createdAt)}`} popoverLabel="加入时间">
+            {() => <label className="chip-text-field"><span>加入时间</span><input type="datetime-local" autoFocus value={toLocalDateTimeValue(knowledge.createdAt)} onChange={(event) => update("createdAt", fromLocalDateTimeValue(event.target.value))} /><small>默认使用系统审计时间；可以改成知识实际加入回想的时间。</small></label>}
+          </ChipPopover>
+          <ChipPopover
+            label={sourceLabel || "来源"}
+            tone={sourceLabel ? "default" : "ghost"}
+            icon={sourceLabel ? <Link2 size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
+            ariaLabel={`来源：${sourceLabel || "未设置"}`}
+            popoverLabel="来源"
+          >
+            {(close) => <>
+              <ChipTextInput label="来源链接" value={knowledge.sourceUrl ?? ""} onChange={(value) => update("sourceUrl", value)} close={close} placeholder="https://…" />
+              <label className="chip-text-field"><span>来源备注</span><input value={knowledge.sourceNote ?? ""} onChange={(event) => update("sourceNote", event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); close(); } }} placeholder="书目、页码或备注" /></label>
+            </>}
+          </ChipPopover>
+        </div>
+        <MarkdownEditor className="sheet-main-editor" value={knowledge.markdown} onChange={(value) => update("markdown", value)} placeholder={isNew ? "用 Markdown 写下或粘贴希望长期保留的知识；粘贴后可以让 AI 识别标题、标签和来源。" : "用 Markdown 写下你希望长期保留的知识…"} aria-label="Markdown 正文" />
         <section className="recall-points-editor"><div className="recall-section-title"><div><span className="eyebrow">CHECKPOINTS</span><h3>抽查点</h3></div><div className="recall-point-actions"><button className="secondary-button" type="button" onClick={() => void draftPoints()} disabled={!hasApiKey || drafting}><Sparkles size={14} /> {drafting ? "起草中" : "AI 起草"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div></div>
           <p className="recall-muted">点击一个抽查点编辑其内容；每个点都有稳定的 pointId。</p>
           <div className="recall-point-nav" role="tablist" aria-label="抽查点列表">
@@ -254,7 +294,7 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
         </section>
         {error && <div className="inline-error">{error}</div>}
       </div>
-      <footer className="settings-footer"><button className={deleteArmed ? "danger-button armed" : "danger-button"} type="button" onClick={remove} disabled={isNew}>{deleteArmed ? "再次点击确认删除" : "删除"}</button><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" onClick={() => void save()} disabled={saving}><Save size={15} /> {saving ? "保存中" : "保存知识"}</button></footer>
+      <footer className="settings-footer">{isNew ? <div className="footer-start"><button className="secondary-button" type="button" onClick={() => void parseKnowledge()} disabled={parsing || !hasApiKey} title="AI 只建议标题、层级标签和来源；正文保留原文，结果可继续修改"><Sparkles size={15} /> {parsing ? "识别中" : "AI 识别标题和标签"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <button className={deleteArmed ? "danger-button armed" : "danger-button"} type="button" onClick={remove}>{deleteArmed ? "再次点击确认删除" : "删除"}</button>}<button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" onClick={() => void save()} disabled={saving}><Save size={15} /> {saving ? "保存中" : "保存知识"}</button></footer>
     </section>
   </div>;
 }
@@ -306,6 +346,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
   useEffect(() => { void refresh(); }, [desiredRetention]);
 
   const tagTree = useMemo(() => buildTagTree(knowledge), [knowledge]);
+  const knownTagPaths = useMemo(() => [...new Set(knowledge.map((item) => item.tags).filter(Boolean))], [knowledge]);
   const filtered = useMemo(() => knowledge.filter((item) => matchesTag(item, selectedTag)), [knowledge, selectedTag]);
   const latest = useMemo(() => latestReviews(reviews), [reviews]);
   const selectedKnowledge = useMemo(() => filtered.find((item) => item.id === selectedKnowledgeId), [filtered, selectedKnowledgeId]);
@@ -480,7 +521,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
     {!session ? showKnowledgeDetails && selectedKnowledge ? <KnowledgeOverview knowledge={selectedKnowledge} points={pointsForKnowledge(points, selectedKnowledge.id)} reviews={reviews.filter((review) => review.knowledgeId === selectedKnowledge.id)} scheduler={schedulers.find((snapshot) => snapshot.knowledgeId === selectedKnowledge.id)} desiredRetention={desiredRetention} onEdit={() => openEdit(selectedKnowledge)} onReviewDeleted={removeReview} /> : <div className="recall-start-card"><div className="recall-start-copy"><span className="eyebrow">RECALL SPACE</span><h3>{selectedKnowledge ? `当前选中：${selectedKnowledge.title}` : filtered.length > 0 ? "选择一篇知识查看记忆曲线" : "当前筛选范围没有可抽查的知识"}</h3><p>{selectedKnowledge ? "点击左侧知识条目可查看 Memory Curve；答题、AI 审稿和确认反馈期间会隐藏曲线。" : filtered.length > 0 ? "点击左侧知识条目打开详情和曲线。答题与确认评价期间不会显示 Memory Curve。" : "清空标签筛选，或先加入一篇知识。顶部三个抽查入口都作用于左侧当前可见的知识列表。"}</p></div></div> : <ReviewSession session={session} points={pointsForKnowledge(points, session.knowledge.id)} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onBack={() => { setSession(null); setShowKnowledgeDetails(false); }} onModeChange={(mode) => setSession({ ...session, mode, point: mode === "point" ? session.point ?? pointsForKnowledge(points, session.knowledge.id)[0] : session.point, submitted: false, items: [] })} onPointChange={(pointId) => setSession({ ...session, point: pointsForKnowledge(points, session.knowledge.id).find((point) => point.pointId === pointId), submitted: false, items: [] })} onAnswerChange={(answer) => setSession({ ...session, answer })} onSubmit={submitAnswer} onAi={evaluateWithAi} onItemChange={updateReviewItem} onAcceptAll={acceptAllReviewItems} onConfirm={confirmReview} onReject={() => setSession({ ...session, submitted: false, items: [], source: "manual" })} />}
       </section>
     </div>
-    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setShowKnowledgeDetails(false); setEditor(null); void refresh(); }} onDeleted={(id) => { setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setShowKnowledgeDetails(false); setEditor(null); }} />}
+    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} knownTagPaths={knownTagPaths} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setShowKnowledgeDetails(false); setEditor(null); void refresh(); }} onDeleted={(id) => { setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setShowKnowledgeDetails(false); setEditor(null); }} />}
   </main>;
 }
 

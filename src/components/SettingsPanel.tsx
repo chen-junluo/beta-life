@@ -6,6 +6,16 @@ import { DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEM
 import { validateLifeStages } from "../memoryLogic";
 import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
+type PromptKey = "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
+
+const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
+  { key: "extractionPrompt", label: "习惯提取", help: "从文字、对话或图片中提取时间板习惯。", fallback: DEFAULT_EXTRACTION_PROMPT },
+  { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },
+  { key: "recallPointsPrompt", label: "抽查点起草", help: "根据知识正文生成 framework、mechanism、relationship 抽查点。", fallback: DEFAULT_RECALL_POINTS_PROMPT },
+  { key: "recallEvaluationPrompt", label: "抽查评价与反馈", help: "按 FSRS 等级评价关键点，并生成待确认反馈。", fallback: DEFAULT_RECALL_EVALUATION_PROMPT },
+  { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
+];
+
 type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
@@ -147,6 +157,8 @@ export function SettingsPanel({
   const [draft, setDraft] = useState<AppSettings>(() => structuredClone(settings));
   const [apiKey, setApiKey] = useState("");
   const [section, setSection] = useState<SettingsSection>("timeline");
+  const [promptKey, setPromptKey] = useState<PromptKey>("extractionPrompt");
+  const activePrompt = PROMPT_FIELDS.find((field) => field.key === promptKey)!;
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // WKWebView in Tauri does not implement window.confirm, so destructive actions confirm in-app with a second click.
@@ -601,11 +613,14 @@ export function SettingsPanel({
                   <Sparkles size={21} />
                   <div><h3>AI Prompt</h3><p>统一管理 AI 辅助任务的语言和风格。JSON 协议与安全规则由应用管理，不会被这里覆盖。</p></div>
                 </div>
-                <label className="prompt-field-card"><span>习惯提取</span><small>从文字、对话或图片中提取时间板习惯。</small><textarea rows={9} value={draft.ai.extractionPrompt} onChange={(event) => updateAi({ extractionPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ extractionPrompt: DEFAULT_EXTRACTION_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
-                <label className="prompt-field-card"><span>知识识别与标签推荐</span><small>粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。</small><textarea rows={9} value={draft.ai.knowledgeImportPrompt} onChange={(event) => updateAi({ knowledgeImportPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ knowledgeImportPrompt: DEFAULT_KNOWLEDGE_IMPORT_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
-                <label className="prompt-field-card"><span>抽查点起草</span><small>根据知识正文生成 framework、mechanism、relationship 抽查点。</small><textarea rows={9} value={draft.ai.recallPointsPrompt} onChange={(event) => updateAi({ recallPointsPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ recallPointsPrompt: DEFAULT_RECALL_POINTS_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
-                <label className="prompt-field-card"><span>抽查评价与反馈</span><small>按 FSRS 等级评价关键点，并生成待确认反馈。</small><textarea rows={9} value={draft.ai.recallEvaluationPrompt} onChange={(event) => updateAi({ recallEvaluationPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
-                <label className="prompt-field-card"><span>记忆分析</span><small>从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。</small><textarea rows={9} value={draft.ai.memoryAnalysisPrompt} onChange={(event) => updateAi({ memoryAnalysisPrompt: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT })}><RotateCcw size={15} /> 恢复默认</button></label>
+                <div className="prompt-nav" role="tablist" aria-label="选择 Prompt">
+                  {PROMPT_FIELDS.map((field) => (
+                    <button key={field.key} type="button" role="tab" aria-selected={promptKey === field.key} className={promptKey === field.key ? "active" : ""} onClick={() => setPromptKey(field.key)} title={field.label}>
+                      <span>{field.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="prompt-field-card" role="tabpanel"><span>{activePrompt.label}</span><small>{activePrompt.help}</small><textarea rows={14} value={draft.ai[activePrompt.key]} onChange={(event) => updateAi({ [activePrompt.key]: event.target.value })} /><button className="secondary-button align-start" type="button" onClick={() => updateAi({ [activePrompt.key]: activePrompt.fallback })}><RotateCcw size={15} /> 恢复默认</button></label>
               </div>
             )}
 

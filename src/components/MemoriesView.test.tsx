@@ -9,6 +9,10 @@ import { MemoriesView } from "./MemoriesView";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
+// jsdom has no layout; ProseMirror measures ranges when scrolling a focused editor's cursor into view.
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => new DOMRect();
+
 vi.mock("./MemoryConstellation", () => ({
   MemoryConstellation: ({
     memories,
@@ -193,6 +197,7 @@ describe("MemoriesView", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    act(() => host.querySelector<HTMLButtonElement>('.memory-editor [aria-label^="情绪："]')?.click());
     const intensity = host.querySelector<HTMLInputElement>("#memory-emotion-intensity");
     expect(intensity).not.toBeNull();
     await act(async () => {
@@ -219,6 +224,7 @@ describe("MemoriesView", () => {
       reopenUnchanged?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    act(() => host.querySelector<HTMLButtonElement>('.memory-editor [aria-label^="情绪："]')?.click());
     const editedIntensity = host.querySelector<HTMLInputElement>("#memory-emotion-intensity");
     await act(async () => {
       if (editedIntensity) {
@@ -242,16 +248,14 @@ describe("MemoriesView", () => {
       reopenButton?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(host.querySelector<HTMLInputElement>("#memory-emotion-intensity")?.value).toBe("10");
+    expect(host.querySelector('.memory-editor [aria-label^="情绪："]')?.textContent).toContain("10");
   });
 
-  it("uses the AI intake tab to fill an editable Memory form and saves through the memory commands", async () => {
+  it("lets AI fill the new-memory chips from the pasted body and saves through the memory commands", async () => {
     const newMemory = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "新建记忆");
     act(() => newMemory?.click());
 
-    const aiTab = Array.from(host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.includes("AI 识别"));
-    act(() => aiTab?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const importText = host.querySelector<HTMLElement>('[aria-label="用于 AI 识别的记忆正文"]');
+    const importText = host.querySelector<HTMLElement>('.memory-create-sheet [aria-label="记忆正文"]');
     expect(importText).not.toBeNull();
     await act(async () => {
       if (importText) {
@@ -269,8 +273,8 @@ describe("MemoriesView", () => {
     });
     expect(mockedInvoke).toHaveBeenCalledWith("parse_memory_with_ai", { text: "校庆夜里听着晴天，和室友走回宿舍。", today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     expect(host.querySelector<HTMLInputElement>("#memory-create-song")?.value).toBe("晴天");
-    expect(host.querySelector<HTMLSelectElement>("#memory-create-emotion")?.value).toBe("warm");
-    expect(host.querySelector(".memory-create-content-field .md-editor")?.textContent).toBe("校庆夜里听着晴天，和室友走回宿舍。");
+    expect(host.querySelector('.memory-create-sheet [aria-label^="情绪："]')?.textContent).toContain("温暖");
+    expect(host.querySelector('.memory-create-sheet [aria-label="记忆正文"]')?.textContent).toBe("校庆夜里听着晴天，和室友走回宿舍。");
 
     const song = host.querySelector<HTMLInputElement>("#memory-create-song");
     await act(async () => {

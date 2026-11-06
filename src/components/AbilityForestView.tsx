@@ -643,7 +643,7 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
               </div>
 
               <input
-                className="ability-name-field"
+                className="sheet-title-input"
                 value={selected.name}
                 maxLength={120}
                 placeholder="节点名称"
@@ -653,9 +653,9 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
               />
 
               <div className="ability-markdown-field-wrapper">
-                <label className="ability-markdown-label">Markdown 说明</label>
                 <MarkdownEditor
                   className="ability-markdown-input"
+                  placeholder="说明这项能力：包括什么、怎么练、做到什么程度算掌握……"
                   value={selected.markdown}
                   onChange={updateMarkdown}
                   onBlur={() => onForestChange(forest, true)}

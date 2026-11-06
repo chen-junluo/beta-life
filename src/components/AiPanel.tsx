@@ -10,15 +10,17 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { hourLabel } from "../boardLogic";
+import { splitTags } from "../simpleMarkdown";
 import type {
   AiChatMessage,
   AiProposalItem,
+  AiProposalPlacement,
   AiReply,
   AppSettings,
   ImageAttachment,
-  PeriodId,
+  Placement,
 } from "../types";
+import { TagChips, TimeChip } from "./ChipFields";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 interface AiPanelProps {
@@ -26,7 +28,14 @@ interface AiPanelProps {
   hasApiKey: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
+  knownTags: string[];
   onImport: (items: AiProposalItem[]) => void;
+}
+
+function toPlacement(placement: AiProposalPlacement): Placement {
+  return placement.kind === "hour"
+    ? { kind: "hour", hour: placement.hour ?? 9 }
+    : { kind: "period", period: placement.period ?? "morning" };
 }
 
 function fileAsAttachment(file: File): Promise<ImageAttachment> {
@@ -53,6 +62,7 @@ function errorMessage(error: unknown): string {
 export function AiPanel({
   settings,
   hasApiKey,
+  knownTags,
   onClose,
   onOpenSettings,
   onImport,
@@ -243,53 +253,17 @@ export function AiPanel({
                       value={item.title}
                       onChange={(event) => updateProposal(item.id, { title: event.target.value })}
                     />
-                    <div className="proposal-row">
-                      <select
-                        value={item.placement.kind}
-                        onChange={(event) => {
-                          const kind = event.target.value as "period" | "hour";
-                          updateProposal(item.id, {
-                            placement:
-                              kind === "hour"
-                                ? { kind: "hour", hour: item.placement.hour ?? 9 }
-                                : { kind: "period", period: item.placement.period ?? "morning" },
-                          });
-                        }}
-                      >
-                        <option value="period">时段</option>
-                        <option value="hour">小时</option>
-                      </select>
-                      {item.placement.kind === "hour" ? (
-                        <select
-                          value={item.placement.hour ?? 9}
-                          onChange={(event) =>
-                            updateProposal(item.id, {
-                              placement: { kind: "hour", hour: Number(event.target.value) },
-                            })
-                          }
-                        >
-                          {Array.from({ length: 24 }, (_, hour) => (
-                            <option key={hour} value={hour}>{hourLabel(hour)}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={item.placement.period ?? "morning"}
-                          onChange={(event) =>
-                            updateProposal(item.id, {
-                              placement: { kind: "period", period: event.target.value as PeriodId },
-                            })
-                          }
-                        >
-                          {settings.periods.map((period) => (
-                            <option key={period.id} value={period.id}>{period.label}</option>
-                          ))}
-                        </select>
-                      )}
-                      <input
-                        value={item.tags ?? ""}
-                        onChange={(event) => updateProposal(item.id, { tags: event.target.value })}
-                        placeholder="Tags"
+                    <div className="chip-row proposal-chips">
+                      <TimeChip
+                        placement={toPlacement(item.placement)}
+                        settings={settings}
+                        onChange={(placement) => updateProposal(item.id, { placement })}
+                      />
+                      <TagChips
+                        tags={splitTags(item.tags ?? "")}
+                        knownTags={knownTags}
+                        settings={settings}
+                        onChange={(tags) => updateProposal(item.id, { tags: tags.join(", ") })}
                       />
                     </div>
                     {item.reason && <p className="proposal-reason">{item.reason}</p>}

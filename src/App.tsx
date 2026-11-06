@@ -551,6 +551,7 @@ export default function App() {
         <AiPanel
           settings={state.settings}
           hasApiKey={state.hasApiKey}
+          knownTags={collectTags(activeItems(state.board).map((item) => item.tags))}
           onClose={() => setShowAi(false)}
           onOpenSettings={() => { setShowAi(false); setShowSettings(true); }}
           onImport={importAiItems}
