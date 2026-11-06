@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Save, Sparkles, X } from "lucide-react";
 import type { EmotionType, LifeStage, Memory } from "../types";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 interface MemoryCreateSheetProps {
   initialMemory: Memory;
@@ -173,9 +174,9 @@ export function MemoryCreateSheet({
                 </div>
                 <Sparkles size={17} aria-hidden="true" />
               </div>
-              <textarea
+              <MarkdownEditor
                 value={memory.content}
-                onChange={(event) => update("content", event.target.value)}
+                onChange={(value) => update("content", value)}
                 placeholder="写下发生了什么、当时在哪里，以及与哪首歌有关……"
                 aria-label="用于 AI 识别的记忆正文"
               />
@@ -232,7 +233,7 @@ export function MemoryCreateSheet({
           {intakeMode === "manual" && (
             <label className="memory-create-content-field">
               <span>记忆正文</span>
-              <textarea value={memory.content} onChange={(event) => update("content", event.target.value)} placeholder="写下这段记忆……" />
+              <MarkdownEditor value={memory.content} onChange={(value) => update("content", value)} placeholder="写下这段记忆……" aria-label="记忆正文" />
             </label>
           )}
 

@@ -19,6 +19,7 @@ import type {
   ImageAttachment,
   PeriodId,
 } from "../types";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 interface AiPanelProps {
   settings: AppSettings;
@@ -319,12 +320,11 @@ export function AiPanel({
             </div>
           )}
           {error && <div className="inline-error">{error}</div>}
-          <textarea
+          <MarkdownEditor
             value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void sendMessage();
-            }}
+            onChange={setInput}
+            onModEnter={() => void sendMessage()}
+            aria-label="发给 AI 的内容"
             placeholder="粘贴攻略、描述你的想法，或回答 AI 的问题…"
             rows={4}
           />

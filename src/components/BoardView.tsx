@@ -21,7 +21,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Check, Clock3, GripVertical, Pencil, Plus, Quote, X } from "lucide-react";
 import {
-  Fragment,
   createContext,
   useCallback,
   useContext,
@@ -41,7 +40,7 @@ import {
   moveHabit,
   orderedPeriods,
 } from "../boardLogic";
-import { parseSimpleMarkdown, splitTags, tagUsage } from "../simpleMarkdown";
+import { splitTags, tagUsage } from "../simpleMarkdown";
 import { tagIcon } from "../tagIcons";
 import { TagBar } from "./TagBar";
 import type {
@@ -51,6 +50,7 @@ import type {
   Habit,
   PeriodSetting,
 } from "../types";
+import { MarkdownContent, MarkdownEditor } from "./MarkdownEditor";
 
 interface BoardViewProps {
   items: Habit[];
@@ -133,28 +133,7 @@ export const pointerCollision: CollisionDetection = (args) => {
 };
 
 function HabitTitle({ title }: { title: string }) {
-  return (
-    <div className="habit-card-title">
-      {parseSimpleMarkdown(title).map((block, index) => {
-        if (block.kind === "unordered-list") {
-          return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>;
-        }
-        if (block.kind === "ordered-list") {
-          return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ol>;
-        }
-        if (block.kind === "heading") {
-          return <p key={index}><strong>{block.text}</strong></p>;
-        }
-        return (
-          <p key={index}>
-            {block.lines.map((line, lineIndex) => (
-              <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{line}</Fragment>
-            ))}
-          </p>
-        );
-      })}
-    </div>
-  );
+  return <MarkdownContent className="habit-card-title" value={title} />;
 }
 
 function HabitTags({ value }: { value: string }) {
@@ -353,17 +332,12 @@ function PeriodSlogan({
   if (editing) {
     return (
       <form className="slogan-editor" onSubmit={(event) => { event.preventDefault(); save(); }}>
-        <textarea
+        <MarkdownEditor
           autoFocus
           rows={2}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              save();
-            }
-          }}
+          onChange={setDraft}
+          onModEnter={save}
           placeholder="写下这个时段的 slogan（无需输入 >）"
           aria-label={`${period.label} slogan`}
         />
@@ -389,7 +363,7 @@ function PeriodSlogan({
 
   return (
     <div className="period-slogan">
-      <blockquote>{period.slogan}</blockquote>
+      <blockquote><MarkdownContent value={period.slogan} /></blockquote>
       <button className="slogan-action" onClick={() => setEditing(true)} aria-label="编辑 slogan">
         <Pencil size={12} />
       </button>

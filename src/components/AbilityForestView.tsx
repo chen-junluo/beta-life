@@ -43,6 +43,7 @@ import {
   type AbilityMapPlant,
 } from "../abilityForestMap";
 import type { AbilityForest, AbilityMapState, AbilityNode } from "../types";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 type ForestSaveState = "saved" | "saving" | "error";
 
@@ -653,12 +654,11 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
 
               <div className="ability-markdown-field-wrapper">
                 <label className="ability-markdown-label">Markdown 说明</label>
-                <textarea
+                <MarkdownEditor
                   className="ability-markdown-input"
                   value={selected.markdown}
-                  onChange={(event) => updateMarkdown(event.target.value)}
+                  onChange={updateMarkdown}
                   onBlur={() => onForestChange(forest, true)}
-                  spellCheck={false}
                   aria-label="Markdown 说明"
                 />
               </div>

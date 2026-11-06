@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RefreshCw, Trash2, X } from "lucide-react";
 import type { EmotionType, LifeStage, Memory } from "../types";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 interface MemoryEditorProps {
   memory: Memory;
@@ -99,7 +100,7 @@ export function MemoryEditor({ memory: initialMemory, lifeStages, onSave, onDele
           </div>
         </div>
 
-        <div className="memory-editor-body"><div className="memory-editor-body-heading"><label htmlFor="memory-content">记忆正文</label><span>{bodyLoading ? "正在加载正文…" : "可编辑 · 修改后保存"}</span></div><textarea id="memory-content" value={memory.content} onChange={(event) => updateField("content", event.target.value)} placeholder="写下你的回忆……" disabled={bodyLoading} /></div>
+        <div className="memory-editor-body"><div className="memory-editor-body-heading"><label htmlFor="memory-content">记忆正文</label><span>{bodyLoading ? "正在加载正文…" : "可编辑 · 修改后保存"}</span></div><MarkdownEditor id="memory-content" value={memory.content} onChange={(value) => updateField("content", value)} placeholder="写下你的回忆……" disabled={bodyLoading} aria-label="记忆正文" /></div>
         <div className={`memory-editor-status${saveError ? " error" : bodyLoading ? " loading" : ""}`} role="status" aria-live="polite"><span className="memory-editor-status-dot" aria-hidden="true" /><span>{bodyLoading ? "正在加载记忆正文…" : saveError ?? "正文已载入 · 尚未保存"}</span></div>
         <footer className="memory-editor-actions"><button type="button" className={deleteArmed ? "danger-button armed" : "danger-button"} onClick={() => void handleDelete()}><Trash2 size={16} />{deleteArmed ? "再次点击确认删除" : "删除"}</button><div className="button-group"><button type="button" className="secondary-button" onClick={onClose}>关闭</button><button type="button" className="primary-button" onClick={() => void handleSave()} disabled={isSaving}>{isSaving ? "保存中..." : "保存"}</button></div></footer>
       </div>

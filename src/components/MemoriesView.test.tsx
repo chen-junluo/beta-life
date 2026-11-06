@@ -162,7 +162,7 @@ describe("MemoriesView", () => {
     });
 
     expect(mockedInvoke).toHaveBeenCalledWith("read_memory", { id: "memory-calm" });
-    expect(host.querySelector<HTMLTextAreaElement>("#memory-content")?.value).toBe(fullMemory.content);
+    expect(host.querySelector("#memory-content")?.textContent).toBe(fullMemory.content);
   });
 
   it("filters memories by a partial song query and clears it with the shared reset", async () => {
@@ -251,13 +251,13 @@ describe("MemoriesView", () => {
 
     const aiTab = Array.from(host.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.includes("AI 识别"));
     act(() => aiTab?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const importText = host.querySelector<HTMLTextAreaElement>('[aria-label="用于 AI 识别的记忆正文"]');
+    const importText = host.querySelector<HTMLElement>('[aria-label="用于 AI 识别的记忆正文"]');
     expect(importText).not.toBeNull();
     await act(async () => {
       if (importText) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-        setter?.call(importText, "校庆夜里听着晴天，和室友走回宿舍。");
-        importText.dispatchEvent(new Event("input", { bubbles: true }));
+        const paste = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { types: ["text/plain"], getData: () => "校庆夜里听着晴天，和室友走回宿舍。" } });
+        importText.dispatchEvent(paste);
       }
       await Promise.resolve();
     });
@@ -270,7 +270,7 @@ describe("MemoriesView", () => {
     expect(mockedInvoke).toHaveBeenCalledWith("parse_memory_with_ai", { text: "校庆夜里听着晴天，和室友走回宿舍。", today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     expect(host.querySelector<HTMLInputElement>("#memory-create-song")?.value).toBe("晴天");
     expect(host.querySelector<HTMLSelectElement>("#memory-create-emotion")?.value).toBe("warm");
-    expect(host.querySelector<HTMLTextAreaElement>(".memory-create-content-field textarea")?.value).toBe("校庆夜里听着晴天，和室友走回宿舍。");
+    expect(host.querySelector(".memory-create-content-field .md-editor")?.textContent).toBe("校庆夜里听着晴天，和室友走回宿舍。");
 
     const song = host.querySelector<HTMLInputElement>("#memory-create-song");
     await act(async () => {

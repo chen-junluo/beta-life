@@ -2,12 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, FileText, MessageSquareText, Pencil, Plus, RefreshCw, Save, Shuffle, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { parseSimpleMarkdown } from "../simpleMarkdown";
 import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
 import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnowledge, statusHint, statusLabel } from "../recallLogic";
 import type { SelectionCandidate } from "../recallLogic";
 import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
 import type { AppSettings, FsrsSchedulerSnapshot, KnowledgeRecord, RecallEvaluationDraft, RecallMode, RecallPoint, RecallPointType, RecallStatus, ReviewItem, ReviewRecord } from "../types";
+import { MarkdownContent, MarkdownEditor } from "./MarkdownEditor";
 
 interface RecallViewProps {
   settings: AppSettings;
@@ -86,22 +86,7 @@ function latestReviews(reviews: ReviewRecord[]): Map<string, ReviewRecord> {
 }
 
 function MarkdownPreview({ value }: { value: string }) {
-  const blocks = parseSimpleMarkdown(value);
-  return <div className="recall-markdown">
-    {blocks.map((block, index) => {
-      if (block.kind === "heading") {
-        if (block.level === 1) return <h1 key={index}>{block.text}</h1>;
-        if (block.level === 2) return <h2 key={index}>{block.text}</h2>;
-        if (block.level === 3) return <h3 key={index}>{block.text}</h3>;
-        if (block.level === 4) return <h4 key={index}>{block.text}</h4>;
-        if (block.level === 5) return <h5 key={index}>{block.text}</h5>;
-        return <h6 key={index}>{block.text}</h6>;
-      }
-      if (block.kind === "unordered-list") return <ul key={index}>{block.items.map((item) => <li key={item}>{item}</li>)}</ul>;
-      if (block.kind === "ordered-list") return <ol key={index}>{block.items.map((item) => <li key={item}>{item}</li>)}</ol>;
-      return <p key={index}>{block.lines.join(" ")}</p>;
-    })}
-  </div>;
+  return <MarkdownContent className="recall-markdown" value={value} />;
 }
 
 function TagTree({ nodes, selected, expanded, onSelect, onToggle }: {
@@ -240,7 +225,7 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
       <header className="sheet-header"><div><span className="eyebrow">KNOWLEDGE NOTE</span><h2 id="recall-editor-title">{isNew ? "加入知识" : "编辑知识"}</h2></div><button className="icon-button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
       <div className="sheet-form recall-editor-form">
         {isNew && <div className="recall-intake-switch" role="tablist" aria-label="知识录入方式"><button type="button" role="tab" aria-selected={intakeMode === "manual"} className={intakeMode === "manual" ? "active" : ""} onClick={() => setIntakeMode("manual")}>手动添加</button><button type="button" role="tab" aria-selected={intakeMode === "ai"} className={intakeMode === "ai" ? "active" : ""} onClick={() => setIntakeMode("ai")}>粘贴 Markdown · AI 识别</button></div>}
-        {isNew && intakeMode === "ai" && <section className="recall-import-panel"><div className="recall-import-heading"><div><span>粘贴 Markdown 纯文本</span><small>AI 会推荐标题、层级标签和来源字段；正文仍保留你的原文，解析后可继续手动修改。</small></div><Sparkles size={17} /></div><textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder="粘贴一段 Markdown 知识…" /><div className="recall-import-actions"><button className="primary-button" type="button" onClick={() => void parseKnowledge()} disabled={parsing || !hasApiKey}><Sparkles size={15} /> {parsing ? "识别中" : "AI 识别并填充"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div></section>}
+        {isNew && intakeMode === "ai" && <section className="recall-import-panel"><div className="recall-import-heading"><div><span>粘贴 Markdown 纯文本</span><small>AI 会推荐标题、层级标签和来源字段；正文仍保留你的原文，解析后可继续手动修改。</small></div><Sparkles size={17} /></div><MarkdownEditor value={importText} onChange={setImportText} placeholder="粘贴一段 Markdown 知识…" aria-label="粘贴 Markdown 知识" /><div className="recall-import-actions"><button className="primary-button" type="button" onClick={() => void parseKnowledge()} disabled={parsing || !hasApiKey}><Sparkles size={15} /> {parsing ? "识别中" : "AI 识别并填充"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div></section>}
         <label><span>标题</span><input value={knowledge.title} onChange={(event) => update("title", event.target.value)} placeholder="例如：制度同形化" autoFocus /></label>
         <label><span>层级标签</span><input value={knowledge.tags} onChange={(event) => update("tags", event.target.value)} placeholder="组织理论/制度理论/制度同形化" /></label>
         <label><span>加入时间</span><input type="datetime-local" value={toLocalDateTimeValue(knowledge.createdAt)} onChange={(event) => update("createdAt", fromLocalDateTimeValue(event.target.value))} /><small className="recall-field-help">默认使用系统审计时间；你可以改成知识实际加入回想的时间。</small></label>
@@ -248,7 +233,7 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
           <label><span>来源链接 <em>可选</em></span><input value={knowledge.sourceUrl ?? ""} onChange={(event) => update("sourceUrl", event.target.value)} placeholder="https://…" /></label>
           <label><span>来源备注 <em>可选</em></span><input value={knowledge.sourceNote ?? ""} onChange={(event) => update("sourceNote", event.target.value)} placeholder="书目、页码或备注" /></label>
         </div>
-        <label><span>Markdown 正文</span><textarea className="recall-markdown-input" value={knowledge.markdown} onChange={(event) => update("markdown", event.target.value)} placeholder="用 Markdown 写下你希望长期保留的知识…" /></label>
+        <label><span>Markdown 正文</span><MarkdownEditor className="recall-markdown-input" value={knowledge.markdown} onChange={(value) => update("markdown", value)} placeholder="用 Markdown 写下你希望长期保留的知识…" aria-label="Markdown 正文" /></label>
         <details className="recall-editor-preview"><summary>实时预览 Markdown</summary><MarkdownPreview value={knowledge.markdown} /></details>
         <section className="recall-points-editor"><div className="recall-section-title"><div><span className="eyebrow">CHECKPOINTS</span><h3>抽查点</h3></div><div className="recall-point-actions"><button className="secondary-button" type="button" onClick={() => void draftPoints()} disabled={!hasApiKey || drafting}><Sparkles size={14} /> {drafting ? "起草中" : "AI 起草"}</button>{!hasApiKey && <button className="text-button" type="button" onClick={onOpenSettings}>配置 Provider</button>}</div></div>
           <p className="recall-muted">点击一个抽查点编辑其内容；每个点都有稳定的 pointId。</p>
@@ -263,7 +248,7 @@ function KnowledgeEditor({ initial, points: initialPoints, hasApiKey, onOpenSett
             return <div className="recall-point-panel" role="tabpanel">
               <div className="recall-point-toolbar"><select value={point.type} onChange={(event) => setPoints((current) => current.map((item) => item.pointId === point.pointId ? { ...item, type: event.target.value as RecallPointType } : item))}>{POINT_TYPES.map((type) => <option key={type} value={type}>{TYPE_LABELS[type]}</option>)}</select><span className="point-id">{point.pointId.slice(0, 8)}</span><span className="recall-point-position">{index + 1} / {points.length}</span><button className="icon-button" type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label="上移"><ArrowUp size={14} /></button><button className="icon-button" type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label="下移"><ArrowDown size={14} /></button><button className="icon-button" type="button" onClick={() => removePoint(point.pointId)} aria-label="删除抽查点"><Trash2 size={14} /></button></div>
               <label><span>抽查问题</span><input value={point.prompt} onChange={(event) => setPoints((current) => current.map((item) => item.pointId === point.pointId ? { ...item, prompt: event.target.value } : item))} placeholder="例如：制度同形化的三个来源是什么？" /></label>
-              <label><span>参考要点</span><textarea value={point.reference} onChange={(event) => setPoints((current) => current.map((item) => item.pointId === point.pointId ? { ...item, reference: event.target.value } : item))} placeholder="提交后用于对照和反馈，不会在回答前显示。" rows={3} /></label>
+              <label><span>参考要点</span><MarkdownEditor value={point.reference} onChange={(value) => setPoints((current) => current.map((item) => item.pointId === point.pointId ? { ...item, reference: value } : item))} placeholder="提交后用于对照和反馈，不会在回答前显示。" rows={3} aria-label="参考要点" /></label>
             </div>;
           })()}
         </section>
@@ -635,7 +620,7 @@ function ReviewSession({ session, points, hasApiKey, onOpenSettings, onBack, onM
 }) {
   const currentPoint = session.mode === "point" ? session.point ?? points[0] : undefined;
   const prompt = session.mode === "full" ? `请用自己的话完整复述“${session.knowledge.title}”。` : session.mode === "point" ? currentPoint?.prompt ?? "请选择一个抽查点。" : points.length > 0 ? `不看原文，回忆“${session.knowledge.title}”的关键概念及其关系。` : `请回忆“${session.knowledge.title}”的核心内容。`;
-  return <div className="review-session"><div className="review-session-header"><button className="icon-button" type="button" onClick={onBack} aria-label="返回知识列表"><ArrowLeft size={17} /></button><div><span className="eyebrow">{MODE_LABELS[session.mode]}</span><h3>{session.knowledge.title}</h3></div><span className="review-session-lock" title={session.selectionReason}>本轮范围已固定 · {session.selectionReason ?? "按当前范围选择"}</span></div><div className="review-mode-switch" role="tablist" aria-label="抽查模式">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <button key={mode} type="button" role="tab" aria-selected={session.mode === mode} className={session.mode === mode ? "active" : ""} onClick={() => onModeChange(mode)}>{MODE_LABELS[mode]}</button>)}</div>{session.mode === "point" && <label className="review-point-select"><span>抽查点</span><select value={currentPoint?.pointId ?? ""} onChange={(event) => onPointChange(event.target.value)}>{points.map((point) => <option key={point.pointId} value={point.pointId}>{point.prompt}</option>)}</select></label>}<div className="review-question"><span className="eyebrow">QUESTION</span><h4>{prompt}</h4><p>提交前不会显示标准答案；你可以先写下不完整的回忆。</p></div><textarea className="review-answer" value={session.answer} onChange={(event) => onAnswerChange(event.target.value)} disabled={session.submitted} placeholder="写下你的回答…" />{!session.submitted ? <div className="review-submit-actions"><button className="primary-button" type="button" onClick={onSubmit} disabled={!session.answer.trim()}>提交回答</button><button className="secondary-button" type="button" onClick={onAi} disabled={!session.answer.trim() || !hasApiKey}><Sparkles size={14} /> AI 审稿</button>{!hasApiKey && <button type="button" className="text-button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <ReviewResult session={session} points={points} hasApiKey={hasApiKey} onAi={onAi} onItemChange={onItemChange} onAcceptAll={onAcceptAll} onConfirm={onConfirm} onReject={onReject} />}</div>;
+  return <div className="review-session"><div className="review-session-header"><button className="icon-button" type="button" onClick={onBack} aria-label="返回知识列表"><ArrowLeft size={17} /></button><div><span className="eyebrow">{MODE_LABELS[session.mode]}</span><h3>{session.knowledge.title}</h3></div><span className="review-session-lock" title={session.selectionReason}>本轮范围已固定 · {session.selectionReason ?? "按当前范围选择"}</span></div><div className="review-mode-switch" role="tablist" aria-label="抽查模式">{(Object.keys(MODE_LABELS) as RecallMode[]).map((mode) => <button key={mode} type="button" role="tab" aria-selected={session.mode === mode} className={session.mode === mode ? "active" : ""} onClick={() => onModeChange(mode)}>{MODE_LABELS[mode]}</button>)}</div>{session.mode === "point" && <label className="review-point-select"><span>抽查点</span><select value={currentPoint?.pointId ?? ""} onChange={(event) => onPointChange(event.target.value)}>{points.map((point) => <option key={point.pointId} value={point.pointId}>{point.prompt}</option>)}</select></label>}<div className="review-question"><span className="eyebrow">QUESTION</span><h4>{prompt}</h4><p>提交前不会显示标准答案；你可以先写下不完整的回忆。</p></div><MarkdownEditor className="review-answer" value={session.answer} onChange={onAnswerChange} disabled={session.submitted} placeholder="写下你的回答…" aria-label="你的回答" />{!session.submitted ? <div className="review-submit-actions"><button className="primary-button" type="button" onClick={onSubmit} disabled={!session.answer.trim()}>提交回答</button><button className="secondary-button" type="button" onClick={onAi} disabled={!session.answer.trim() || !hasApiKey}><Sparkles size={14} /> AI 审稿</button>{!hasApiKey && <button type="button" className="text-button" onClick={onOpenSettings}>配置 Provider</button>}</div> : <ReviewResult session={session} points={points} hasApiKey={hasApiKey} onAi={onAi} onItemChange={onItemChange} onAcceptAll={onAcceptAll} onConfirm={onConfirm} onReject={onReject} />}</div>;
 }
 
 function ReviewResult({ session, points, hasApiKey, onAi, onItemChange, onAcceptAll, onConfirm, onReject }: {
@@ -660,7 +645,7 @@ function ReviewResult({ session, points, hasApiKey, onAi, onItemChange, onAccept
       <div className="review-result-grid">
         <div>
           <div className="review-column-heading"><span className="eyebrow">YOUR ANSWER</span></div>
-          <div className="review-answer-readonly">{session.answer}</div>
+          <MarkdownContent className="review-answer-readonly" value={session.answer} />
         </div>
         <div>
           <div className="review-column-heading"><span className="eyebrow">ORIGINAL MARKDOWN</span></div>
