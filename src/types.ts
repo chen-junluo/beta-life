@@ -94,6 +94,7 @@ export interface LoadedAppState {
   board: BoardFile;
   settings: AppSettings;
   abilityForest: AbilityForest;
+  researchAgenda: AbilityForest;
   hasApiKey: boolean;
 }
 
@@ -123,8 +124,13 @@ export interface AbilityMapState {
   treeHeight?: number;
 }
 
+/** The ability tab holds two independent maps: the long-term vision and the short-term research agenda. */
+export type AbilityMapKind = "vision" | "research";
+
 export interface AbilityForest {
   schemaVersion: 1;
+  /** Sheet-tab name shown under the map; falls back to the default name for its kind. */
+  name?: string;
   nodes: AbilityNode[];
   mapPositions?: Record<string, { x: number; y: number }>;
   mapState?: AbilityMapState;

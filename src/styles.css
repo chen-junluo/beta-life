@@ -2023,6 +2023,15 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .ability-map-range input { width: 100%; accent-color: var(--accent); }
 .ability-map-parameters p { margin: 2px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .ability-map-logs pre { min-height: 180px; max-height: min(65vh,520px); margin: 0; padding: 12px; overflow: auto; border-radius: 8px; background: #242a25; color: #dfead7; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+/* Sheet tabs under the map: one tab per ability map; double-click renames in place. */
+.ability-map-tabs { flex: none; height: 34px; padding: 0 10px; display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; border-top: 1px solid var(--line); background: var(--panel-muted); scrollbar-width: none; }
+.ability-map-tab { height: 28px; padding: 0 12px; flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+.ability-map-tab:hover { color: var(--ink); background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.ability-map-tab.is-active { border-color: var(--line); background: var(--panel); color: var(--ink); font-weight: 650; }
+.ability-map-tab.is-active svg { color: #16a34a; }
+.ability-map-tab.is-editing { padding-right: 6px; cursor: text; }
+/* Repeats the shared input selector's :not() list so the rename field outranks its surface styles. */
+.ability-map-tab-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { height: 22px; padding: 0 4px; border: 1px solid rgba(99, 102, 241, 0.45); border-radius: 5px; background: var(--panel); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.11); color: var(--ink); font-size: 11.5px; font-weight: 650; outline: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .ability-editor-panel { min-height: 0; display: grid; grid-template-rows: minmax(140px, var(--ability-tree-height, clamp(140px, 35%, 380px))) 7px minmax(220px, 1fr); background: var(--panel); overflow: hidden; }
 .ability-tree-section { min-height: 0; padding: 12px 13px 10px; display: flex; flex-direction: column; overflow: hidden; }

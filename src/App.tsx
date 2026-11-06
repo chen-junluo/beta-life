@@ -13,11 +13,13 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { TopbarSlogan } from "./components/TopbarSlogan";
 import { WorkspaceDrawer, type WorkspaceSection } from "./components/WorkspaceDrawer";
 import { MemoriesView } from "./components/MemoriesView";
-import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
+import { DEFAULT_ABILITY_FOREST, DEFAULT_ABILITY_MAP_NAMES, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
+import { AbilityMapTabs } from "./components/AbilityMapTabs";
 import type {
   AiProposalItem,
   AbilityForest,
+  AbilityMapKind,
   AppSettings,
   BoardViewMode,
   BoardFile,
@@ -28,6 +30,9 @@ import type {
 } from "./types";
 
 type SaveState = "saved" | "saving" | "error";
+
+const ABILITY_MAP_STATE_KEYS = { vision: "abilityForest", research: "researchAgenda" } as const;
+const ABILITY_MAP_KINDS: AbilityMapKind[] = ["vision", "research"];
 
 const PROTOTYPE_PERIOD_COLORS: Record<PeriodId, { legacy: string; current: string }> = {
   morning: { legacy: "#F2C879", current: "#F59E0B" },
@@ -102,6 +107,7 @@ export default function App() {
   const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
+  const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
   const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
   const [undoStack, setUndoStack] = useState<BoardFile[]>([]);
   const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
@@ -109,8 +115,8 @@ export default function App() {
   const workspaceDrawerTrigger = useRef<HTMLButtonElement>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const abilityForestSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const abilityForestSaveTimer = useRef<number | null>(null);
-  const pendingAbilityForest = useRef<AbilityForest | null>(null);
+  const abilityForestSaveTimers = useRef<Record<AbilityMapKind, number | null>>({ vision: null, research: null });
+  const pendingAbilityForests = useRef<Record<AbilityMapKind, AbilityForest | null>>({ vision: null, research: null });
   const settingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const stateRef = useRef<LoadedAppState | null>(null);
 
@@ -133,7 +139,7 @@ export default function App() {
           const settings = withPrototypePalette(loaded.settings);
           const normalized = { ...loaded, settings: withDefaultSlogans(settings) };
           setState(normalized);
-          pendingAbilityForest.current = null;
+          pendingAbilityForests.current = { vision: null, research: null };
           setForestSaveState("saved");
           void applyZoom(settings.appearance.zoomPercent);
           if (settings !== loaded.settings) {
@@ -145,7 +151,7 @@ export default function App() {
         if (!active) return;
         setLoadError(errorMessage(error));
         if (!window.__TAURI_INTERNALS__) {
-          setState({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, abilityForest: DEFAULT_ABILITY_FOREST, hasApiKey: false });
+          setState({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, abilityForest: DEFAULT_ABILITY_FOREST, researchAgenda: DEFAULT_RESEARCH_AGENDA, hasApiKey: false });
         }
       });
     return () => {
@@ -165,37 +171,50 @@ export default function App() {
       });
   }, []);
 
-  const changeAbilityForest = useCallback((abilityForest: AbilityForest, immediate = false) => {
+  const changeAbilityForest = useCallback((map: AbilityMapKind, abilityForest: AbilityForest, immediate = false) => {
     const current = stateRef.current;
     if (!current) return;
-    const nextState = { ...current, abilityForest };
+    const nextState = { ...current, [ABILITY_MAP_STATE_KEYS[map]]: abilityForest };
     stateRef.current = nextState;
     setState(nextState);
-    pendingAbilityForest.current = abilityForest;
+    const pending = pendingAbilityForests.current;
+    const timers = abilityForestSaveTimers.current;
+    const hasPending = () => pending.vision !== null || pending.research !== null;
+    pending[map] = abilityForest;
     setForestSaveState("saving");
-    if (abilityForestSaveTimer.current !== null) {
-      window.clearTimeout(abilityForestSaveTimer.current);
-      abilityForestSaveTimer.current = null;
+    if (timers[map] !== null) {
+      window.clearTimeout(timers[map]!);
+      timers[map] = null;
     }
     const persist = () => {
-      abilityForestSaveTimer.current = null;
-      const forestToSave = pendingAbilityForest.current;
+      timers[map] = null;
+      const forestToSave = pending[map];
       if (!forestToSave) return;
-      pendingAbilityForest.current = null;
+      pending[map] = null;
       abilityForestSaveQueue.current = abilityForestSaveQueue.current
         .catch(() => undefined)
-        .then(() => invoke<void>("save_ability_forest", { abilityForest: forestToSave }))
+        .then(() => invoke<void>("save_ability_forest", { map, abilityForest: forestToSave }))
         .then(() => {
-          if (!pendingAbilityForest.current) setForestSaveState("saved");
+          if (!hasPending()) setForestSaveState("saved");
         })
         .catch((error) => {
           console.error(error);
-          if (!pendingAbilityForest.current) setForestSaveState("error");
+          if (!hasPending()) setForestSaveState("error");
         });
     };
     if (immediate) persist();
-    else abilityForestSaveTimer.current = window.setTimeout(persist, 420);
+    else timers[map] = window.setTimeout(persist, 420);
   }, []);
+
+  const changeActiveAbilityForest = useCallback(
+    (abilityForest: AbilityForest, immediate?: boolean) => changeAbilityForest(activeAbilityMap, abilityForest, immediate),
+    [activeAbilityMap, changeAbilityForest],
+  );
+
+  const renameAbilityMap = useCallback((map: AbilityMapKind, name: string) => {
+    const forest = stateRef.current?.[ABILITY_MAP_STATE_KEYS[map]];
+    if (forest) changeAbilityForest(map, { ...forest, name }, true);
+  }, [changeAbilityForest]);
 
   const queueSettingsSave = useCallback((settings: AppSettings) => {
     const pending = settingsSaveQueue.current
@@ -517,7 +536,19 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView forest={state.abilityForest} saveState={forestSaveState} onForestChange={changeAbilityForest} topbarActions={topbarActions} /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} lifeStagesRevision={lifeStagesRevision} /> : <main className="workspace-scroll">
+      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView
+        key={activeAbilityMap}
+        forest={state[ABILITY_MAP_STATE_KEYS[activeAbilityMap]]}
+        saveState={forestSaveState}
+        onForestChange={changeActiveAbilityForest}
+        topbarActions={topbarActions}
+        mapTabs={<AbilityMapTabs
+          maps={ABILITY_MAP_KINDS.map((kind) => ({ kind, name: state[ABILITY_MAP_STATE_KEYS[kind]].name?.trim() || DEFAULT_ABILITY_MAP_NAMES[kind] }))}
+          active={activeAbilityMap}
+          onSelect={setActiveAbilityMap}
+          onRename={renameAbilityMap}
+        />}
+      /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} lifeStagesRevision={lifeStagesRevision} /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
           settings={state.settings}

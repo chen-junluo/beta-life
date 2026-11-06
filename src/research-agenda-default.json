@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "name": "Research Agenda",
+  "nodes": [
+    {
+      "id": "research-direction",
+      "name": "研究方向",
+      "level": 0,
+      "parentId": null,
+      "order": 0,
+      "color": "#5A9FD4",
+      "markdown": "# 研究方向\n\n写下这个研究方向要回答的核心问题。"
+    },
+    {
+      "id": "research-project",
+      "name": "研究项目",
+      "level": 1,
+      "parentId": "research-direction",
+      "order": 0,
+      "color": null,
+      "markdown": "# 研究项目\n\n一篇论文或一个项目：目标、数据、识别策略。"
+    },
+    {
+      "id": "research-task",
+      "name": "当前任务",
+      "level": 2,
+      "parentId": "research-project",
+      "order": 0,
+      "color": null,
+      "markdown": "# 当前任务\n\n这一阶段要推进的具体任务。"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ABILITY_FOREST_COLORS,
@@ -52,6 +52,8 @@ interface AbilityForestViewProps {
   saveState: ForestSaveState;
   onForestChange: (forest: AbilityForest, immediate?: boolean) => void;
   topbarActions?: HTMLElement | null;
+  /** Sheet tabs rendered under the map for switching between ability maps. */
+  mapTabs?: ReactNode;
 }
 
 const levelNames = ["大节点", "中节点", "小节点"];
@@ -109,7 +111,7 @@ function orderedTree(forest: AbilityForest, collapsed: Set<string>) {
   return rows;
 }
 
-export function AbilityForestView({ forest, saveState, onForestChange, topbarActions }: AbilityForestViewProps) {
+export function AbilityForestView({ forest, saveState, onForestChange, topbarActions, mapTabs }: AbilityForestViewProps) {
   const initialMapState = mapStateFor(forest);
   const [selectedId, setSelectedId] = useState(initialMapState.selectedId ?? "data-literacy");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -464,7 +466,7 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "ability-forest.json";
+    link.download = `${forest.name?.trim() || "ability-forest"}.json`;
     link.click();
     URL.revokeObjectURL(url);
     setMessage("能力森林 JSON 已导出");
@@ -479,7 +481,8 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
   async function importJson(file: File | undefined) {
     if (!file) return;
     try {
-      const next = parseAbilityForestJson(JSON.parse(await file.text()));
+      // The tab name belongs to the map being replaced, not to the imported file.
+      const next = { ...parseAbilityForestJson(JSON.parse(await file.text())), name: forest.name };
       const importedSelectedId = orderedSiblings(next, null)[0]?.id ?? "";
       change(next, true, next.mapState ?? currentMapState({ selectedId: importedSelectedId || null }));
       setSelectedId(next.mapState?.selectedId ?? importedSelectedId);
@@ -571,6 +574,7 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
               </section>
             )}
           </div>
+          {mapTabs}
         </section>
 
         <div

@@ -251,13 +251,40 @@ struct LoadedAppState {
     board: BoardFile,
     settings: AppSettings,
     ability_forest: AbilityForest,
+    research_agenda: AbilityForest,
     has_api_key: bool,
+}
+
+/// The ability tab keeps two independent three-level maps, each in its own data directory.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum AbilityMapKind {
+    Vision,
+    Research,
+}
+
+impl AbilityMapKind {
+    fn dir_name(self) -> &'static str {
+        match self {
+            Self::Vision => "ability-forest",
+            Self::Research => "research-agenda",
+        }
+    }
+
+    fn default_json(self) -> &'static str {
+        match self {
+            Self::Vision => include_str!("../../src/ability-forest-default.json"),
+            Self::Research => include_str!("../../src/research-agenda-default.json"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AbilityForest {
     schema_version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     nodes: Vec<AbilityNode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     map_positions: Option<HashMap<String, AbilityMapPosition>>,
@@ -318,6 +345,8 @@ struct AbilityNode {
 #[serde(rename_all = "camelCase")]
 struct AbilityForestMetadata {
     schema_version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     nodes: Vec<AbilityNodeMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     map_positions: Option<HashMap<String, AbilityMapPosition>>,
@@ -883,8 +912,8 @@ fn knowledge_index_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(knowledge_root(app)?.join("index.json"))
 }
 
-fn ability_forest_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let root = app_data_dir(app)?.join("ability-forest");
+fn ability_forest_root(app: &AppHandle, map: AbilityMapKind) -> Result<PathBuf, String> {
+    let root = app_data_dir(app)?.join(map.dir_name());
     fs::create_dir_all(root.join("nodes"))
         .map_err(|error| format!("无法创建能力森林目录：{error}"))?;
     Ok(root)
@@ -919,8 +948,8 @@ fn memory_markdown_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(memories_root(app)?.join("nodes").join(format!("{id}.md")))
 }
 
-fn ability_forest_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(ability_forest_root(app)?.join("forest.json"))
+fn ability_forest_path(app: &AppHandle, map: AbilityMapKind) -> Result<PathBuf, String> {
+    Ok(ability_forest_root(app, map)?.join("forest.json"))
 }
 
 fn valid_ability_node_id(value: &str) -> bool {
@@ -931,11 +960,15 @@ fn valid_ability_node_id(value: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
 }
 
-fn ability_node_markdown_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+fn ability_node_markdown_path(
+    app: &AppHandle,
+    map: AbilityMapKind,
+    id: &str,
+) -> Result<PathBuf, String> {
     if !valid_ability_node_id(id) {
         return Err("能力节点 ID 格式无效".into());
     }
-    Ok(ability_forest_root(app)?
+    Ok(ability_forest_root(app, map)?
         .join("nodes")
         .join(format!("{id}.md")))
 }
@@ -1140,6 +1173,11 @@ fn validate_ability_forest(forest: &AbilityForest) -> Result<(), String> {
             forest.schema_version
         ));
     }
+    if let Some(name) = &forest.name {
+        if name.trim().is_empty() || name.chars().count() > 40 {
+            return Err("地图名称需要 1 到 40 个字符".into());
+        }
+    }
     if forest.nodes.is_empty() {
         return Err("能力森林至少需要一个顶层节点".into());
     }
@@ -1267,6 +1305,7 @@ fn validate_ability_forest(forest: &AbilityForest) -> Result<(), String> {
 fn ability_forest_metadata(forest: &AbilityForest) -> AbilityForestMetadata {
     AbilityForestMetadata {
         schema_version: forest.schema_version,
+        name: forest.name.clone(),
         nodes: forest
             .nodes
             .iter()
@@ -1284,16 +1323,20 @@ fn ability_forest_metadata(forest: &AbilityForest) -> AbilityForestMetadata {
     }
 }
 
-fn save_ability_forest_data(app: &AppHandle, forest: &AbilityForest) -> Result<(), String> {
+fn save_ability_forest_data(
+    app: &AppHandle,
+    map: AbilityMapKind,
+    forest: &AbilityForest,
+) -> Result<(), String> {
     validate_ability_forest(forest)?;
     let mut retained_ids = HashSet::new();
     for node in &forest.nodes {
         retained_ids.insert(node.id.as_str());
-        atomic_write_text(&ability_node_markdown_path(app, &node.id)?, &node.markdown)?;
+        atomic_write_text(&ability_node_markdown_path(app, map, &node.id)?, &node.markdown)?;
     }
-    atomic_write(&ability_forest_path(app)?, &ability_forest_metadata(forest))?;
+    atomic_write(&ability_forest_path(app, map)?, &ability_forest_metadata(forest))?;
 
-    let nodes_dir = ability_forest_root(app)?.join("nodes");
+    let nodes_dir = ability_forest_root(app, map)?.join("nodes");
     let entries =
         fs::read_dir(&nodes_dir).map_err(|error| format!("无法读取能力节点目录：{error}"))?;
     for entry in entries {
@@ -1313,16 +1356,17 @@ fn save_ability_forest_data(app: &AppHandle, forest: &AbilityForest) -> Result<(
     Ok(())
 }
 
-fn load_ability_forest(app: &AppHandle) -> Result<AbilityForest, String> {
-    let path = ability_forest_path(app)?;
+fn load_ability_forest(app: &AppHandle, map: AbilityMapKind) -> Result<AbilityForest, String> {
+    let path = ability_forest_path(app, map)?;
     let is_new = !path.exists();
     let mut forest = if is_new {
-        serde_json::from_str::<AbilityForest>(include_str!("../../src/ability-forest-default.json"))
+        serde_json::from_str::<AbilityForest>(map.default_json())
             .map_err(|error| format!("内置能力森林数据无效：{error}"))?
     } else {
         let stored: AbilityForestMetadata = read_json(&path)?;
         AbilityForest {
             schema_version: stored.schema_version,
+            name: stored.name,
             map_positions: stored.map_positions,
             map_state: stored.map_state,
             nodes: stored
@@ -1344,7 +1388,7 @@ fn load_ability_forest(app: &AppHandle) -> Result<AbilityForest, String> {
 
     let mut missing_markdown = false;
     for node in &mut forest.nodes {
-        let markdown_path = ability_node_markdown_path(app, &node.id)?;
+        let markdown_path = ability_node_markdown_path(app, map, &node.id)?;
         if markdown_path.exists() {
             node.markdown = fs::read_to_string(&markdown_path)
                 .map_err(|error| format!("无法读取节点 {} 的说明：{error}", node.name))?;
@@ -1353,7 +1397,7 @@ fn load_ability_forest(app: &AppHandle) -> Result<AbilityForest, String> {
         }
     }
     if is_new || missing_markdown {
-        save_ability_forest_data(app, &forest)?;
+        save_ability_forest_data(app, map, &forest)?;
     }
     Ok(forest)
 }
@@ -1485,11 +1529,13 @@ fn read_api_key(_app: &AppHandle) -> Result<Option<String>, String> {
 fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
     let board = load_or_create(&board_path(&app)?, default_board, validate_board)?;
     let settings = load_settings(&app)?;
-    let ability_forest = load_ability_forest(&app)?;
+    let ability_forest = load_ability_forest(&app, AbilityMapKind::Vision)?;
+    let research_agenda = load_ability_forest(&app, AbilityMapKind::Research)?;
     Ok(LoadedAppState {
         board,
         settings,
         ability_forest,
+        research_agenda,
         has_api_key: read_api_key(&app)?.is_some(),
     })
 }
@@ -1501,8 +1547,12 @@ fn save_board(app: AppHandle, board: BoardFile) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_ability_forest(app: AppHandle, ability_forest: AbilityForest) -> Result<(), String> {
-    save_ability_forest_data(&app, &ability_forest)
+fn save_ability_forest(
+    app: AppHandle,
+    map: AbilityMapKind,
+    ability_forest: AbilityForest,
+) -> Result<(), String> {
+    save_ability_forest_data(&app, map, &ability_forest)
 }
 
 #[tauri::command]
@@ -2904,6 +2954,29 @@ mod tests {
         assert!(validate_ability_forest(&forest)
             .expect_err("overlapping map positions should be rejected")
             .contains("重叠"));
+    }
+
+    #[test]
+    fn research_agenda_defaults_validate_and_keep_the_map_name() {
+        let mut forest: AbilityForest =
+            serde_json::from_str(AbilityMapKind::Research.default_json())
+                .expect("research agenda defaults should deserialize");
+        validate_ability_forest(&forest).expect("research agenda defaults should validate");
+        assert_eq!(forest.name.as_deref(), Some("Research Agenda"));
+        assert_ne!(
+            AbilityMapKind::Vision.dir_name(),
+            AbilityMapKind::Research.dir_name()
+        );
+
+        forest.name = Some("短期研究议程".into());
+        let stored = serde_json::to_value(ability_forest_metadata(&forest))
+            .expect("forest metadata should serialize the map name");
+        assert_eq!(stored["name"], "短期研究议程");
+
+        forest.name = Some("   ".into());
+        assert!(validate_ability_forest(&forest)
+            .expect_err("blank map names should be rejected")
+            .contains("地图名称"));
     }
 
     #[test]
