@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
@@ -16,6 +17,7 @@ import { MemoriesView } from "./components/MemoriesView";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_ABILITY_MAP_NAMES, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import { AbilityMapTabs } from "./components/AbilityMapTabs";
+import { PET_BOARD, PET_MARK_DONE, PET_READY, type PetBoardSnapshot, type PetMarkDone } from "./pet/bridge";
 import type {
   AiProposalItem,
   AbilityForest,
@@ -236,6 +238,33 @@ export default function App() {
     },
     [queueBoardSave],
   );
+
+  const petItems = state ? activeItems(state.board) : null;
+  const petPeriods = state?.settings.periods;
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__ || !petItems || !petPeriods) return;
+    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods }).catch(console.error);
+  }, [petItems, petPeriods]);
+
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    const sendSnapshot = () => {
+      const current = stateRef.current;
+      if (!current) return;
+      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods });
+    };
+    const unlisteners = [
+      listen(PET_READY, sendSnapshot),
+      listen<PetMarkDone>(PET_MARK_DONE, ({ payload }) => {
+        const current = stateRef.current;
+        if (!current) return;
+        const items = activeItems(current.board);
+        if (!items.some((item) => item.id === payload.habitId && !item.done)) return;
+        commitBoard(withActiveItems(current.board, items.map((item) => (item.id === payload.habitId ? { ...item, done: true } : item))));
+      }),
+    ];
+    return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
+  }, [commitBoard]);
 
   function updateItems(items: Habit[]) {
     if (!state) return;

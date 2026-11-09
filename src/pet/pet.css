@@ -1,0 +1,75 @@
+/* bebe desk pet window: transparent, sized by Rust to fit `.pet-stage`. Shared tokens and buttons come from styles.css. */
+.pet-html {
+  --pet-gap: 8px;
+  --pet-edge: 10px;
+  background: transparent;
+}
+
+.pet-html,
+.pet-html body {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Bottom-right anchored and content-sized, so its box is exactly the window size Rust should use. */
+.pet-stage {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: max-content;
+  padding: var(--pet-edge) var(--pet-edge) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--pet-gap);
+}
+
+.pet-sprite {
+  width: 96px;
+  height: 128px;
+  background-repeat: no-repeat;
+  background-position-y: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pet-bubble {
+  position: relative;
+  width: 260px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: var(--pet-gap);
+  animation: select-menu-in .13s ease-out;
+}
+
+/* Tail points down at bebe's head. */
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  right: 40px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: inherit;
+  border-bottom: inherit;
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.pet-bubble-meta { color: var(--muted); font-size: 11px; font-weight: 620; }
+.pet-bubble-text { margin: 0; font-size: 13px; font-weight: 620; line-height: 1.45; overflow-wrap: anywhere; }
+.pet-countdown { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+.pet-bubble-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pet-gap); }
+.pet-bubble-actions .primary-button,
+.pet-bubble-actions .secondary-button { min-height: 32px; padding: 0 10px; font-size: 12px; white-space: nowrap; }

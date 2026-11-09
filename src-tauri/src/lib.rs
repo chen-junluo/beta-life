@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
+mod pet;
 #[allow(dead_code)]
 mod windows_secure_storage;
 
@@ -2857,6 +2858,13 @@ fn remove_from_memory_index(app: &AppHandle, id: &str) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| Ok(pet::setup(app.handle())?))
+        .on_window_event(|window, event| {
+            // The pet window must not keep the app alive: closing the main window quits everything.
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window.app_handle().exit(0);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             load_app_state,
             save_board,
@@ -2887,9 +2895,17 @@ pub fn run() {
             save_memory,
             delete_memory,
             parse_memory_with_ai,
+            pet::show_main_window,
+            pet::resize_pet_window,
+            pet::move_pet_window_by,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Beta Life");
+        .build(tauri::generate_context!())
+        .expect("error while building Beta Life")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                pet::save_anchor(app);
+            }
+        });
 }
 
 #[cfg(test)]

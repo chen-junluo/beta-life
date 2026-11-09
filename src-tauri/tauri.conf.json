@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "beta-life",
         "width": 1440,
         "height": 900,
@@ -20,8 +21,26 @@
         "resizable": true,
         "fullscreen": false,
         "center": true
+      },
+      {
+        "label": "pet",
+        "url": "pet.html",
+        "title": "bebe",
+        "width": 116,
+        "height": 138,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visibleOnAllWorkspaces": true,
+        "focus": false,
+        "acceptFirstMouse": true,
+        "visible": false
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }
