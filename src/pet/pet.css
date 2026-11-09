@@ -1,4 +1,4 @@
-/* bebe desk pet window: transparent, sized by Rust to fit `.pet-stage`. Shared tokens and buttons come from styles.css. */
+/* bebe desk pet window: transparent and fixed-size; empty space is click-through (see pet.rs). Shared tokens and buttons come from styles.css. */
 .pet-html {
   --pet-gap: 8px;
   --pet-edge: 10px;
@@ -16,7 +16,7 @@
   -webkit-user-select: none;
 }
 
-/* Bottom-right anchored and content-sized, so its box is exactly the window size Rust should use. */
+/* Bottom-right anchored and content-sized; the bubble grows upward inside the fixed window. */
 .pet-stage {
   position: fixed;
   right: 0;
@@ -67,7 +67,18 @@
 }
 
 .pet-bubble-meta { color: var(--muted); font-size: 11px; font-weight: 620; }
-.pet-bubble-text { margin: 0; font-size: 13px; font-weight: 620; line-height: 1.45; overflow-wrap: anywhere; }
+/* Capped at 3 lines so the bubble always fits the fixed-size pet window. */
+.pet-bubble-text {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
 .pet-countdown { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent); }
 
 .pet-bubble-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pet-gap); }

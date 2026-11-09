@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { hourLabel } from "../boardLogic";
 import type { Habit, PeriodSetting } from "../types";
@@ -13,7 +12,6 @@ const TICK_MS = 30_000;
 const SNOOZE_MS = 15 * 60_000;
 const FOCUS_MS = 5 * 60_000;
 const DRAG_THRESHOLD = 4;
-const DRAG_SETTLE_MS = 250;
 const DAY_STORAGE_KEY = "bebe:day";
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
 
@@ -181,12 +179,22 @@ export function PetApp() {
     if (queue.length !== bubble.queue.length) setBubble(queue.length ? { ...bubble, queue } : null);
   }, [items, bubble, pendingOnly, preview.bubble]);
 
-  // Fit the transparent window to the pet plus bubble so empty space never blocks clicks.
+  // The window never resizes; Rust lets clicks through everywhere except bebe and the bubble.
+  // offset* ignores the bubble's entry transform, so the regions match the settled layout.
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage || !isTauri) return;
-    const resize = () => void invoke("resize_pet_window", { width: stage.offsetWidth, height: stage.offsetHeight });
-    const observer = new ResizeObserver(resize);
+    const report = () => {
+      const origin = stage.getBoundingClientRect();
+      const regions = [...stage.querySelectorAll<HTMLElement>(".pet-sprite, .pet-bubble")].map((element) => ({
+        x: origin.left + element.offsetLeft,
+        y: origin.top + element.offsetTop,
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      }));
+      void invoke("set_pet_hit_regions", { regions });
+    };
+    const observer = new ResizeObserver(report);
     observer.observe(stage);
     return () => observer.disconnect();
   }, []);
@@ -225,40 +233,16 @@ export function PetApp() {
 
   async function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
-    const manifest = manifestRef.current;
-    if (!drag || drag.dragging || !manifest || !isTauri) return;
+    if (!drag || drag.dragging || !isTauri) return;
     if (Math.hypot(event.screenX - drag.x, event.screenY - drag.y) < DRAG_THRESHOLD) return;
     drag.dragging = true;
     const resumeState = playerRef.current?.state ?? baseStateRef.current;
     play("drag");
-
-    // Put the cursor on the sprite's grab point (cell px → CSS px) before handing off to the OS drag.
-    const [grabX, grabY] = manifest.states.drag.grabPoint ?? [manifest.cell.width / 2, manifest.cell.height / 2];
-    const scale = manifest.display.width / manifest.cell.width;
-    const rect = spriteRef.current!.getBoundingClientRect();
-    await invoke("move_pet_window_by", { dx: event.clientX - (rect.left + grabX * scale), dy: event.clientY - (rect.top + grabY * scale) });
-
-    const petWindow = getCurrentWindow();
-    let settle: ReturnType<typeof setTimeout> | undefined;
-    let dragReturned = false;
-    const finish = () => {
-      if (!dragReturned) return;
-      stopMoved();
-      dragRef.current = null;
-      const resume = manifest.states[resumeState];
-      play(resume && !resume.loop ? resume.then ?? baseStateRef.current : resumeState === "drag" ? baseStateRef.current : resumeState);
-    };
-    const unlistenMoved = await petWindow.onMoved(() => {
-      clearTimeout(settle);
-      settle = setTimeout(finish, DRAG_SETTLE_MS);
-    });
-    const stopMoved = () => {
-      clearTimeout(settle);
-      unlistenMoved();
-    };
-    await petWindow.startDragging().catch(console.error);
-    dragReturned = true;
-    settle = setTimeout(finish, DRAG_SETTLE_MS);
+    // Resolves only once the left mouse button is released (the OS drag call itself returns immediately).
+    await invoke("drag_pet_window").catch(console.error);
+    dragRef.current = null;
+    const resume = manifestRef.current?.states[resumeState];
+    play(resume && !resume.loop ? resume.then ?? baseStateRef.current : resumeState === "drag" ? baseStateRef.current : resumeState);
   }
 
   function onPointerUp() {
@@ -279,7 +263,7 @@ export function PetApp() {
                 {hourLabel(bubble.hour)}
                 {bubble.queue.length > 1 ? ` · 还有 ${bubble.queue.length - 1} 项` : ""}
               </span>
-              <p className="pet-bubble-text">
+              <p className="pet-bubble-text" title={bubble.queue[0].title}>
                 该做「{bubble.queue[0].title}」了，先做 5 分钟？
               </p>
               <div className="pet-bubble-actions">
@@ -293,14 +277,14 @@ export function PetApp() {
           {bubble.kind === "focus" && (
             <>
               <span className="pet-bubble-meta">专注中</span>
-              <p className="pet-bubble-text">{bubble.habit.title}</p>
+              <p className="pet-bubble-text" title={bubble.habit.title}>{bubble.habit.title}</p>
               <strong className="pet-countdown" aria-label="剩余时间">{formatCountdown(bubble.endsAt - now)}</strong>
             </>
           )}
           {bubble.kind === "checkin" && (
             <>
               <span className="pet-bubble-meta">5 分钟到了</span>
-              <p className="pet-bubble-text">「{bubble.habit.title}」继续做，还是先休息一下？</p>
+              <p className="pet-bubble-text" title={bubble.habit.title}>「{bubble.habit.title}」继续做，还是先休息一下？</p>
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>继续</button>
                 <button type="button" className="secondary-button" onClick={() => snooze([bubble.habit], new Date().getHours())}>休息 15 分钟</button>

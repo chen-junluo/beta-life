@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "pet",
-  "description": "bebe desk pet window: events with the main window and native dragging",
+  "description": "bebe desk pet window: events with the main window",
   "windows": ["pet"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "permissions": ["core:default"]
 }

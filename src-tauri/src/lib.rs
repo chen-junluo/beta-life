@@ -2896,8 +2896,8 @@ pub fn run() {
             delete_memory,
             parse_memory_with_ai,
             pet::show_main_window,
-            pet::resize_pet_window,
-            pet::move_pet_window_by,
+            pet::set_pet_hit_regions,
+            pet::drag_pet_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Beta Life")

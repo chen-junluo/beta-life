@@ -1,17 +1,52 @@
-//! bebe desk pet window: tray menu, bottom-right anchored resizing, and a remembered position.
+//! bebe desk pet window: tray menu, a remembered position, native dragging, and click-through
+//! for the transparent part of its fixed-size window.
 
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{
+    fs,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    thread,
+    time::Duration,
+};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
 };
 
 pub const PET_LABEL: &str = "pet";
 const MAIN_LABEL: &str = "main";
 /// Logical gap between bebe and the screen corner on first launch.
 const SCREEN_MARGIN: f64 = 24.0;
+const HIT_TEST_INTERVAL: Duration = Duration::from_millis(50);
+const DRAG_POLL_INTERVAL: Duration = Duration::from_millis(30);
+
+/// Set while a native drag runs, so click-through never toggles under the cursor mid-drag.
+static DRAGGING: AtomicBool = AtomicBool::new(false);
+
+/// A clickable area (bebe or the bubble) in CSS px relative to the pet window's content.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct HitRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Default)]
+pub struct PetHitRegions(Mutex<Vec<HitRect>>);
+
+/// Whether a cursor at `cursor` (physical screen px) is over a region of a window whose content
+/// starts at `origin` (physical screen px).
+fn cursor_hits(regions: &[HitRect], cursor: (f64, f64), origin: (f64, f64), scale: f64) -> bool {
+    let (x, y) = ((cursor.0 - origin.0) / scale, (cursor.1 - origin.1) / scale);
+    regions
+        .iter()
+        .any(|rect| x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)
+}
 
 /// Bottom-right corner of the pet window in physical pixels. Storing the corner instead of the
 /// top-left keeps bebe in place whether the window was saved with or without a bubble open.
@@ -73,8 +108,63 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
             window.set_position(top_left_for(anchor, window.outer_size()?))?;
         }
         window.show()?;
+        app.manage(PetHitRegions::default());
+        spawn_click_through(app.clone());
     }
     build_tray(app)
+}
+
+/// The window stays at bubble size so showing or hiding the bubble never resizes it (resizing
+/// flashed a frame). Instead, poll the cursor and only accept mouse events over bebe or the bubble.
+fn spawn_click_through(app: AppHandle) {
+    thread::spawn(move || {
+        let mut ignoring = None;
+        loop {
+            thread::sleep(HIT_TEST_INTERVAL);
+            let Some(window) = app.get_webview_window(PET_LABEL) else { return };
+            if DRAGGING.load(Ordering::Relaxed) {
+                continue;
+            }
+            let (Ok(cursor), Ok(origin), Ok(scale)) =
+                (window.cursor_position(), window.inner_position(), window.scale_factor())
+            else {
+                continue;
+            };
+            let hit = {
+                let regions = app.state::<PetHitRegions>();
+                let regions = regions.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                cursor_hits(&regions, (cursor.x, cursor.y), (origin.x as f64, origin.y as f64), scale)
+            };
+            if ignoring != Some(!hit) && window.set_ignore_cursor_events(!hit).is_ok() {
+                ignoring = Some(!hit);
+            }
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn left_button_down() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventSourceButtonState(state_id: i32, button: u32) -> bool;
+    }
+    // kCGEventSourceStateCombinedSessionState = 0, kCGMouseButtonLeft = 0
+    unsafe { CGEventSourceButtonState(0, 0) }
+}
+
+#[cfg(target_os = "windows")]
+fn left_button_down() -> bool {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetAsyncKeyState(key: i32) -> i16;
+    }
+    // VK_LBUTTON = 0x01; the high bit is set while the button is held.
+    unsafe { GetAsyncKeyState(0x01) < 0 }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn left_button_down() -> bool {
+    false
 }
 
 pub fn save_anchor(app: &AppHandle) {
@@ -124,32 +214,28 @@ pub fn show_main_window(app: AppHandle) {
     show_main(&app);
 }
 
-/// Fit the window to the pet stage (CSS px) while keeping its bottom-right corner still.
 #[tauri::command]
-pub fn resize_pet_window(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
-    let scale = window.scale_factor().map_err(|error| error.to_string())?;
-    let size = PhysicalSize::new((width * scale).round() as u32, (height * scale).round() as u32);
-    if window.outer_size().map_err(|error| error.to_string())? == size {
-        return Ok(());
-    }
-    let anchor = current_anchor(&window).map_err(|error| error.to_string())?;
-    window.set_size(size).map_err(|error| error.to_string())?;
-    window
-        .set_position(top_left_for(anchor, size))
-        .map_err(|error| error.to_string())
+pub fn set_pet_hit_regions(regions: Vec<HitRect>, state: State<'_, PetHitRegions>) {
+    *state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = regions;
 }
 
-/// Shift the window by CSS px so the cursor lands on the drag sprite's grab point.
+/// Start a native window drag and resolve only when the left button is released. The OS drag
+/// call returns immediately on macOS and Windows, so its return cannot mark the end of the drag.
 #[tauri::command]
-pub fn move_pet_window_by(window: WebviewWindow, dx: f64, dy: f64) -> Result<(), String> {
-    let scale = window.scale_factor().map_err(|error| error.to_string())?;
-    let position = window.outer_position().map_err(|error| error.to_string())?;
-    window
-        .set_position(PhysicalPosition::new(
-            position.x + (dx * scale).round() as i32,
-            position.y + (dy * scale).round() as i32,
-        ))
-        .map_err(|error| error.to_string())
+pub async fn drag_pet_window(window: WebviewWindow) -> Result<(), String> {
+    DRAGGING.store(true, Ordering::Relaxed);
+    let result = match window.start_dragging() {
+        Ok(()) => tauri::async_runtime::spawn_blocking(|| {
+            while left_button_down() {
+                thread::sleep(DRAG_POLL_INTERVAL);
+            }
+        })
+        .await
+        .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    DRAGGING.store(false, Ordering::Relaxed);
+    result
 }
 
 #[cfg(test)]
@@ -161,6 +247,17 @@ mod tests {
         let anchor = PetAnchor { right: 1400, bottom: 860 };
         assert_eq!(top_left_for(anchor, PhysicalSize::new(232, 276)), PhysicalPosition::new(1168, 584));
         assert_eq!(top_left_for(anchor, PhysicalSize::new(560, 600)), PhysicalPosition::new(840, 260));
+    }
+
+    #[test]
+    fn hit_test_converts_physical_cursor_to_css_regions() {
+        let regions = [HitRect { x: 174.0, y: 222.0, width: 96.0, height: 128.0 }];
+        let origin = (1000.0, 500.0);
+        // Retina: 2 physical px per CSS px.
+        assert!(cursor_hits(&regions, (1000.0 + 200.0 * 2.0, 500.0 + 300.0 * 2.0), origin, 2.0));
+        assert!(!cursor_hits(&regions, (1000.0 + 20.0 * 2.0, 500.0 + 20.0 * 2.0), origin, 2.0));
+        assert!(!cursor_hits(&regions, (1000.0 + 270.0 * 2.0, 500.0 + 300.0 * 2.0), origin, 2.0));
+        assert!(!cursor_hits(&[], (1400.0, 1100.0), origin, 2.0));
     }
 
     #[test]
