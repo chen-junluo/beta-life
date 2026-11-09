@@ -1,0 +1,67 @@
+{
+  "id": "bebe",
+  "displayName": "bebe",
+  "description": "bebe is a scruffy white West Highland Terrier puppy in a flat cartoon sticker style with thick dark outlines, wearing a braided hemp cord with a square terracotta clay tag, with a glowing lavender β floating above the head.",
+  "cell": {
+    "width": 192,
+    "height": 256,
+    "baseline": 250
+  },
+  "display": {
+    "width": 96,
+    "height": 128
+  },
+  "states": {
+    "idle": {
+      "frames": 6,
+      "fps": 4,
+      "loop": true,
+      "holdFirstMs": 3000,
+      "file": "idle.png"
+    },
+    "alert": {
+      "frames": 4,
+      "fps": 8,
+      "loop": false,
+      "playCount": 2,
+      "then": "idle",
+      "file": "alert.png"
+    },
+    "happy": {
+      "frames": 4,
+      "fps": 8,
+      "loop": false,
+      "playCount": 1,
+      "then": "idle",
+      "file": "happy.png"
+    },
+    "sleep": {
+      "frames": 4,
+      "fps": 3,
+      "loop": true,
+      "file": "sleep.png"
+    },
+    "thinking": {
+      "frames": 2,
+      "fps": 3,
+      "loop": true,
+      "file": "thinking.png"
+    },
+    "worried": {
+      "frames": 2,
+      "fps": 4,
+      "loop": true,
+      "file": "worried.png"
+    },
+    "drag": {
+      "frames": 4,
+      "fps": 8,
+      "loop": true,
+      "grabPoint": [
+        96,
+        127
+      ],
+      "file": "drag.png"
+    }
+  }
+}
