@@ -86,3 +86,7 @@ This command only removes generated `dist`, Vite, and Cargo build output. It doe
 ## Stack
 
 React 19, TypeScript, Vite, Rust, and Tauri 2.
+
+## Acknowledgements
+
+Beta Life's activity tracking (foreground window, idle detection, browser domains, and timeline) draws heavily on the design and implementation details of [ActivityWatch](https://github.com/ActivityWatch/activitywatch). We are deeply grateful to the ActivityWatch team and contributors for building and maintaining such an excellent open-source project. Beta Life does not bundle or depend on ActivityWatch code.

@@ -86,3 +86,7 @@ npm run build:mac:clean
 ## 技术栈
 
 React 19、TypeScript、Vite、Rust 与 Tauri 2。
+
+## 致谢
+
+Beta Life 的活动记录（前台窗口、空闲检测、浏览器域名与时间线）在设计和实现细节上大量参考了 [ActivityWatch](https://github.com/ActivityWatch/activitywatch)。非常感谢 ActivityWatch 团队与贡献者长期维护这个优秀的开源项目。Beta Life 没有直接包含或依赖 ActivityWatch 的代码。
