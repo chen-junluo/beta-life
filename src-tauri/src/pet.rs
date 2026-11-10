@@ -1,5 +1,6 @@
-//! bebe desk pet window: tray menu, a remembered position, native dragging, and click-through
-//! for the transparent part of its fixed-size window.
+//! bebe desk pet window: tray menu, a remembered position, native dragging, click-through
+//! for the transparent part of its fixed-size window, and when bebe makes way for the AI dock
+//! (bebe and the dock are one assistant: never both in front).
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,7 +15,7 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
 };
 
 pub const PET_LABEL: &str = "pet";
@@ -23,6 +24,16 @@ const MAIN_LABEL: &str = "main";
 const SCREEN_MARGIN: f64 = 24.0;
 const HIT_TEST_INTERVAL: Duration = Duration::from_millis(50);
 const DRAG_POLL_INTERVAL: Duration = Duration::from_millis(30);
+
+/// Logical offset of bebe's center from the pet window's bottom-right corner (see `pet.css`:
+/// 10px right edge, 96x128 sprite on the bottom edge).
+const SPRITE_CENTER_FROM_CORNER: (f64, f64) = (10.0 + 48.0, 64.0);
+/// Pet page: `true` while bebe makes way for the dock.
+const PRESENCE_EVENT: &str = "pet://presence";
+/// Main page: `true` while the user hid bebe from the tray.
+const USER_HIDDEN_EVENT: &str = "pet://user-hidden";
+/// Main page: bebe was double-clicked, start a new conversation in the dock.
+const SUMMON_DOCK_EVENT: &str = "pet://summon-dock";
 
 /// Set while a native drag runs, so click-through never toggles under the cursor mid-drag.
 static DRAGGING: AtomicBool = AtomicBool::new(false);
@@ -38,6 +49,28 @@ pub struct HitRect {
 
 #[derive(Default)]
 pub struct PetHitRegions(Mutex<Vec<HitRect>>);
+
+/// What the main window reports; Rust alone decides whether bebe makes way.
+#[derive(Debug, Default, Clone, Copy)]
+struct Presence {
+    main_focused: bool,
+    /// Shown in any form (composer, expanded, or the AI workbench); false once minimized into bebe.
+    dock_visible: bool,
+}
+
+#[derive(Default)]
+pub struct PetPresence(Mutex<Presence>);
+
+/// bebe is the dock: while beta-life is in front showing the dock, bebe steps aside. A tray hide
+/// is a real window hide and wins over this.
+fn makes_way(presence: Presence) -> bool {
+    presence.main_focused && presence.dock_visible
+}
+
+/// A physical screen point in logical px relative to a window whose content starts at `origin`.
+fn point_in_window(point: (f64, f64), origin: (f64, f64), scale: f64) -> (f64, f64) {
+    ((point.0 - origin.0) / scale, (point.1 - origin.1) / scale)
+}
 
 /// Whether a cursor at `cursor` (physical screen px) is over a region of a window whose content
 /// starts at `origin` (physical screen px).
@@ -109,6 +142,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         }
         window.show()?;
         app.manage(PetHitRegions::default());
+        app.manage(PetPresence::default());
         spawn_click_through(app.clone());
     }
     build_tray(app)
@@ -175,6 +209,24 @@ pub fn save_anchor(app: &AppHandle) {
     }
 }
 
+fn update_presence(app: &AppHandle, change: impl FnOnce(&mut Presence)) {
+    let Some(state) = app.try_state::<PetPresence>() else { return };
+    let (before, after) = {
+        let mut presence = state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = makes_way(*presence);
+        change(&mut presence);
+        (before, makes_way(*presence))
+    };
+    if before != after {
+        let _ = app.emit_to(PET_LABEL, PRESENCE_EVENT, after);
+    }
+}
+
+/// Called from the main window's focus events.
+pub fn set_main_focused(app: &AppHandle, focused: bool) {
+    update_presence(app, |presence| presence.main_focused = focused);
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_LABEL) {
         let _ = window.unminimize();
@@ -196,7 +248,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "open" => show_main(app),
             "toggle-pet" => {
                 if let Some(window) = app.get_webview_window(PET_LABEL) {
-                    let _ = if window.is_visible().unwrap_or(false) { window.hide() } else { window.show() };
+                    let hide = window.is_visible().unwrap_or(false);
+                    let _ = if hide { window.hide() } else { window.show() };
+                    let _ = app.emit_to(MAIN_LABEL, USER_HIDDEN_EVENT, hide);
                 }
             }
             "quit" => app.exit(0),
@@ -212,6 +266,60 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[tauri::command]
 pub fn show_main_window(app: AppHandle) {
     show_main(&app);
+}
+
+/// The main window reports whether the dock is shown. Focus is re-read here too, so a missed
+/// focus event (e.g. at launch) cannot leave bebe and the dock in front together.
+#[tauri::command]
+pub fn set_dock_visible(app: AppHandle, visible: bool) {
+    let focused = app.get_webview_window(MAIN_LABEL).and_then(|window| window.is_focused().ok());
+    update_presence(&app, |presence| {
+        presence.dock_visible = visible;
+        if let Some(focused) = focused {
+            presence.main_focused = focused;
+        }
+    });
+}
+
+/// Pet page asks on load whether bebe should currently make way.
+#[tauri::command]
+pub fn pet_makes_way(state: State<'_, PetPresence>) -> bool {
+    makes_way(*state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+}
+
+/// Main page asks on load whether the user hid bebe from the tray.
+#[tauri::command]
+pub fn pet_hidden_by_user(app: AppHandle) -> bool {
+    app.get_webview_window(PET_LABEL)
+        .map(|window| !window.is_visible().unwrap_or(true))
+        .unwrap_or(true)
+}
+
+/// Where bebe's center is, in CSS px of the main window's content, for the dock's fly-away.
+#[tauri::command]
+pub fn pet_position_in_main(app: AppHandle) -> Option<(f64, f64)> {
+    let pet = app.get_webview_window(PET_LABEL)?;
+    let main = app.get_webview_window(MAIN_LABEL)?;
+    let (position, size, pet_scale) = (pet.inner_position().ok()?, pet.inner_size().ok()?, pet.scale_factor().ok()?);
+    let (origin, main_scale) = (main.inner_position().ok()?, main.scale_factor().ok()?);
+    let center = (
+        position.x as f64 + size.width as f64 - SPRITE_CENTER_FROM_CORNER.0 * pet_scale,
+        position.y as f64 + size.height as f64 - SPRITE_CENTER_FROM_CORNER.1 * pet_scale,
+    );
+    Some(point_in_window(center, (origin.x as f64, origin.y as f64), main_scale))
+}
+
+/// Double-clicking bebe brings beta-life forward with a new conversation in the dock.
+#[tauri::command]
+pub fn summon_dock(app: AppHandle) {
+    show_main(&app);
+    let _ = app.emit_to(MAIN_LABEL, SUMMON_DOCK_EVENT, ());
+}
+
+/// The chat input needs keyboard focus; the pet window is created unfocused.
+#[tauri::command]
+pub fn focus_pet_window(window: WebviewWindow) -> Result<(), String> {
+    window.set_focus().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -258,6 +366,23 @@ mod tests {
         assert!(!cursor_hits(&regions, (1000.0 + 20.0 * 2.0, 500.0 + 20.0 * 2.0), origin, 2.0));
         assert!(!cursor_hits(&regions, (1000.0 + 270.0 * 2.0, 500.0 + 300.0 * 2.0), origin, 2.0));
         assert!(!cursor_hits(&[], (1400.0, 1100.0), origin, 2.0));
+    }
+
+    #[test]
+    fn bebe_makes_way_whenever_the_dock_is_in_front() {
+        let presence = |main_focused, dock_visible| Presence { main_focused, dock_visible };
+        assert!(makes_way(presence(true, true)));
+        assert!(!makes_way(presence(true, false)));
+        assert!(!makes_way(presence(false, true)));
+        assert!(!makes_way(presence(false, false)));
+    }
+
+    #[test]
+    fn screen_point_converts_to_main_window_css_px() {
+        // Retina main window whose content starts at (200, 100) physical px.
+        assert_eq!(point_in_window((1400.0, 900.0), (200.0, 100.0), 2.0), (600.0, 400.0));
+        // bebe on another screen to the left gives negative coordinates; the dock clamps them.
+        assert_eq!(point_in_window((-300.0, 500.0), (200.0, 100.0), 1.0), (-500.0, 400.0));
     }
 
     #[test]

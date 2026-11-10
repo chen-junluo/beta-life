@@ -75,7 +75,8 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     };
   }, []);
 
-  async function send(text: string) {
+  /** `newScope` applies only when this message starts a conversation (bebe uses its own default). */
+  async function send(text: string, newScope?: AiScope) {
     const state = targetsRef.current.getState();
     const content = text.trim();
     if (!state || !content || busy) return;
@@ -83,7 +84,8 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     const firstTitle = content.replace(/\s+/g, " ").slice(0, 20);
     const base = current.current ?? { id: crypto.randomUUID(), title: firstTitle, panel: activePanel, createdAt: now, updatedAt: now, messages: [] };
     const isFirstTurn = base.messages.length === 0;
-    const turnScope = scope;
+    const turnScope = isFirstTurn && newScope ? newScope : scope;
+    if (turnScope !== scope) setScope(turnScope);
     const controller = new AbortController();
     abort.current = controller;
     setBusy(true);

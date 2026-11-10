@@ -23,7 +23,24 @@ import { MemoriesView } from "./components/MemoriesView";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_ABILITY_MAP_NAMES, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import { AbilityMapTabs } from "./components/AbilityMapTabs";
-import { PET_BOARD, PET_MARK_DONE, PET_READY, type PetBoardSnapshot, type PetMarkDone } from "./pet/bridge";
+import {
+  PET_BOARD,
+  PET_CHAT,
+  PET_CHAT_RESOLVE,
+  PET_CHAT_SCOPE,
+  PET_CHAT_SEND,
+  PET_CHAT_STOP,
+  PET_DOCK_ARRIVED,
+  PET_MARK_DONE,
+  PET_READY,
+  PET_SUMMON_DOCK,
+  PET_USER_HIDDEN,
+  petChatSnapshot,
+  type PetBoardSnapshot,
+  type PetChatResolve,
+  type PetChatSend,
+  type PetMarkDone,
+} from "./pet/bridge";
 import type {
   AiProposalItem,
   AbilityForest,
@@ -315,6 +332,68 @@ export default function App() {
     },
   });
 
+  const assistantRef = useRef(assistant);
+  assistantRef.current = assistant;
+  const activeSectionRef = useRef(activeSection);
+  activeSectionRef.current = activeSection;
+  /** Minimized into bebe: the dock disappears until bebe is double-clicked or ⌘K. */
+  const [dockHidden, setDockHidden] = useState(false);
+  const [dockFlight, setDockFlight] = useState<{ x: number; y: number } | null>(null);
+  const [dockExpand, setDockExpand] = useState(0);
+  /** bebe hidden from the tray: no bebe to shrink into. */
+  const [petUserHidden, setPetUserHidden] = useState(false);
+
+  // bebe is the dock: Rust hides bebe while the focused window shows the dock in any form.
+  const dockVisible = showWorkbench || !dockHidden;
+  useEffect(() => {
+    if (window.__TAURI_INTERNALS__) void invoke("set_dock_visible", { visible: dockVisible }).catch(console.error);
+  }, [dockVisible]);
+
+  const petChat = petChatSnapshot(assistant.conversation, {
+    hasApiKey: state?.hasApiKey ?? false,
+    busy: assistant.busy,
+    stopped: assistant.stopped,
+    error: assistant.error,
+  });
+  const petChatRef = useRef(petChat);
+  petChatRef.current = petChat;
+  useEffect(() => {
+    if (window.__TAURI_INTERNALS__) void emitTo("pet", PET_CHAT, petChatRef.current).catch(console.error);
+  }, [assistant.conversation, assistant.busy, assistant.stopped, assistant.error, state?.hasApiKey]);
+
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    void invoke<boolean>("pet_hidden_by_user").then(setPetUserHidden).catch(console.error);
+    const unlisteners = [
+      listen<boolean>(PET_USER_HIDDEN, ({ payload }) => setPetUserHidden(payload)),
+      // Double-clicking bebe starts a new conversation; while a turn is running it shows that one instead.
+      listen(PET_SUMMON_DOCK, () => {
+        const { busy, startNew } = assistantRef.current;
+        if (busy) setDockExpand((count) => count + 1);
+        else startNew(activeSectionRef.current);
+        setDockHidden(false);
+        setDockFlight(null);
+        setDockFocus((count) => count + 1);
+      }),
+      listen(PET_READY, () => void emitTo("pet", PET_CHAT, petChatRef.current)),
+      listen<PetChatSend>(PET_CHAT_SEND, ({ payload }) => void assistantRef.current.send(payload.text, PET_CHAT_SCOPE)),
+      listen<PetChatResolve>(PET_CHAT_RESOLVE, ({ payload }) => void assistantRef.current.resolveBatch(payload.batchId, payload.selectedIds)),
+      listen(PET_CHAT_STOP, () => assistantRef.current.stop()),
+    ];
+    return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
+  }, []);
+
+  async function minimizeDock() {
+    const target = window.__TAURI_INTERNALS__ ? await invoke<[number, number] | null>("pet_position_in_main").catch(() => null) : null;
+    setDockFlight(target ? { x: target[0], y: target[1] } : { x: window.innerWidth, y: window.innerHeight });
+  }
+
+  function finishDockFlight() {
+    setDockHidden(true);
+    setDockFlight(null);
+    if (window.__TAURI_INTERNALS__) void emitTo("pet", PET_DOCK_ARRIVED).catch(console.error);
+  }
+
   const petItems = state ? activeItems(state.board) : null;
   const petPeriods = state?.settings.periods;
   useEffect(() => {
@@ -465,6 +544,7 @@ export default function App() {
       }
       if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !showEditor && !showAi && !showSettings) {
         event.preventDefault();
+        setDockHidden(false);
         setDockFocus((count) => count + 1);
       }
       if (!typing && event.altKey && ["+", "=", "-", "_", "0"].includes(event.key)) {
@@ -562,6 +642,11 @@ export default function App() {
       onRename={assistant.rename}
       layout={showWorkbench ? "workbench" : "dock"}
       onOpenWorkbench={() => setShowWorkbench(true)}
+      onMinimize={petUserHidden ? undefined : () => void minimizeDock()}
+      flightTarget={dockFlight}
+      onFlightEnd={finishDockFlight}
+      hidden={dockHidden && !showWorkbench}
+      expandRequest={dockExpand}
     />
   );
   const globalDot = `conic-gradient(${periods.map((period, index) => `${period.color} 0 ${((index + 1) * 100) / periods.length}%`).join(", ")})`;

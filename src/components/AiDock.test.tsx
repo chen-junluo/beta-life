@@ -227,4 +227,24 @@ describe("AiDock", () => {
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="在工作台打开"]')?.click());
     expect(onOpenWorkbench).toHaveBeenCalled();
   });
+  it("shrinks into bebe: the button starts the flight, and without animation support it ends at once", () => {
+    const onMinimize = vi.fn();
+    const onFlightEnd = vi.fn();
+    render({ onMinimize, onFlightEnd });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="缩小成 bebe"]')?.click());
+    expect(onMinimize).toHaveBeenCalled();
+    render({ onMinimize, onFlightEnd, flightTarget: { x: 1400, y: 880 } });
+    expect(onFlightEnd).toHaveBeenCalledTimes(1);
+    render({ onMinimize, onFlightEnd, hidden: true });
+    expect(host.querySelector(".ai-dock")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("hides the bebe button when bebe is hidden from the tray, and expands on request", () => {
+    render({ conversation: { ...conversation, messages: conversation.messages.slice(0, 2) } });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起"]')?.click());
+    expect(host.querySelector(".ai-dock-card")).toBeNull();
+    expect(host.querySelector('[aria-label="缩小成 bebe"]')).toBeNull();
+    render({ conversation: { ...conversation, messages: conversation.messages.slice(0, 2) }, expandRequest: 1 });
+    expect(host.querySelector(".ai-dock-card")).not.toBeNull();
+  });
 });

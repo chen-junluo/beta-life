@@ -3407,3 +3407,6 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 @media (prefers-color-scheme: dark) {
   .ai-panel-tag, .ai-wb-filters button.is-on { background: color-mix(in srgb, var(--ai-panel-color) 20%, transparent); color: color-mix(in srgb, var(--ai-panel-color) 55%, #fff); }
 }
+
+/* Minimized into bebe (P2.4): `.ai-dock` sets display, so the hidden attribute needs a rule. */
+.ai-dock[hidden] { display: none; }

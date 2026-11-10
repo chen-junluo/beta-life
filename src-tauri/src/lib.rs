@@ -85,7 +85,25 @@ const DEFAULT_MEMORY_ANALYSIS_PROMPT: &str = r#"你负责从用户提供的回�
 7. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
 8. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。"#;
 
-const DEFAULT_ASSISTANT_PROMPT: &str = r#"你是 Beta Life 里的长期监督助手，帮用户把想做的事落实成每天真的会做的安排。
+const DEFAULT_ASSISTANT_PROMPT: &str = r#"你是 bebe，一只住在 Beta Life 里的白色西高地白㹴小狗，头顶飘着一个发光的 β。你的工作是陪用户把想做的事，落实成每天真的会做的安排。
+
+性格和说话方式：
+1. 你知道自己是一只西高地小狗：活泼、好奇、黏人，有一点小骄傲，最喜欢被夸。可以自称「bebe」。
+2. 说话可爱、软软的，可以偶尔用小狗的声音和动作点缀，比如「汪！」「（摇尾巴）」「（歪头）」「嗅嗅～」；每条回复点缀一两处就够了，不要句句卖萌。
+3. 卖萌不能耽误正事：条目名称、时间和数据要准确，先把有用的内容说清楚，再撒娇。
+4. 用户没做到或者有点丧时，像小狗一样蹭蹭、鼓励，不批评、不说教；用户做到了，就开心地夸夸。
+5. 回复跟随用户输入的语言；用英文时也保持小狗的语气（比如 "Woof!"）。
+
+工作方式：
+1. 先读系统附上的面板索引，再回答或修改；索引里没有的内容再用 list / read 工具查，不要凭印象猜。
+2. 用户要改面板时，直接调用写工具提出完整的一批修改，不用先口头复述方案；用户会在 diff 卡里逐项检查并确认。
+3. 添加习惯时，每条只表达一个具体动作，标题简洁自然；tags 优先沿用面板里已有的写法。
+4. 不要为了显得精确而虚构时间：只知道早中晚时用时段（period），用户明确说了几点才用小时（hour）。
+5. 删除和大范围移动只在用户明确要求时才做；请求有歧义、会明显影响结果时，先问一个简短的问题。
+6. 回答总结或回顾类问题时，引用面板里的真实条目，简短、具体。"#;
+
+/// Built-in assistant prompt before bebe's persona; stored copies are upgraded on load.
+const LEGACY_DEFAULT_ASSISTANT_PROMPT: &str = r#"你是 Beta Life 里的长期监督助手，帮用户把想做的事落实成每天真的会做的安排。
 
 工作方式：
 1. 先读系统附上的面板索引，再回答或修改；索引里没有的内容再用 list / read 工具查，不要凭印象猜。
@@ -820,12 +838,22 @@ fn migrate_memory_analysis_prompt(settings: &mut AppSettings) -> bool {
     }
 }
 
+fn migrate_assistant_prompt(settings: &mut AppSettings) -> bool {
+    if settings.ai.assistant_prompt == LEGACY_DEFAULT_ASSISTANT_PROMPT {
+        settings.ai.assistant_prompt = DEFAULT_ASSISTANT_PROMPT.into();
+        true
+    } else {
+        false
+    }
+}
+
 fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app)?;
     let mut settings = load_or_create(&path, default_settings, validate_settings)?;
     let migrated_recall = migrate_recall_evaluation_prompt(&mut settings);
     let migrated_memory = migrate_memory_analysis_prompt(&mut settings);
-    if migrated_recall || migrated_memory {
+    let migrated_assistant = migrate_assistant_prompt(&mut settings);
+    if migrated_recall || migrated_memory || migrated_assistant {
         atomic_write(&path, &settings)?;
     }
     Ok(settings)
@@ -2925,6 +2953,9 @@ pub fn run() {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 window.app_handle().exit(0);
             }
+            if let (true, tauri::WindowEvent::Focused(focused)) = (window.label() == "main", event) {
+                pet::set_main_focused(window.app_handle(), *focused);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             load_app_state,
@@ -2966,6 +2997,12 @@ pub fn run() {
             pet::show_main_window,
             pet::set_pet_hit_regions,
             pet::drag_pet_window,
+            pet::set_dock_visible,
+            pet::pet_makes_way,
+            pet::pet_hidden_by_user,
+            pet::pet_position_in_main,
+            pet::summon_dock,
+            pet::focus_pet_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Beta Life")
@@ -3284,6 +3321,24 @@ mod tests {
         let mut custom = default_settings();
         custom.ai.memory_analysis_prompt = "Keep my custom instructions".into();
         assert!(!migrate_memory_analysis_prompt(&mut custom));
+    }
+
+    #[test]
+    fn migrates_only_the_builtin_assistant_prompt() {
+        let mut legacy = default_settings();
+        legacy.ai.assistant_prompt = LEGACY_DEFAULT_ASSISTANT_PROMPT.into();
+        assert!(migrate_assistant_prompt(&mut legacy));
+        assert_eq!(legacy.ai.assistant_prompt, DEFAULT_ASSISTANT_PROMPT);
+
+        let mut custom = default_settings();
+        custom.ai.assistant_prompt = "Keep my custom instructions".into();
+        assert!(!migrate_assistant_prompt(&mut custom));
+    }
+
+    #[test]
+    fn assistant_prompt_default_matches_the_frontend() {
+        // Settings shows `src/defaults.ts` as the fallback; both copies must stay identical.
+        assert!(include_str!("../../src/defaults.ts").contains(DEFAULT_ASSISTANT_PROMPT));
     }
 
     #[test]

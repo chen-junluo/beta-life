@@ -1,4 +1,4 @@
-import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, Maximize2, MessageSquarePlus, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
+import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, Maximize2, MessageSquarePlus, PawPrint, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { pendingBatch } from "../ai/turn";
 import { changePanel, type AiAccess, type AiBatch, type AiPanelId, type AiScope, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
@@ -39,6 +39,15 @@ interface AiDockProps {
   /** `workbench`: fills the workbench's middle column, always expanded; pending changes show in its side column. */
   layout?: "dock" | "workbench";
   onOpenWorkbench?: () => void;
+  /** Shrinks the dock into bebe; omitted while bebe is hidden from the tray. */
+  onMinimize?: () => void;
+  /** Set to bebe's position (main-window CSS px) to play the fly-away, then `onFlightEnd` runs. */
+  flightTarget?: { x: number; y: number } | null;
+  onFlightEnd?: () => void;
+  /** Minimized into bebe: kept mounted so the draft survives. */
+  hidden?: boolean;
+  /** Bump to expand the conversation (double-clicking bebe). */
+  expandRequest?: number;
 }
 
 /** The @ picker edits all four panels at once; nothing changes until it is confirmed. */
@@ -269,7 +278,7 @@ function panelMatches(panel: AiPanelId, query: string): boolean {
   return !query || AI_PANELS[panel].name.includes(query) || panel.startsWith(query.toLowerCase());
 }
 
-export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench }: AiDockProps) {
+export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench, onMinimize, flightTarget = null, onFlightEnd, hidden = false, expandRequest = 0 }: AiDockProps) {
   const workbench = layout === "workbench";
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -280,6 +289,9 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   const input = useRef<HTMLTextAreaElement>(null);
   const pillsRef = useRef<HTMLDivElement>(null);
   const bodyEnd = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const flightEnd = useRef(onFlightEnd);
+  flightEnd.current = onFlightEnd;
   const messages = conversation?.messages ?? [];
   const pendingId = pendingBatch(messages)?.id;
   const pills = PANEL_ORDER.filter((panel) => scope[panel]);
@@ -297,6 +309,35 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   useEffect(() => {
     if (focusRequest > 0) input.current?.focus();
   }, [focusRequest]);
+
+  useEffect(() => {
+    if (expandRequest > 0) setOpen(true);
+  }, [expandRequest]);
+
+  // Fly toward bebe (clamped into the window when bebe is outside it), shrinking and fading.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!flightTarget || !shell) return;
+    const done = () => flightEnd.current?.();
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (typeof shell.animate !== "function" || reduced) {
+      done();
+      return;
+    }
+    const rect = shell.getBoundingClientRect();
+    const x = Math.min(Math.max(flightTarget.x, 24), window.innerWidth - 24) - (rect.left + rect.width / 2);
+    const y = Math.min(Math.max(flightTarget.y, 24), window.innerHeight - 24) - (rect.top + rect.height / 2);
+    const animation = shell.animate(
+      [{ transform: "none", opacity: 1 }, { transform: `translate(${x}px, ${y}px) scale(0.06)`, opacity: 0 }],
+      { duration: 340, easing: "cubic-bezier(0.5, 0, 0.75, 0.4)", fill: "forwards" },
+    );
+    let cancelled = false;
+    animation.finished.then(() => !cancelled && done(), () => undefined);
+    return () => {
+      cancelled = true;
+      animation.cancel();
+    };
+  }, [flightTarget]);
 
   // Pills sit in the text flow: the first text line starts after the last pill, later lines wrap under them.
   useLayoutEffect(() => {
@@ -438,6 +479,11 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   }
 
   const showCard = workbench || ((open || busy || Boolean(error)) && (messages.length > 0 || busy || Boolean(error)));
+  const minimizeButton = onMinimize && !workbench && (
+    <button type="button" className="icon-button ai-dock-minimize" onClick={onMinimize} disabled={Boolean(flightTarget)} aria-label="缩小成 bebe" title="缩小成 bebe（⌘K 恢复；双击 bebe 新开对话）">
+      <PawPrint size={14} />
+    </button>
+  );
   const flowStyle = stacked ? { textIndent: 0, paddingTop: 4 } : { textIndent: flow.indent, paddingTop: 4 + flow.top };
 
   const pickerMenu = picker && (
@@ -479,9 +525,9 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   );
 
   return (
-    <div className={`ai-dock ${workbench ? "is-workbench" : ""}`}>
+    <div className={`ai-dock ${workbench ? "is-workbench" : ""}`} hidden={hidden}>
       {/* One box: collapsed it is just the composer; expanded it grows upward with the conversation above the composer. */}
-      <div className={`ai-dock-shell ${showCard ? "is-open" : ""}`}>
+      <div ref={shellRef} className={`ai-dock-shell ${showCard ? "is-open" : ""}`}>
       {showCard && (
         <section className="ai-dock-card" aria-label="AI 对话">
           <header className="ai-dock-head">
@@ -504,6 +550,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
               <button type="button" className="ai-dock-new" onClick={onNewConversation} disabled={busy}>
                 <MessageSquarePlus size={14} aria-hidden="true" />新对话
               </button>
+              {minimizeButton}
               {onOpenWorkbench && (
                 <button type="button" className="icon-button" onClick={onOpenWorkbench} aria-label="在工作台打开" title="在 AI 工作台打开">
                   <Maximize2 size={14} />
@@ -587,6 +634,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
             <AtSign size={16} />
           </button>
         )}
+        {!showCard && minimizeButton}
         {!isNew && !showCard && (
           <button type="button" className="icon-button ai-dock-expand" onClick={() => setOpen(true)} aria-label="展开对话" title={`展开「${conversation?.title ?? "对话"}」`}>
             <ChevronUp size={17} />

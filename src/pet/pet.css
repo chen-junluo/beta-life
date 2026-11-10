@@ -84,3 +84,31 @@
 .pet-bubble-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pet-gap); }
 .pet-bubble-actions .primary-button,
 .pet-bubble-actions .secondary-button { min-height: 32px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
+
+/* Making way for the dock: invisible, and pet.rs gets no hit regions so clicks pass through. */
+.pet-stage { transition: opacity .18s ease; }
+.pet-stage.is-away { opacity: 0; pointer-events: none; }
+
+/* bebe with the chat button on its left; the button shows on hover but is always a hit region. */
+.pet-row { display: flex; align-items: flex-end; gap: 6px; }
+.pet-chat-open { width: 30px; height: 30px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel); color: var(--accent); box-shadow: 0 3px 10px rgba(15, 23, 42, 0.1); opacity: 0; transition: opacity .12s ease; }
+.pet-row:hover .pet-chat-open, .pet-chat-open:focus-visible { opacity: 1; }
+
+/* Chat bubble: header, the latest round (scrolls), composer; capped to the fixed window height. */
+.pet-chat { width: 280px; max-height: calc(100vh - 128px - var(--pet-gap) - var(--pet-edge)); display: flex; flex-direction: column; user-select: text; -webkit-user-select: text; }
+.pet-chat-head { display: flex; align-items: center; gap: 6px; }
+.pet-chat-head .pet-bubble-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pet-chat-head .icon-button { width: 24px; height: 24px; }
+.pet-chat-body { flex: 1 1 auto; min-height: 0; display: grid; align-content: start; gap: var(--pet-gap); overflow-y: auto; }
+.pet-chat-user { justify-self: end; max-width: 90%; margin: 0; padding: 6px 9px; border-radius: 10px 10px 3px 10px; background: var(--accent); color: #fff; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pet-chat-reply { color: var(--ink); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.pet-chat-reply > :first-child { margin-top: 0; }
+.pet-chat-reply > :last-child { margin-bottom: 0; }
+.pet-chat-status { margin: 0; color: var(--muted); font-size: 11px; }
+.pet-chat .inline-error { margin: 0; }
+.pet-chat .ai-diff-foot { flex-wrap: wrap; }
+.pet-chat .ai-diff-foot small { flex-basis: 100%; }
+.pet-chat-composer { display: flex; align-items: flex-end; gap: 6px; }
+.pet-chat-composer textarea { flex: 1; min-width: 0; min-height: 52px; max-height: 96px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; line-height: 1.5; resize: none; }
+.pet-chat-composer textarea:focus { border-color: rgba(99, 102, 241, 0.55); outline: none; }
+.pet-chat-composer .primary-button { width: 32px; min-height: 32px; padding: 0; justify-content: center; }
