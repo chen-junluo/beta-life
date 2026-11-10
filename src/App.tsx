@@ -671,6 +671,7 @@ export default function App() {
         onSend={(text) => void assistant.send(text)}
         onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
         onNewConversation={() => assistant.startNew(activeSection)}
+        onRename={assistant.rename}
       />
 
       {loadError && !window.__TAURI_INTERNALS__ && (

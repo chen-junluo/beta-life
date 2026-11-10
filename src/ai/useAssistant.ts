@@ -70,7 +70,9 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     const content = text.trim();
     if (!state || !content || busy) return;
     const now = new Date().toISOString();
-    const base = current.current ?? { id: crypto.randomUUID(), title: content.slice(0, 40), panel: activePanel, createdAt: now, updatedAt: now, messages: [] };
+    const firstTitle = content.replace(/\s+/g, " ").slice(0, 20);
+    const base = current.current ?? { id: crypto.randomUUID(), title: firstTitle, panel: activePanel, createdAt: now, updatedAt: now, messages: [] };
+    const isFirstTurn = base.messages.length === 0;
     const turnScope = scope;
     const controller = new AbortController();
     abort.current = controller;
@@ -80,16 +82,23 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     try {
       const data = await loadAssistantData(turnScope, state);
       const session = createToolSession(data);
-      await runTurn(base.messages, content, turnScope, {
+      const messages = await runTurn(base.messages, content, turnScope, {
         step: (request) => invoke<ChatStepReply>("ai_chat_step", { request }),
         context: assistantContext(turnScope, data),
         runTool: session.run,
         // After stop, a late step must not overwrite a conversation the user has moved on with.
         onMessages: (messages) => {
-          if (!controller.signal.aborted) persist({ ...base, messages, updatedAt: new Date().toISOString() });
+          if (controller.signal.aborted) return;
+          // Keep a title the user (or auto-naming) set while the turn was running.
+          const latest = current.current?.id === base.id ? current.current : base;
+          persist({ ...latest, messages, updatedAt: new Date().toISOString() });
         },
         signal: controller.signal,
       });
+      if (isFirstTurn) {
+        const reply = [...messages].reverse().find((message) => message.role === "assistant" && message.content.trim());
+        void autoTitle(base.id, firstTitle, content, reply?.role === "assistant" ? reply.content : "");
+      }
     } catch (reason) {
       if (controller.signal.aborted || reason instanceof TurnStopped) return;
       setError(errorMessage(reason));
@@ -99,6 +108,25 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
         setBusy(false);
       }
     }
+  }
+
+  /** Names a new conversation after its first round; keeps the fallback title if naming fails or the user renamed it. */
+  async function autoTitle(id: string, fallback: string, text: string, reply: string) {
+    if (!window.__TAURI_INTERNALS__) return;
+    try {
+      const title = await invoke<string>("ai_generate_title", { request: { text, reply } });
+      const conv = current.current;
+      if (title && conv?.id === id && conv.title === fallback) persist({ ...conv, title });
+    } catch (reason) {
+      console.error(reason);
+    }
+  }
+
+  function rename(title: string) {
+    const conv = current.current;
+    const next = title.trim().slice(0, 60);
+    if (!conv || !next || next === conv.title) return;
+    persist({ ...conv, title: next });
   }
 
   /** Ends the running turn; the request in flight finishes in the background and is ignored. */
@@ -141,5 +169,5 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     setStopped(false);
   }
 
-  return { conversation, scope, setScope, busy, error, stopped, send, stop, resolveBatch, startNew };
+  return { conversation, scope, setScope, busy, error, stopped, send, stop, resolveBatch, startNew, rename };
 }

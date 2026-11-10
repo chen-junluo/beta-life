@@ -2958,6 +2958,7 @@ pub fn run() {
             delete_memory,
             parse_memory_with_ai,
             ai::ai_chat_step,
+            ai::ai_generate_title,
             ai::list_ai_conversations,
             ai::load_ai_conversation,
             ai::save_ai_conversation,

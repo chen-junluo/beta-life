@@ -1711,6 +1711,14 @@ select {
 }
 .workspace-drawer-item svg { flex: 0 0 auto; color: var(--muted); stroke-width: 1.8; }
 .workspace-drawer-item.active svg { color: var(--accent); }
+/* The selected panel uses its own tab color, matching the topbar tab and the AI scope circles. */
+.workspace-drawer-item[data-section="board"] { --tab-accent: #d97706; }
+.workspace-drawer-item[data-section="recall"] { --tab-accent: #ea580c; }
+.workspace-drawer-item[data-section="forest"] { --tab-accent: #16a34a; }
+.workspace-drawer-item[data-section="memories"] { --tab-accent: #6366f1; }
+.workspace-drawer-item.active[data-section],
+.workspace-drawer-item.active[data-section]:hover { border-color: color-mix(in srgb, var(--tab-accent) 22%, transparent); background: color-mix(in srgb, var(--tab-accent) 11%, transparent); color: color-mix(in srgb, var(--tab-accent) 82%, #000); }
+.workspace-drawer-item.active[data-section] svg { color: var(--tab-accent); }
 .workspace-drawer-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-drawer-footer {
   margin-top: auto;
@@ -1731,6 +1739,9 @@ select {
   .workspace-drawer-item.active,
   .workspace-drawer-item.active:hover { border-color: rgba(129, 140, 248, .26); color: #c7d2fe; }
   .workspace-drawer-item.active svg { color: #a5b4fc; }
+  .workspace-drawer-item.active[data-section],
+  .workspace-drawer-item.active[data-section]:hover { border-color: color-mix(in srgb, var(--tab-accent) 32%, transparent); background: color-mix(in srgb, var(--tab-accent) 20%, transparent); color: color-mix(in srgb, var(--tab-accent) 55%, #fff); }
+  .workspace-drawer-item.active[data-section] svg { color: color-mix(in srgb, var(--tab-accent) 70%, #fff); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3230,14 +3241,14 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .ai-dock-setup { display: block; width: 100%; min-height: 32px; padding: 4px 2px; border: 0; background: transparent; color: var(--accent); font-size: 12px; line-height: 24px; text-align: left; cursor: pointer; }
 .ai-dock-composer .icon-button { flex: none; width: 32px; height: 32px; }
 .ai-dock-send { flex: none; width: 32px; padding: 0; justify-content: center; }
-.ai-dock-card { position: absolute; right: 0; bottom: calc(100% - 2px); left: 0; z-index: 25; width: min(680px, calc(100% - 32px)); max-height: min(62vh, 560px); margin: 0 auto; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; animation: scale-in .16s ease-out; }
-.ai-dock-head { padding: 5px 6px 5px 12px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 650; }
+.ai-dock-card { position: absolute; right: 0; bottom: calc(100% - 2px); left: 0; z-index: 25; width: min(680px, calc(100% - 32px)); max-height: min(62vh, 560px); margin: 0 auto; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); animation: scale-in .16s ease-out; }
+.ai-dock-head { position: relative; padding: 5px 6px 5px 12px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 650; }
 .ai-dock-head > svg { color: var(--accent); }
 .ai-dock-head > span { flex: 1; }
 .ai-dock-head .icon-button { width: 26px; height: 26px; }
 .ai-dock-new { height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 650; cursor: pointer; }
 .ai-dock-new:hover:not(:disabled) { background: rgba(148, 163, 184, 0.18); color: var(--ink); }
-.ai-dock-body { min-height: 0; padding: 12px; display: grid; align-content: start; gap: 10px; overflow-y: auto; }
+.ai-dock-body { min-height: 0; padding: 12px; border-radius: 0 0 13px 13px; display: grid; align-content: start; gap: 10px; overflow-y: auto; }
 .ai-msg-user { justify-self: end; max-width: 85%; padding: 8px 11px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: #fff; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-msg-assistant { display: grid; gap: 6px; }
 .ai-msg-text { color: var(--ink); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -3312,3 +3323,21 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 @media (prefers-color-scheme: dark) {
   .ai-at-ghost { color: color-mix(in srgb, var(--ai-panel-color) 55%, #fff); }
 }
+
+/* Conversation header: editable title on the left, permissions as panel-colored circles. */
+.ai-dock-title { flex: 1; min-width: 0; height: 26px; padding: 0 6px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font-size: 12px; font-weight: 650; text-align: left; cursor: text; }
+.ai-dock-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-dock-title svg { flex: none; color: var(--muted); opacity: 0; transition: opacity .12s ease; }
+.ai-dock-title:hover { background: rgba(148, 163, 184, 0.14); }
+.ai-dock-title:hover svg, .ai-dock-title:focus-visible svg { opacity: 1; }
+.ai-dock-head input.ai-dock-title-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { flex: 1; min-width: 0; height: 26px; padding: 0 6px; border-radius: 7px; font-size: 12px; font-weight: 650; }
+.ai-scope-dots { flex: none; display: flex; align-items: center; gap: 3px; }
+.ai-scope-edit { height: 26px; padding: 0 4px; display: inline-flex; align-items: center; gap: 3px; border: 0; border-radius: 999px; background: transparent; cursor: pointer; }
+.ai-scope-edit:hover:not(:disabled) { background: rgba(148, 163, 184, 0.18); }
+.ai-scope-dot { width: 20px; height: 20px; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ai-panel-color); color: #fff; }
+.ai-scope-dot.is-ghost { border: 1.5px dashed var(--ai-panel-color); background: transparent; color: var(--ai-panel-color); cursor: pointer; }
+.ai-scope-dot.is-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--ai-panel-color) 12%, transparent); }
+.ai-scope-none { color: var(--muted); font-size: 11px; }
+.ai-mention-menu.is-header { top: calc(100% + 4px); right: 8px; bottom: auto; left: auto; font-weight: 400; }
+/* Long first message: the pill row moves above the text instead of overlapping it. */
+.ai-dock-field.is-stacked .ai-dock-pills { position: static; margin: 4px 0 2px; }

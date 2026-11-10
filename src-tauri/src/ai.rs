@@ -419,16 +419,16 @@ fn parse_reply(value: &Value, scope: &Scope) -> Result<ChatStepReply, String> {
     })
 }
 
-#[tauri::command]
-pub(crate) async fn ai_chat_step(
-    app: AppHandle,
-    request: ChatStepRequest,
-) -> Result<ChatStepReply, String> {
-    if request.messages.is_empty() {
-        return Err("请先输入消息".into());
-    }
-    let settings = load_settings(&app)?;
-    let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
+/// Settings, API key and endpoint for one provider request.
+struct Provider {
+    settings: AppSettings,
+    key: String,
+    endpoint: String,
+}
+
+fn provider(app: &AppHandle) -> Result<Provider, String> {
+    let settings = load_settings(app)?;
+    let key = read_api_key(app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
     let base = settings.ai.base_url.trim().trim_end_matches('/');
     if !(base.starts_with("https://")
         || base.starts_with("http://127.0.0.1")
@@ -441,17 +441,22 @@ pub(crate) async fn ai_chat_step(
     } else {
         format!("{base}/chat/completions")
     };
-    let system = system_prompt(&settings, &request.scope, &request.context);
-    let messages = wire_messages(&request.messages, system)?;
-    let body = request_body(&settings, messages, &request.scope);
+    Ok(Provider {
+        settings,
+        key,
+        endpoint,
+    })
+}
+
+async fn post_chat(provider: &Provider, body: &Value) -> Result<Value, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(90))
         .build()
         .map_err(|error| format!("无法初始化 AI 客户端：{error}"))?;
     let response = client
-        .post(&endpoint)
-        .bearer_auth(&key)
-        .json(&body)
+        .post(&provider.endpoint)
+        .bearer_auth(&provider.key)
+        .json(body)
         .send()
         .await
         .map_err(|error| {
@@ -478,9 +483,74 @@ pub(crate) async fn ai_chat_step(
             provider_error(&text)
         ));
     }
-    let value: Value =
-        serde_json::from_str(&text).map_err(|_| "Provider 返回的响应不是有效 JSON".to_string())?;
+    serde_json::from_str(&text).map_err(|_| "Provider 返回的响应不是有效 JSON".to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn ai_chat_step(
+    app: AppHandle,
+    request: ChatStepRequest,
+) -> Result<ChatStepReply, String> {
+    if request.messages.is_empty() {
+        return Err("请先输入消息".into());
+    }
+    let provider = provider(&app)?;
+    let system = system_prompt(&provider.settings, &request.scope, &request.context);
+    let messages = wire_messages(&request.messages, system)?;
+    let body = request_body(&provider.settings, messages, &request.scope);
+    let value = post_chat(&provider, &body).await?;
     parse_reply(&value, &request.scope)
+}
+
+const TITLE_PROMPT: &str = "Name this conversation for a chat list. Reply with the title only: at most 12 Chinese characters or 6 English words, in the language of the user's message, no quotes or punctuation at the end.";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TitleRequest {
+    text: String,
+    #[serde(default)]
+    reply: String,
+}
+
+/// First non-empty line without a "标题：" prefix, quotes or trailing punctuation, at most 24 chars.
+fn clean_title(raw: &str) -> Option<String> {
+    let line = raw.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let line = ["标题：", "标题:", "Title:", "title:"]
+        .iter()
+        .find_map(|prefix| line.strip_prefix(prefix))
+        .unwrap_or(line);
+    let marks: &[char] = &[
+        '"', '\'', '“', '”', '‘', '’', '「', '」', '《', '》', '#', '*', '`', ' ', '。', '.', '，',
+        ',', '！', '!',
+    ];
+    let line = line.trim_matches(marks);
+    let title: String = line.chars().take(24).collect();
+    (!title.trim().is_empty()).then(|| title.trim().to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn ai_generate_title(
+    app: AppHandle,
+    request: TitleRequest,
+) -> Result<String, String> {
+    let provider = provider(&app)?;
+    let excerpt = |text: &str, limit: usize| text.chars().take(limit).collect::<String>();
+    let body = json!({
+        "model": provider.settings.ai.model,
+        "messages": [
+            {"role": "system", "content": TITLE_PROMPT},
+            {"role": "user", "content": format!("User: {}\n\nAssistant: {}", excerpt(&request.text, 1000), excerpt(&request.reply, 600))}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 40,
+        "stream": false
+    });
+    let value = post_chat(&provider, &body).await?;
+    let raw = value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    clean_title(raw).ok_or_else(|| "AI 没有返回标题".to_string())
 }
 
 // ========== Conversation storage ==========
@@ -624,6 +694,23 @@ mod tests {
 
         let none = request_body(&settings, vec![], &Scope::new());
         assert!(none.get("tools").is_none());
+    }
+
+    #[test]
+    fn titles_are_cleaned_and_capped() {
+        assert_eq!(
+            clean_title("标题：「整理记忆并加回忆习惯」。\n解释").as_deref(),
+            Some("整理记忆并加回忆习惯")
+        );
+        assert_eq!(
+            clean_title("\n  \"Weekly review plan\"  ").as_deref(),
+            Some("Weekly review plan")
+        );
+        assert_eq!(
+            clean_title(&"长".repeat(40)).map(|title| title.chars().count()),
+            Some(24)
+        );
+        assert!(clean_title("  \n「」").is_none());
     }
 
     #[test]

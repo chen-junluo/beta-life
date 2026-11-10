@@ -97,6 +97,7 @@ export function WorkspaceDrawer({
           <button
             type="button"
             className={`workspace-drawer-item ${activeSection === "board" ? "active" : ""}`}
+            data-section="board"
             aria-current={activeSection === "board" ? "page" : undefined}
             onClick={() => selectSection("board")}
           >
@@ -106,6 +107,7 @@ export function WorkspaceDrawer({
           <button
             type="button"
             className={`workspace-drawer-item ${activeSection === "recall" ? "active" : ""}`}
+            data-section="recall"
             aria-current={activeSection === "recall" ? "page" : undefined}
             onClick={() => selectSection("recall")}
           >
@@ -115,6 +117,7 @@ export function WorkspaceDrawer({
           <button
             type="button"
             className={`workspace-drawer-item ${activeSection === "forest" ? "active" : ""}`}
+            data-section="forest"
             aria-current={activeSection === "forest" ? "page" : undefined}
             onClick={() => selectSection("forest")}
           >
@@ -124,6 +127,7 @@ export function WorkspaceDrawer({
           <button
             type="button"
             className={`workspace-drawer-item ${activeSection === "memories" ? "active" : ""}`}
+            data-section="memories"
             aria-current={activeSection === "memories" ? "page" : undefined}
             onClick={() => selectSection("memories")}
           >

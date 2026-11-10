@@ -48,7 +48,7 @@ describe("AiDock", () => {
   });
 
   function render(props: Partial<Parameters<typeof AiDock>[0]> = {}) {
-    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn() };
+    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn(), onRename: vi.fn() };
     act(() => root.render(
       <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} stopped={false} {...handlers} {...props} />,
     ));
@@ -154,6 +154,57 @@ describe("AiDock", () => {
     expect(onScopeChange).toHaveBeenLastCalledWith({ board: "read" });
     act(() => host.querySelector<HTMLButtonElement>(".ai-at-pill-remove")!.click());
     expect(onScopeChange).toHaveBeenLastCalledWith({});
+  });
+
+  const continued: Conversation = {
+    ...conversation,
+    messages: [
+      { id: "u1", role: "user", content: "看看记忆", scope: { board: "write", memories: "read" }, createdAt: "" },
+      { id: "a1", role: "assistant", content: "有 3 条记忆。", toolCalls: [], createdAt: "" },
+      { id: "u2", role: "user", content: "再加一个习惯", scope: { board: "write", memories: "write" }, createdAt: "" },
+      { id: "a2", role: "assistant", content: "好的。", toolCalls: [], createdAt: "" },
+    ],
+  };
+
+  it("after the first message the input is plain text and permissions move to the header", () => {
+    const { onScopeChange } = render({ conversation: continued, scope: { board: "write", memories: "write" }, busy: true });
+    expect(host.querySelector(".ai-dock-pills")).toBeNull();
+    expect(host.querySelector(".ai-dock-at")).toBeNull();
+    expect(host.querySelector(".ai-dock-title")?.textContent).toBe("整理早上");
+    expect(host.querySelectorAll(".ai-scope-dot:not(.is-ghost)")).toHaveLength(2);
+    // The whole conversation is shown, with a scope line only where it changed.
+    expect(host.querySelector(".ai-dock-body")?.textContent).toContain("有 3 条记忆。");
+    expect([...host.querySelectorAll(".ai-msg-scope")].map((line) => line.textContent)).toEqual(["权限改为：可改时间板 · 可改记忆星云"]);
+    const input = host.querySelector("textarea")!;
+    type(input, "发邮件给 a@b");
+    expect(host.querySelector(".ai-mention-menu")).toBeNull();
+    act(() => { host.querySelector(".ai-scope-edit")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    expect(host.querySelector(".ai-mention-menu.is-header")).not.toBeNull();
+    key(input, "ArrowDown");
+    key(input, "ArrowRight");
+    key(input, "Enter");
+    expect(onScopeChange).toHaveBeenCalledWith({ board: "write", recall: "read", memories: "write" });
+  });
+
+  it("renames the conversation from its title", () => {
+    const { onRename } = render({ conversation: continued, busy: true });
+    act(() => host.querySelector<HTMLButtonElement>(".ai-dock-title")!.click());
+    const field = host.querySelector<HTMLInputElement>(".ai-dock-title-input")!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(field, "记忆整理");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => { field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(onRename).toHaveBeenCalledWith("记忆整理");
+  });
+
+  it("offers an expand button while the conversation card is collapsed", () => {
+    render({ conversation: continued });
+    expect(host.querySelector(".ai-dock-card")).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="展开对话"]')!.click());
+    expect(host.querySelector(".ai-dock-card")).not.toBeNull();
+    expect(host.querySelector('button[aria-label="展开对话"]')).toBeNull();
   });
 
   it("asks for an API key instead of showing the input", () => {
