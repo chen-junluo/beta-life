@@ -3310,3 +3310,48 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 
 /* Minimized into bebe (P2.4): `.ai-dock` sets display, so the hidden attribute needs a rule. */
 .ai-dock[hidden] { display: none; }
+
+/* Drawer: full pages (timeline, AI workbench) sit at the bottom and stack upward. */
+.workspace-drawer-pages { margin-top: auto; padding-bottom: var(--ui-field-gap); }
+.workspace-drawer-pages + .workspace-drawer-footer { margin-top: 0; }
+.workspace-drawer-item[data-section="timeline"],
+.topbar[data-section="timeline"] { --tab-accent: #0ea5e9; }
+
+/* Timeline (P3a): a read-only day of the activity record — 24h band, then apps ranked by time. */
+.timeline-page { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); }
+.timeline-inner { max-width: 920px; margin: 0 auto; padding: 20px 21px 120px; display: grid; gap: var(--ui-section-gap); }
+.timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.timeline-date { display: flex; align-items: center; gap: 4px; }
+.timeline-date h2 { min-width: 132px; margin: 0; color: var(--ink); font-size: 16px; font-weight: 700; text-align: center; }
+.timeline-total { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 12px; }
+.timeline-total strong { color: var(--ink); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.timeline-notice { padding: 9px 12px; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(245, 158, 11, 0.28); border-radius: var(--ui-control-radius); background: rgba(245, 158, 11, 0.09); color: var(--ink); font-size: 12px; line-height: 1.5; }
+.timeline-notice svg { flex: none; color: #d97706; }
+.timeline-notice span { flex: 1; }
+.timeline-notice .secondary-button { flex: none; }
+.timeline-band-wrap { display: grid; gap: 4px; }
+.timeline-band { position: relative; height: 34px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: repeating-linear-gradient(90deg, transparent 0 calc(100% / 8 - 1px), var(--line) calc(100% / 8 - 1px) calc(100% / 8)), var(--panel-soft); }
+.timeline-seg { position: absolute; top: 5px; bottom: 5px; border-radius: 2px; }
+.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: .55; }
+.timeline-ticks { position: relative; height: 14px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.timeline-ticks span { position: absolute; transform: translateX(-50%); }
+.timeline-ticks span:first-child { transform: none; }
+.timeline-ticks span:last-child { transform: translateX(-100%); }
+.timeline-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.timeline-rank { margin: 0; padding: 0; display: grid; gap: 2px; list-style: none; }
+.timeline-row { width: 100%; height: 36px; padding: 0 10px; display: grid; grid-template-columns: 10px minmax(120px, 220px) minmax(0, 1fr) 64px 14px; align-items: center; gap: 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.timeline-row:hover, .timeline-row[aria-expanded="true"] { background: var(--panel-soft); }
+.timeline-row > i { width: 10px; height: 10px; border-radius: 3px; }
+.timeline-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.timeline-bar { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line) 70%, transparent); }
+.timeline-bar span { display: block; height: 100%; border-radius: inherit; }
+.timeline-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.timeline-chevron { color: var(--muted); transition: transform .15s ease; }
+.timeline-row[aria-expanded="true"] .timeline-chevron { transform: rotate(180deg); }
+.timeline-children { margin: 2px 0 8px; padding: 0 10px 0 30px; display: grid; gap: 1px; list-style: none; }
+.timeline-children li { height: 28px; display: grid; grid-template-columns: minmax(0, 1fr) 64px 14px; align-items: center; gap: 10px; border-bottom: 1px dashed var(--line); font-size: 12px; }
+.timeline-children li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.timeline-foot { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+@media (prefers-color-scheme: dark) {
+  .timeline-now { background: #fff; }
+}

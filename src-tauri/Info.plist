@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>beta-life 读取 Microsoft Edge 和 Google Chrome 当前标签页的网址，只保存域名，用于时间轴和摸鱼提醒；无痕 / InPrivate 窗口不会记录。</string>
+</dict>
+</plist>

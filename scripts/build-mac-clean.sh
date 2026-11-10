@@ -92,13 +92,90 @@ cleanup_fallback_files() {
   [[ -z "$FALLBACK_IMAGE_DIR" ]] || rm -rf "$FALLBACK_IMAGE_DIR" || true
   [[ -z "$FALLBACK_LOG" ]] || rm -f "$FALLBACK_LOG" || true
 }
-trap cleanup_fallback_files EXIT
+# Local code signing. Ad-hoc signatures change on every build, so macOS drops the
+# Accessibility and Automation grants that activity capture needs. A self-signed
+# "Beta Life Local" identity keeps the designated requirement (bundle id + this
+# certificate) stable, so a grant survives reinstalls. The identity lives in its
+# own keychain with a generated password, so codesign never shows a keychain
+# prompt; the keychain is on the search list only while this script runs.
+SIGN_NAME="Beta Life Local"
+SIGN_DIR="$HOME/Library/Application Support/beta-life-signing"
+SIGN_KEYCHAIN="$HOME/Library/Keychains/beta-life-local-signing.keychain-db"
+ORIGINAL_KEYCHAINS=()
+
+create_local_signing_identity() {
+  echo "==> Creating the local signing identity \"$SIGN_NAME\" (one time)"
+  local work password p12_password
+  work="$(mktemp -d /private/tmp/beta-life-sign.XXXXXX)"
+  password="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
+  p12_password="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
+  cat > "$work/cert.cnf" <<CNF
+[req]
+distinguished_name = dn
+prompt = no
+x509_extensions = ext
+[dn]
+CN = $SIGN_NAME
+[ext]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+CNF
+  # macOS LibreSSL writes a PKCS#12 that `security import` accepts (OpenSSL 3 defaults do not).
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 7300 -config "$work/cert.cnf" \
+    -keyout "$work/key.pem" -out "$work/cert.pem" 2>/dev/null
+  /usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
+    -out "$work/identity.p12" -passout "pass:$p12_password"
+  security create-keychain -p "$password" "$SIGN_KEYCHAIN"
+  security set-keychain-settings "$SIGN_KEYCHAIN"
+  security unlock-keychain -p "$password" "$SIGN_KEYCHAIN"
+  security import "$work/identity.p12" -k "$SIGN_KEYCHAIN" -P "$p12_password" -T /usr/bin/codesign >/dev/null
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$SIGN_KEYCHAIN" >/dev/null
+  (umask 077 && printf '%s' "$password" > "$SIGN_DIR/keychain-password")
+  rm -rf "$work"
+}
+
+use_local_signing_identity() {
+  mkdir -p "$SIGN_DIR"
+  chmod 700 "$SIGN_DIR"
+  if [[ ! -f "$SIGN_KEYCHAIN" || ! -f "$SIGN_DIR/keychain-password" ]]; then
+    create_local_signing_identity
+  fi
+  security unlock-keychain -p "$(cat "$SIGN_DIR/keychain-password")" "$SIGN_KEYCHAIN"
+  local line
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%\"}"
+    ORIGINAL_KEYCHAINS+=("${line#\"}")
+  done < <(security list-keychains -d user)
+  # codesign only finds identities in keychains on the user search list.
+  security list-keychains -d user -s "$SIGN_KEYCHAIN" "${ORIGINAL_KEYCHAINS[@]}"
+  APPLE_SIGNING_IDENTITY="$(security find-identity -p codesigning "$SIGN_KEYCHAIN" \
+    | awk -v name="\"$SIGN_NAME\"" 'index($0, name) { print $2; exit }')"
+  if [[ -z "$APPLE_SIGNING_IDENTITY" ]]; then
+    echo "The \"$SIGN_NAME\" identity is missing from $SIGN_KEYCHAIN." >&2
+    exit 1
+  fi
+  export APPLE_SIGNING_IDENTITY
+  echo "==> Signing with \"$SIGN_NAME\" ($APPLE_SIGNING_IDENTITY)"
+}
+
+restore_keychain_search_list() {
+  if (( ${#ORIGINAL_KEYCHAINS[@]} > 0 )); then
+    security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" || true
+    ORIGINAL_KEYCHAINS=()
+  fi
+}
+
+trap 'cleanup_fallback_files; restore_keychain_search_list' EXIT
 
 echo "==> Cleaning generated caches and build output"
 rm -rf "$ROOT_DIR/dist" "$ROOT_DIR/node_modules/.vite"
 cargo clean --manifest-path "$ROOT_DIR/src-tauri/Cargo.toml"
 mkdir -p "$DMG_DIR"
 rm -f "$DMG_PATH"
+
+use_local_signing_identity
 
 echo "==> Building the macOS application and DMG"
 BUILD_EXIT=0
@@ -107,6 +184,12 @@ if LC_ALL=C LANG=C npm run build:mac; then
 else
   BUILD_EXIT=$?
   echo "Tauri's DMG bundler did not finish; continuing with the direct DMG fallback."
+fi
+restore_keychain_search_list
+
+if [[ -d "$APP_PATH" ]] && ! codesign -dv "$APP_PATH" 2>&1 | grep -q "Authority=$SIGN_NAME"; then
+  echo "The app was not signed with \"$SIGN_NAME\"; macOS privacy grants would not survive this build." >&2
+  exit 1
 fi
 
 create_fallback_dmg() {

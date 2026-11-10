@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
+mod activity;
 mod ai;
 mod pet;
 #[allow(dead_code)]
@@ -2730,7 +2731,10 @@ fn remove_from_memory_index(app: &AppHandle, id: &str) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| Ok(pet::setup(app.handle())?))
+        .setup(|app| {
+            activity::setup(app.handle());
+            Ok(pet::setup(app.handle())?)
+        })
         .on_window_event(|window, event| {
             // The pet window must not keep the app alive: closing the main window quits everything.
             if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
@@ -2770,6 +2774,10 @@ pub fn run() {
             save_memory,
             delete_memory,
             parse_memory_with_ai,
+            activity::activity_status,
+            activity::request_accessibility,
+            activity::open_automation_settings,
+            activity::load_activity_day,
             ai::ai_chat_step,
             ai::ai_generate_title,
             ai::list_ai_conversations,

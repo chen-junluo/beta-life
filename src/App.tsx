@@ -8,6 +8,7 @@ import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
 import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
+import { TimelineView } from "./components/TimelineView";
 import { useAssistant } from "./ai/useAssistant";
 import { usePanelHistory } from "./history";
 import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
@@ -145,7 +146,9 @@ export default function App() {
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
   const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
   /** The AI workbench covers the panel area; `activeSection` stays the panel it was opened from. */
-  const [showWorkbench, setShowWorkbench] = useState(false);
+  /** Full pages from the drawer replace the panel; `activeSection` stays the panel to return to. */
+  const [page, setPage] = useState<"panel" | "workbench" | "timeline">("panel");
+  const showWorkbench = page === "workbench";
   const history = usePanelHistory();
   const recordHistory = history.record;
   const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(null);
@@ -511,11 +514,11 @@ export default function App() {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const typing = target?.matches("input, textarea, select, [contenteditable='true']");
-      if (!typing && !showWorkbench && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showSettings) {
+      if (!typing && page === "panel" && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showSettings) {
         event.preventDefault();
         openCreate();
       }
-      if (!typing && !showWorkbench && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      if (!typing && page === "panel" && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) void history.redo(activeSection);
         else void history.undo(activeSection);
@@ -535,7 +538,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeSection, showWorkbench, showEditor, showSettings, history.undo, history.redo]);
+  }, [activeSection, page, showEditor, showSettings, history.undo, history.redo]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
@@ -622,7 +625,7 @@ export default function App() {
       onNewConversation={() => assistant.startNew(activeSection)}
       onRename={assistant.rename}
       layout={showWorkbench ? "workbench" : "dock"}
-      onOpenWorkbench={() => setShowWorkbench(true)}
+      onOpenWorkbench={() => setPage("workbench")}
       onMinimize={petUserHidden ? undefined : () => void minimizeDock()}
       flightTarget={dockFlight}
       onFlightEnd={finishDockFlight}
@@ -634,7 +637,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar" data-section={showWorkbench ? "ai" : activeSection}>
+      <header className="topbar" data-section={showWorkbench ? "ai" : page === "timeline" ? "timeline" : activeSection}>
         <button
           ref={workspaceDrawerTrigger}
           type="button"
@@ -646,8 +649,8 @@ export default function App() {
         >
           <span aria-hidden="true">β</span>
         </button>
-        <h1 className="topbar-tab"><i aria-hidden="true" />{showWorkbench ? "AI 工作台" : SECTION_LABELS[activeSection]}</h1>
-        {showWorkbench ? (
+        <h1 className="topbar-tab"><i aria-hidden="true" />{showWorkbench ? "AI 工作台" : page === "timeline" ? "时间轴" : SECTION_LABELS[activeSection]}</h1>
+        {page !== "panel" ? (
           <div className="topbar-lead"><span className="ai-wb-origin">从 {SECTION_LABELS[activeSection]} 打开 · 可随时返回</span></div>
         ) : (
           <div className="topbar-lead">
@@ -660,7 +663,7 @@ export default function App() {
           </div>
         )}
 
-        {!showWorkbench && activeSection === "board" && (
+        {page === "panel" && activeSection === "board" && (
           <nav className="period-switch" aria-label="时间板视图模式">
             {viewModes.map((mode) => (
               <button
@@ -680,16 +683,16 @@ export default function App() {
         )}
 
         <div className="topbar-actions">
-          {showWorkbench && (
-            <button className="secondary-button" onClick={() => setShowWorkbench(false)} aria-label={`返回${SECTION_LABELS[activeSection]}`} title={`返回${SECTION_LABELS[activeSection]}`}>
+          {page !== "panel" && (
+            <button className="secondary-button" onClick={() => setPage("panel")} aria-label={`返回${SECTION_LABELS[activeSection]}`} title={`返回${SECTION_LABELS[activeSection]}`}>
               <ChevronLeft size={16} aria-hidden="true" /> <span className="topbar-label">返回{SECTION_LABELS[activeSection]}</span>
             </button>
           )}
-          {!showWorkbench && <div className="history-actions">
+          {page === "panel" && <div className="history-actions">
             <button className="icon-button" onClick={() => void history.undo(activeSection)} disabled={!history.canUndo(activeSection)} title="撤销 ⌘Z" aria-label="撤销"><Undo2 size={18} /></button>
             <button className="icon-button" onClick={() => void history.redo(activeSection)} disabled={!history.canRedo(activeSection)} title="重做 ⇧⌘Z" aria-label="重做"><Redo2 size={18} /></button>
           </div>}
-          {!showWorkbench && activeSection === "board" && <>
+          {page === "panel" && activeSection === "board" && <>
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
@@ -711,14 +714,14 @@ export default function App() {
 
       <WorkspaceDrawer
         activeSection={activeSection}
-        workbenchActive={showWorkbench}
+        page={page === "panel" ? null : page}
         open={showWorkspaceDrawer}
         onOpenChange={setShowWorkspaceDrawer}
         onSectionChange={(section) => {
           setActiveSection(section);
-          setShowWorkbench(false);
+          setPage("panel");
         }}
-        onOpenWorkbench={() => setShowWorkbench(true)}
+        onOpenPage={setPage}
         triggerRef={workspaceDrawerTrigger}
       />
 
@@ -732,7 +735,7 @@ export default function App() {
         onDelete={(id) => void assistant.remove(id)}
         onNew={() => assistant.startNew(activeSection)}
         onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
-      >{dock}</AiWorkbench> : activeSection === "recall" ? <RecallView
+      >{dock}</AiWorkbench> : page === "timeline" ? <TimelineView /> : activeSection === "recall" ? <RecallView
         settings={state.settings}
         hasApiKey={state.hasApiKey}
         onOpenSettings={() => setShowSettings(true)}
