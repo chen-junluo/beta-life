@@ -425,7 +425,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeSection, showEditor, showAi, showSettings]);
+  }, [activeSection, showEditor, showAi, showSettings, state, undoStack, redoStack]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
