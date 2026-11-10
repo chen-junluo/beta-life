@@ -1,21 +1,26 @@
-import { BrainCircuit, CalendarDays, Sparkles, Sprout, X } from "lucide-react";
+import { Bot, BrainCircuit, CalendarDays, Sparkles, Sprout, X } from "lucide-react";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
 export type WorkspaceSection = "board" | "recall" | "forest" | "memories";
 
 interface WorkspaceDrawerProps {
   activeSection: WorkspaceSection;
+  /** The AI workbench is showing; `activeSection` is the panel it was opened from. */
+  workbenchActive: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSectionChange: (section: WorkspaceSection) => void;
+  onOpenWorkbench: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 export function WorkspaceDrawer({
   activeSection,
+  workbenchActive,
   open,
   onOpenChange,
   onSectionChange,
+  onOpenWorkbench,
   triggerRef,
 }: WorkspaceDrawerProps) {
   const drawerRef = useRef<HTMLElement>(null);
@@ -54,6 +59,8 @@ export function WorkspaceDrawer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [closeDrawer, open]);
+
+  const current = workbenchActive ? "ai" : activeSection;
 
   function selectSection(section: WorkspaceSection) {
     onSectionChange(section);
@@ -96,9 +103,9 @@ export function WorkspaceDrawer({
         <nav className="workspace-drawer-list" aria-label="面板">
           <button
             type="button"
-            className={`workspace-drawer-item ${activeSection === "board" ? "active" : ""}`}
+            className={`workspace-drawer-item ${current === "board" ? "active" : ""}`}
             data-section="board"
-            aria-current={activeSection === "board" ? "page" : undefined}
+            aria-current={current === "board" ? "page" : undefined}
             onClick={() => selectSection("board")}
           >
             <CalendarDays size={18} aria-hidden="true" />
@@ -106,9 +113,9 @@ export function WorkspaceDrawer({
           </button>
           <button
             type="button"
-            className={`workspace-drawer-item ${activeSection === "recall" ? "active" : ""}`}
+            className={`workspace-drawer-item ${current === "recall" ? "active" : ""}`}
             data-section="recall"
-            aria-current={activeSection === "recall" ? "page" : undefined}
+            aria-current={current === "recall" ? "page" : undefined}
             onClick={() => selectSection("recall")}
           >
             <BrainCircuit size={18} aria-hidden="true" />
@@ -116,9 +123,9 @@ export function WorkspaceDrawer({
           </button>
           <button
             type="button"
-            className={`workspace-drawer-item ${activeSection === "forest" ? "active" : ""}`}
+            className={`workspace-drawer-item ${current === "forest" ? "active" : ""}`}
             data-section="forest"
-            aria-current={activeSection === "forest" ? "page" : undefined}
+            aria-current={current === "forest" ? "page" : undefined}
             onClick={() => selectSection("forest")}
           >
             <Sprout size={18} aria-hidden="true" />
@@ -126,19 +133,32 @@ export function WorkspaceDrawer({
           </button>
           <button
             type="button"
-            className={`workspace-drawer-item ${activeSection === "memories" ? "active" : ""}`}
+            className={`workspace-drawer-item ${current === "memories" ? "active" : ""}`}
             data-section="memories"
-            aria-current={activeSection === "memories" ? "page" : undefined}
+            aria-current={current === "memories" ? "page" : undefined}
             onClick={() => selectSection("memories")}
           >
             <Sparkles size={18} aria-hidden="true" />
             <span>记忆星云</span>
           </button>
+          <button
+            type="button"
+            className={`workspace-drawer-item ${current === "ai" ? "active" : ""}`}
+            data-section="ai"
+            aria-current={current === "ai" ? "page" : undefined}
+            onClick={() => {
+              onOpenWorkbench();
+              closeDrawer();
+            }}
+          >
+            <Bot size={18} aria-hidden="true" />
+            <span>AI 工作台</span>
+          </button>
         </nav>
 
         <footer className="workspace-drawer-footer">
           <span>当前面板</span>
-          <strong>{activeSection === "board" ? "时间板" : activeSection === "recall" ? "回想" : activeSection === "forest" ? "能力森林" : "记忆星云"}</strong>
+          <strong>{workbenchActive ? "AI 工作台" : activeSection === "board" ? "时间板" : activeSection === "recall" ? "回想" : activeSection === "forest" ? "能力森林" : "记忆星云"}</strong>
         </footer>
       </aside>
     </>

@@ -650,6 +650,22 @@ pub(crate) fn save_ai_conversation(
     atomic_write(&conversation_index_path(&app)?, &index)
 }
 
+/// Removes the conversation file and its index entry; a missing file still clears the entry.
+#[tauri::command]
+pub(crate) fn delete_ai_conversation(app: AppHandle, id: String) -> Result<(), String> {
+    if !valid_conversation_id(&id) {
+        return Err("对话 ID 无效".into());
+    }
+    match fs::remove_file(conversations_dir(&app)?.join(format!("{id}.json"))) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("无法删除对话：{error}")),
+    }
+    let mut index = read_conversation_index(&app)?;
+    index.retain(|entry| entry.id != id);
+    atomic_write(&conversation_index_path(&app)?, &index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

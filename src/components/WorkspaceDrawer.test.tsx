@@ -8,6 +8,7 @@ import { WorkspaceDrawer, type WorkspaceSection } from "./WorkspaceDrawer";
 function NavigationHarness() {
   const [open, setOpen] = useState(true);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
+  const [workbench, setWorkbench] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -15,12 +16,17 @@ function NavigationHarness() {
       <button ref={triggerRef} type="button">β</button>
       <WorkspaceDrawer
         activeSection={activeSection}
+        workbenchActive={workbench}
         open={open}
         onOpenChange={setOpen}
-        onSectionChange={setActiveSection}
+        onSectionChange={(section) => {
+          setActiveSection(section);
+          setWorkbench(false);
+        }}
+        onOpenWorkbench={() => setWorkbench(true)}
         triggerRef={triggerRef}
       />
-      <output>{activeSection}</output>
+      <output>{workbench ? "ai" : activeSection}</output>
     </>
   );
 }
@@ -53,6 +59,16 @@ describe("WorkspaceDrawer", () => {
     expect(host.querySelector("output")?.textContent).toBe("recall");
     expect(host.querySelector(".workspace-drawer")?.getAttribute("aria-hidden")).toBe("true");
     expect(host.querySelector<HTMLButtonElement>("button")?.ownerDocument.activeElement).toBe(host.querySelector("button"));
+  });
+
+  it("opens the AI workbench as a fifth item and marks it current", () => {
+    const aiButton = Array.from(host.querySelectorAll<HTMLButtonElement>(".workspace-drawer-item"))
+      .find((button) => button.textContent?.includes("AI 工作台"));
+    act(() => aiButton?.click());
+
+    expect(host.querySelector("output")?.textContent).toBe("ai");
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("AI 工作台");
+    expect(host.querySelector(".workspace-drawer")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("closes on Escape and restores focus to the Beta trigger", () => {

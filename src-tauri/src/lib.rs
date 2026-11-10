@@ -2962,6 +2962,7 @@ pub fn run() {
             ai::list_ai_conversations,
             ai::load_ai_conversation,
             ai::save_ai_conversation,
+            ai::delete_ai_conversation,
             pet::show_main_window,
             pet::set_pet_hit_regions,
             pet::drag_pet_window,

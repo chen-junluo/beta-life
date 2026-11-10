@@ -213,4 +213,18 @@ describe("AiDock", () => {
     act(() => host.querySelector<HTMLButtonElement>(".ai-dock-setup")!.click());
     expect(onOpenSettings).toHaveBeenCalled();
   });
+  it("in the workbench layout stays expanded and points pending changes to the side column", () => {
+    render({ layout: "workbench" });
+    expect(host.querySelector(".ai-dock.is-workbench .ai-dock-card")).not.toBeNull();
+    expect(host.textContent).toContain("待确认修改 · 2 项，见右侧");
+    expect(host.querySelector(".ai-diff")).toBeNull();
+    expect(host.querySelector('[aria-label="收起"]')).toBeNull();
+  });
+
+  it("opens the current conversation in the workbench from the dock header", () => {
+    const onOpenWorkbench = vi.fn();
+    render({ onOpenWorkbench });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="在工作台打开"]')?.click());
+    expect(onOpenWorkbench).toHaveBeenCalled();
+  });
 });

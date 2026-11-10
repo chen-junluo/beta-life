@@ -3348,3 +3348,62 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .ai-mention-menu.is-header { top: calc(100% + 4px); right: 8px; bottom: auto; left: auto; font-weight: 400; }
 /* Long first message: the pill row moves above the text instead of overlapping it. */
 .ai-dock-field.is-stacked .ai-dock-pills { position: static; margin: 4px 0 2px; }
+
+/* AI workbench (V7): conversation list | the shared conversation | scope, pending changes, reads. */
+.topbar[data-section="ai"] { --tab-accent: var(--accent); }
+.workspace-drawer-item[data-section="ai"] { --tab-accent: var(--accent); }
+.ai-wb-origin { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-workbench { flex: 1; min-height: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr) 300px; border-top: 1px solid var(--line); }
+.ai-wb-list, .ai-wb-side { min-height: 0; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; background: var(--panel-soft); }
+.ai-wb-list { border-right: 1px solid var(--line); }
+.ai-wb-side { gap: var(--ui-section-gap); border-left: 1px solid var(--line); }
+.ai-wb-new { justify-content: center; }
+.ai-wb-search { height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: var(--panel); color: var(--muted); }
+.ai-wb-search:focus-within { border-color: rgba(99, 102, 241, 0.55); }
+.ai-wb-search input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { flex: 1; min-width: 0; height: 30px; padding: 0; border: 0; background: transparent; box-shadow: none; outline: none; font-size: 12px; }
+.ai-wb-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.ai-wb-filters button { --ai-panel-color: var(--accent); height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.ai-wb-filters button.is-on { border-color: color-mix(in srgb, var(--ai-panel-color) 40%, transparent); background: color-mix(in srgb, var(--ai-panel-color) 12%, transparent); color: color-mix(in srgb, var(--ai-panel-color) 82%, #000); font-weight: 650; }
+.ai-wb-groups { display: grid; gap: 12px; }
+.ai-wb-group { display: grid; gap: 2px; }
+.ai-wb-group h5, .ai-wb-side h5 { margin: 0 0 4px; padding: 0 8px; display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
+.ai-wb-side h5 { padding: 0; }
+.ai-wb-side h5 small { font-weight: 500; letter-spacing: 0; }
+.ai-wb-item { position: relative; display: flex; align-items: center; border-radius: 9px; }
+.ai-wb-item:hover { background: rgba(148, 163, 184, 0.14); }
+.ai-wb-item.is-current { background: var(--accent-soft); }
+.ai-wb-item-main { flex: 1; min-width: 0; padding: 7px 8px; display: grid; gap: 3px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.ai-wb-item-main:disabled { cursor: default; opacity: .6; }
+.ai-wb-item-title { overflow: hidden; font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.ai-wb-item.is-current .ai-wb-item-title { color: var(--accent); }
+.ai-wb-item small { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10.5px; }
+.ai-wb-delete { flex: none; height: 24px; margin-right: 4px; padding: 0 6px; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; white-space: nowrap; cursor: pointer; opacity: 0; }
+.ai-wb-item:hover .ai-wb-delete, .ai-wb-delete:focus-visible, .ai-wb-delete.armed { opacity: 1; }
+.ai-wb-delete:hover:not(:disabled) { background: rgba(225, 29, 72, 0.1); color: var(--danger); }
+.ai-wb-delete.armed { background: var(--danger); color: #fff; font-weight: 650; }
+.ai-wb-delete:disabled { opacity: 0; cursor: default; }
+.ai-wb-empty { margin: 0; padding: 0 8px; color: var(--muted); font-size: 11.5px; }
+.ai-wb-side .ai-wb-empty { padding: 0; }
+.ai-panel-tag { padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--ai-panel-color) 13%, transparent); color: color-mix(in srgb, var(--ai-panel-color) 82%, #000); font-size: 10.5px; font-weight: 650; white-space: nowrap; }
+.ai-wb-scope { display: grid; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.ai-wb-scope .ai-mention-row { cursor: default; }
+.ai-wb-scope .ai-mention-seg button:disabled { cursor: default; opacity: .6; }
+.ai-wb-reads { margin: 0; padding: 0; display: grid; gap: 6px; list-style: none; }
+.ai-wb-reads li { display: flex; align-items: flex-start; gap: 6px; color: var(--ink); font-size: 11.5px; line-height: 1.45; }
+.ai-wb-reads .ai-panel-tag { flex: none; }
+.ai-wb-main { min-width: 0; min-height: 0; display: flex; background: var(--panel); }
+.ai-dock.is-workbench { position: static; flex: 1; min-height: 0; padding: 0; pointer-events: auto; }
+.ai-dock.is-workbench .ai-dock-shell,
+.ai-dock.is-workbench .ai-dock-shell.is-open { width: 100%; height: 100%; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.ai-dock.is-workbench .ai-dock-card { flex: 1; min-height: 0; max-height: none; border-radius: 0; animation: none; }
+.ai-dock.is-workbench .ai-dock-head { min-height: 40px; padding: 6px 16px; }
+.ai-dock.is-workbench .ai-dock-body { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 18px 20px; }
+.ai-dock.is-workbench .ai-dock-shell.is-open .ai-dock-composer { width: calc(100% - 40px); max-width: 720px; margin: 0 auto 16px; border: 1px solid var(--line); border-radius: 14px; }
+.ai-dock.is-workbench .ai-dock-shell.is-open .ai-dock-composer:focus-within { border-color: rgba(99, 102, 241, 0.55); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.11); }
+.ai-diff-pointer { padding: 7px 10px; display: flex; align-items: center; gap: 6px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 10px; color: var(--accent); font-size: 11.5px; font-weight: 600; }
+@media (max-width: 1080px) {
+  .ai-workbench { grid-template-columns: 220px minmax(0, 1fr) 260px; }
+}
+@media (prefers-color-scheme: dark) {
+  .ai-panel-tag, .ai-wb-filters button.is-on { background: color-mix(in srgb, var(--ai-panel-color) 20%, transparent); color: color-mix(in srgb, var(--ai-panel-color) 55%, #fff); }
+}

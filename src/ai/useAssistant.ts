@@ -20,6 +20,11 @@ function scopeOf(messages: ConversationMessage[]): AiScope | null {
   return null;
 }
 
+/** Newest first, like the Rust index. */
+function upsertSummary(list: ConversationSummary[], { messages: _messages, ...summary }: Conversation): ConversationSummary[] {
+  return [summary, ...list.filter((entry) => entry.id !== summary.id)].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
 interface AssistantOptions extends Omit<CommitTargets, "getState"> {
   getState: () => LoadedAppState | null;
   /** Panel a new conversation starts from; its pill is prefilled as writable. */
@@ -29,6 +34,7 @@ interface AssistantOptions extends Omit<CommitTargets, "getState"> {
 /** Runs the assistant inside the main window, which owns the data, and keeps the conversation on disk. */
 export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [summaries, setSummaries] = useState<ConversationSummary[]>([]);
   const [scope, setScope] = useState<AiScope>({ [activePanel]: "write" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +47,7 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
   const persist = useCallback((next: Conversation | null) => {
     current.current = next;
     setConversation(next);
+    if (next) setSummaries((list) => upsertSummary(list, next));
     if (next && window.__TAURI_INTERNALS__) {
       void invoke("save_ai_conversation", { conversation: next }).catch((reason) => setError(`对话保存失败：${errorMessage(reason)}`));
     }
@@ -50,7 +57,10 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     if (!window.__TAURI_INTERNALS__) return;
     let active = true;
     invoke<ConversationSummary[]>("list_ai_conversations")
-      .then((list) => (list[0] ? invoke<Conversation>("load_ai_conversation", { id: list[0].id }) : null))
+      .then((list) => {
+        if (active) setSummaries((local) => list.reduce<ConversationSummary[]>((merged, entry) => (merged.some((item) => item.id === entry.id) ? merged : [...merged, entry]), local));
+        return list[0] ? invoke<Conversation>("load_ai_conversation", { id: list[0].id }) : null;
+      })
       .then((loaded) => {
         if (active && loaded && !current.current) {
           current.current = loaded;
@@ -169,5 +179,32 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     setStopped(false);
   }
 
-  return { conversation, scope, setScope, busy, error, stopped, send, stop, resolveBatch, startNew, rename };
+  /** Switches the shared conversation (dock and workbench) to a saved one. */
+  async function open(id: string) {
+    if (busy || current.current?.id === id) return;
+    try {
+      const loaded = await invoke<Conversation>("load_ai_conversation", { id });
+      current.current = loaded;
+      setConversation(loaded);
+      setScope(scopeOf(loaded.messages) ?? { [loaded.panel]: "write" });
+      setError(null);
+      setStopped(false);
+    } catch (reason) {
+      setError(`对话载入失败：${errorMessage(reason)}`);
+    }
+  }
+
+  async function remove(id: string) {
+    if (busy && current.current?.id === id) return;
+    try {
+      await invoke("delete_ai_conversation", { id });
+    } catch (reason) {
+      setError(`对话删除失败：${errorMessage(reason)}`);
+      return;
+    }
+    setSummaries((list) => list.filter((entry) => entry.id !== id));
+    if (current.current?.id === id) startNew(activePanel);
+  }
+
+  return { conversation, summaries, scope, setScope, busy, error, stopped, send, stop, resolveBatch, startNew, rename, open, remove };
 }

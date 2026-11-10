@@ -1,4 +1,4 @@
-import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, MessageSquarePlus, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
+import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, Maximize2, MessageSquarePlus, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { pendingBatch } from "../ai/turn";
 import { changePanel, type AiAccess, type AiBatch, type AiPanelId, type AiScope, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
@@ -10,13 +10,13 @@ export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
   forest: { name: "能力森林", color: "#16a34a" },
   memories: { name: "记忆星云", color: "#6366f1" },
 };
-const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories"];
-type PickerAccess = AiAccess | "off";
-const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
-const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", read: "只读", write: "可改" };
+export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories"];
+export type PickerAccess = AiAccess | "off";
+export const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
+export const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", read: "只读", write: "可改" };
 const OP_LABELS: Record<ChangeKind, string> = { add: "新增", edit: "修改", move: "移动", del: "删除" };
 
-const panelStyle = (panel: AiPanelId) => ({ "--ai-panel-color": AI_PANELS[panel].color }) as CSSProperties;
+export const panelStyle = (panel: AiPanelId) => ({ "--ai-panel-color": AI_PANELS[panel].color }) as CSSProperties;
 
 interface AiDockProps {
   conversation: Conversation | null;
@@ -36,6 +36,9 @@ interface AiDockProps {
   onResolveBatch: (batchId: string, selectedIds: string[] | null) => void;
   onNewConversation: () => void;
   onRename: (title: string) => void;
+  /** `workbench`: fills the workbench's middle column, always expanded; pending changes show in its side column. */
+  layout?: "dock" | "workbench";
+  onOpenWorkbench?: () => void;
 }
 
 /** The @ picker edits all four panels at once; nothing changes until it is confirmed. */
@@ -49,7 +52,7 @@ interface Picker {
   anchor: "composer" | "header";
 }
 
-function scopeText(scope: AiScope): string {
+export function scopeText(scope: AiScope): string {
   const parts = PANEL_ORDER.filter((panel) => scope[panel]).map((panel) => `${scope[panel] === "write" ? "可改" : "只读"}${AI_PANELS[panel].name}`);
   return parts.length > 0 ? parts.join(" · ") : "没有授权任何 panel";
 }
@@ -125,7 +128,7 @@ function TitleEditor({ title, onRename }: { title: string; onRename: (title: str
   );
 }
 
-function parseResult(content: string | undefined): Record<string, unknown> {
+export function parseResult(content: string | undefined): Record<string, unknown> {
   try {
     return content ? (JSON.parse(content) as Record<string, unknown>) : {};
   } catch {
@@ -134,7 +137,7 @@ function parseResult(content: string | undefined): Record<string, unknown> {
 }
 
 /** One readable line per read tool; writes appear in the diff card instead. */
-function traceLabel(call: CheckedToolCall, result: Record<string, unknown>): string | null {
+export function traceLabel(call: CheckedToolCall, result: Record<string, unknown>): string | null {
   const named = (value: unknown) => (typeof value === "string" && value ? `「${value.slice(0, 24)}」` : "");
   // Batch reads return { items }; conversations saved before that hold a single object.
   const items = (Array.isArray(result.items) ? result.items : [result]) as Array<Record<string, unknown>>;
@@ -166,7 +169,7 @@ function resolvedLabel(batch: AiBatch): string {
   return [`已写入 ${applied} 项`, skipped > 0 && `未勾选 ${skipped} 项`, failed > 0 && `失败 ${failed} 项`].filter(Boolean).join(" · ");
 }
 
-function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDockProps["onResolveBatch"] }) {
+export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDockProps["onResolveBatch"] }) {
   const [selected, setSelected] = useState(() => new Set(batch.changes.filter((change) => change.selected).map((change) => change.id)));
   const pending = batch.status === "pending";
   const failed = new Map((batch.failed ?? []).map((entry) => [entry.changeId, entry.reason]));
@@ -219,7 +222,7 @@ function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDockProps
 }
 
 /** The whole conversation; a scope line appears only where the permissions changed. */
-function ConversationView({ messages, onResolve }: { messages: ConversationMessage[]; onResolve: AiDockProps["onResolveBatch"] }) {
+function ConversationView({ messages, onResolve, pendingInSide }: { messages: ConversationMessage[]; onResolve: AiDockProps["onResolveBatch"]; pendingInSide: boolean }) {
   const results = new Map(messages.flatMap((message) => (message.role === "tool" ? [[message.toolCallId, message.content] as const] : [])));
   let previousScope: AiScope | null = null;
   return (
@@ -235,7 +238,12 @@ function ConversationView({ messages, onResolve }: { messages: ConversationMessa
             </div>
           );
         }
-        if (message.role === "batch") return <DiffCard key={message.batch.id} batch={message.batch} onResolve={onResolve} />;
+        if (message.role === "batch") {
+          if (pendingInSide && message.batch.status === "pending") {
+            return <div key={message.batch.id} className="ai-diff-pointer"><Layers size={13} aria-hidden="true" />待确认修改 · {message.batch.changes.length} 项，见右侧</div>;
+          }
+          return <DiffCard key={message.batch.id} batch={message.batch} onResolve={onResolve} />;
+        }
         if (message.role === "tool") return null;
         const trace = message.toolCalls.flatMap((call) => {
           const result = parseResult(results.get(call.id));
@@ -261,7 +269,8 @@ function panelMatches(panel: AiPanelId, query: string): boolean {
   return !query || AI_PANELS[panel].name.includes(query) || panel.startsWith(query.toLowerCase());
 }
 
-export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation, onRename }: AiDockProps) {
+export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench }: AiDockProps) {
+  const workbench = layout === "workbench";
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
@@ -428,7 +437,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     setOpen(false);
   }
 
-  const showCard = (open || busy || Boolean(error)) && (messages.length > 0 || busy || Boolean(error));
+  const showCard = workbench || ((open || busy || Boolean(error)) && (messages.length > 0 || busy || Boolean(error)));
   const flowStyle = stacked ? { textIndent: 0, paddingTop: 4 } : { textIndent: flow.indent, paddingTop: 4 + flow.top };
 
   const pickerMenu = picker && (
@@ -470,7 +479,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   );
 
   return (
-    <div className="ai-dock">
+    <div className={`ai-dock ${workbench ? "is-workbench" : ""}`}>
       {/* One box: collapsed it is just the composer; expanded it grows upward with the conversation above the composer. */}
       <div className={`ai-dock-shell ${showCard ? "is-open" : ""}`}>
       {showCard && (
@@ -478,7 +487,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           <header className="ai-dock-head">
             <Sparkles size={14} aria-hidden="true" />
             {conversation ? <TitleEditor key={conversation.id} title={conversation.title} onRename={onRename} /> : <span className="ai-dock-title-static">新对话</span>}
-            {!isNew && (
+            {!isNew && !workbench && (
               <ScopeDots
                 scope={scope}
                 activePanel={activePanel}
@@ -491,16 +500,24 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
                 onAddActive={() => onScopeChange({ ...scope, [activePanel]: "write" })}
               />
             )}
-            <button type="button" className="ai-dock-new" onClick={onNewConversation} disabled={busy}>
-              <MessageSquarePlus size={14} aria-hidden="true" />新对话
-            </button>
-            <button type="button" className="icon-button" onClick={() => setOpen(false)} disabled={busy} aria-label="收起" title="收起">
-              <X size={15} />
-            </button>
+            {!workbench && <>
+              <button type="button" className="ai-dock-new" onClick={onNewConversation} disabled={busy}>
+                <MessageSquarePlus size={14} aria-hidden="true" />新对话
+              </button>
+              {onOpenWorkbench && (
+                <button type="button" className="icon-button" onClick={onOpenWorkbench} aria-label="在工作台打开" title="在 AI 工作台打开">
+                  <Maximize2 size={14} />
+                </button>
+              )}
+              <button type="button" className="icon-button" onClick={() => setOpen(false)} disabled={busy} aria-label="收起" title="收起">
+                <X size={15} />
+              </button>
+            </>}
             {picker?.anchor === "header" && pickerMenu}
           </header>
           <div className="ai-dock-body">
-            <ConversationView key={conversation?.id} messages={messages} onResolve={resolve} />
+            {workbench && messages.length === 0 && !busy && !error && <div className="ai-thinking">在下面输入，开始一段新对话；右侧可以先设好权限。</div>}
+            <ConversationView key={conversation?.id} messages={messages} onResolve={resolve} pendingInSide={workbench} />
             {busy && <div className="ai-thinking"><LoaderCircle size={14} className="spin" aria-hidden="true" />思考中…</div>}
             {stopped && !busy && <div className="ai-thinking">已停止。可以补充说明后再发一次。</div>}
             {error && <div className="inline-error" role="alert">{error}</div>}

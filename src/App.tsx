@@ -1,13 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
+import { ChevronLeft, Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
 import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
 import { AiPanel } from "./components/AiPanel";
 import { AiDock } from "./components/AiDock";
+import { AiWorkbench } from "./components/AiWorkbench";
 import { useAssistant } from "./ai/useAssistant";
 import { usePanelHistory } from "./history";
 import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
@@ -129,6 +130,8 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
   const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
+  /** The AI workbench covers the panel area; `activeSection` stays the panel it was opened from. */
+  const [showWorkbench, setShowWorkbench] = useState(false);
   const history = usePanelHistory();
   const recordHistory = history.record;
   const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(null);
@@ -451,11 +454,11 @@ export default function App() {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const typing = target?.matches("input, textarea, select, [contenteditable='true']");
-      if (!typing && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showAi && !showSettings) {
+      if (!typing && !showWorkbench && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showAi && !showSettings) {
         event.preventDefault();
         openCreate();
       }
-      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      if (!typing && !showWorkbench && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) void history.redo(activeSection);
         else void history.undo(activeSection);
@@ -474,7 +477,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeSection, showEditor, showAi, showSettings, history.undo, history.redo]);
+  }, [activeSection, showWorkbench, showEditor, showAi, showSettings, history.undo, history.redo]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
@@ -540,11 +543,32 @@ export default function App() {
       color: period.color,
     })),
   ];
+  const dock = (
+    <AiDock
+      conversation={assistant.conversation}
+      busy={assistant.busy}
+      error={assistant.error}
+      hasApiKey={state.hasApiKey}
+      activePanel={activeSection}
+      scope={assistant.scope}
+      onScopeChange={assistant.setScope}
+      focusRequest={dockFocus}
+      stopped={assistant.stopped}
+      onStop={assistant.stop}
+      onOpenSettings={() => setShowSettings(true)}
+      onSend={(text) => void assistant.send(text)}
+      onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
+      onNewConversation={() => assistant.startNew(activeSection)}
+      onRename={assistant.rename}
+      layout={showWorkbench ? "workbench" : "dock"}
+      onOpenWorkbench={() => setShowWorkbench(true)}
+    />
+  );
   const globalDot = `conic-gradient(${periods.map((period, index) => `${period.color} 0 ${((index + 1) * 100) / periods.length}%`).join(", ")})`;
 
   return (
     <div className="app-shell">
-      <header className="topbar" data-section={activeSection}>
+      <header className="topbar" data-section={showWorkbench ? "ai" : activeSection}>
         <button
           ref={workspaceDrawerTrigger}
           type="button"
@@ -556,17 +580,21 @@ export default function App() {
         >
           <span aria-hidden="true">β</span>
         </button>
-        <h1 className="topbar-tab"><i aria-hidden="true" />{SECTION_LABELS[activeSection]}</h1>
-        <div className="topbar-lead">
-          <Quote size={13} aria-hidden="true" />
-          <TopbarSlogan
-            key={activeSection}
-            value={state.settings.slogans[activeSection]}
-            onSave={(slogan) => saveTabSlogan(activeSection, slogan)}
-          />
-        </div>
+        <h1 className="topbar-tab"><i aria-hidden="true" />{showWorkbench ? "AI 工作台" : SECTION_LABELS[activeSection]}</h1>
+        {showWorkbench ? (
+          <div className="topbar-lead"><span className="ai-wb-origin">从 {SECTION_LABELS[activeSection]} 打开 · 可随时返回</span></div>
+        ) : (
+          <div className="topbar-lead">
+            <Quote size={13} aria-hidden="true" />
+            <TopbarSlogan
+              key={activeSection}
+              value={state.settings.slogans[activeSection]}
+              onSave={(slogan) => saveTabSlogan(activeSection, slogan)}
+            />
+          </div>
+        )}
 
-        {activeSection === "board" && (
+        {!showWorkbench && activeSection === "board" && (
           <nav className="period-switch" aria-label="时间板视图模式">
             {viewModes.map((mode) => (
               <button
@@ -586,11 +614,16 @@ export default function App() {
         )}
 
         <div className="topbar-actions">
-          <div className="history-actions">
+          {showWorkbench && (
+            <button className="secondary-button" onClick={() => setShowWorkbench(false)} aria-label={`返回${SECTION_LABELS[activeSection]}`} title={`返回${SECTION_LABELS[activeSection]}`}>
+              <ChevronLeft size={16} aria-hidden="true" /> <span className="topbar-label">返回{SECTION_LABELS[activeSection]}</span>
+            </button>
+          )}
+          {!showWorkbench && <div className="history-actions">
             <button className="icon-button" onClick={() => void history.undo(activeSection)} disabled={!history.canUndo(activeSection)} title="撤销 ⌘Z" aria-label="撤销"><Undo2 size={18} /></button>
             <button className="icon-button" onClick={() => void history.redo(activeSection)} disabled={!history.canRedo(activeSection)} title="重做 ⇧⌘Z" aria-label="重做"><Redo2 size={18} /></button>
-          </div>
-          {activeSection === "board" && <>
+          </div>}
+          {!showWorkbench && activeSection === "board" && <>
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
@@ -612,13 +645,28 @@ export default function App() {
 
       <WorkspaceDrawer
         activeSection={activeSection}
+        workbenchActive={showWorkbench}
         open={showWorkspaceDrawer}
         onOpenChange={setShowWorkspaceDrawer}
-        onSectionChange={setActiveSection}
+        onSectionChange={(section) => {
+          setActiveSection(section);
+          setShowWorkbench(false);
+        }}
+        onOpenWorkbench={() => setShowWorkbench(true)}
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView
+      {showWorkbench ? <AiWorkbench
+        summaries={assistant.summaries}
+        conversation={assistant.conversation}
+        busy={assistant.busy}
+        scope={assistant.scope}
+        onScopeChange={assistant.setScope}
+        onOpen={(id) => void assistant.open(id)}
+        onDelete={(id) => void assistant.remove(id)}
+        onNew={() => assistant.startNew(activeSection)}
+        onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
+      >{dock}</AiWorkbench> : activeSection === "recall" ? <RecallView
         settings={state.settings}
         hasApiKey={state.hasApiKey}
         onOpenSettings={() => setShowSettings(true)}
@@ -656,23 +704,7 @@ export default function App() {
         />
       </main>}
 
-      <AiDock
-        conversation={assistant.conversation}
-        busy={assistant.busy}
-        error={assistant.error}
-        hasApiKey={state.hasApiKey}
-        activePanel={activeSection}
-        scope={assistant.scope}
-        onScopeChange={assistant.setScope}
-        focusRequest={dockFocus}
-        stopped={assistant.stopped}
-        onStop={assistant.stop}
-        onOpenSettings={() => setShowSettings(true)}
-        onSend={(text) => void assistant.send(text)}
-        onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
-        onNewConversation={() => assistant.startNew(activeSection)}
-        onRename={assistant.rename}
-      />
+      {!showWorkbench && dock}
 
       {loadError && !window.__TAURI_INTERNALS__ && (
         <div className="browser-warning">当前是浏览器预览模式；数据不会写入本地文件。请使用 <code>npm run tauri dev</code> 测试桌面能力。</div>
