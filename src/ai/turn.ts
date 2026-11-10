@@ -1,7 +1,5 @@
 import type { AiBatch, AiScope, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
 
-export const MAX_STEPS = 8;
-
 export interface TurnDeps {
   step: (request: { messages: WireMessage[]; scope: AiScope; context: string }) => Promise<ChatStepReply>;
   /** Index of every readable panel, taken once at the start of the turn. */
@@ -9,6 +7,8 @@ export interface TurnDeps {
   runTool: (call: AiToolCall) => ToolOutcome | Promise<ToolOutcome>;
   /** Called after every change so the UI and storage follow the turn as it runs. */
   onMessages: (messages: ConversationMessage[]) => void;
+  /** Aborting stops the loop; the step in flight is discarded, finished steps are kept. */
+  signal?: AbortSignal;
 }
 
 function changeLabel(change: AiBatch["changes"][number]): string {
@@ -61,9 +61,18 @@ export function pendingBatch(messages: ConversationMessage[]): AiBatch | null {
 
 const stamp = () => ({ id: crypto.randomUUID(), createdAt: new Date().toISOString() });
 
+/** Thrown by runTurn when the user pressed stop. */
+export class TurnStopped extends Error {
+  constructor() {
+    super("stopped");
+    this.name = "TurnStopped";
+  }
+}
+
 /**
  * One user turn: call the model, run read tools, stage write tools, repeat until the model answers
- * without tools. A step that stages any write ends the turn; the batch waits for the user.
+ * without tools. There is no step limit (the user can stop the turn); a step that stages any write
+ * ends the turn and the batch waits for the user.
  */
 export async function runTurn(history: ConversationMessage[], text: string, scope: AiScope, deps: TurnDeps): Promise<ConversationMessage[]> {
   let messages: ConversationMessage[] = [
@@ -76,10 +85,11 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
   ];
   deps.onMessages(messages);
   const changes: AiBatch["changes"] = [];
-  let answered = false;
+  const stopped = () => deps.signal?.aborted === true;
 
-  for (let step = 0; step < MAX_STEPS; step += 1) {
+  while (!stopped()) {
     const reply = await deps.step({ messages: toWire(messages), scope, context: deps.context });
+    if (stopped()) break;
     const results: ConversationMessage[] = [];
     // Sequential: a later write in the same step may build on an earlier staged one.
     for (const call of reply.toolCalls) {
@@ -88,17 +98,14 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
       results.push({ ...stamp(), role: "tool", toolCallId: call.id, name: call.name, content: outcome.content });
     }
     messages = [...messages, { ...stamp(), role: "assistant", content: reply.content, toolCalls: reply.toolCalls }, ...results];
-    if (reply.toolCalls.length === 0 || changes.length > 0) {
-      answered = true;
-      break;
-    }
+    if (reply.toolCalls.length === 0 || changes.length > 0) break;
     deps.onMessages(messages);
   }
 
   if (changes.length > 0) {
     messages = [...messages, { ...stamp(), role: "batch", batch: { id: crypto.randomUUID(), status: "pending", changes } }];
   }
+  if (stopped() && changes.length === 0) throw new TurnStopped();
   deps.onMessages(messages);
-  if (!answered) throw new Error(`AI 连续调用了 ${MAX_STEPS} 步工具仍没有给出回答，已停止。可以把问题说得更具体一些再试。`);
   return messages;
 }

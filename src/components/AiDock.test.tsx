@@ -48,9 +48,9 @@ describe("AiDock", () => {
   });
 
   function render(props: Partial<Parameters<typeof AiDock>[0]> = {}) {
-    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn() };
+    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn() };
     act(() => root.render(
-      <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} {...handlers} {...props} />,
+      <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} stopped={false} {...handlers} {...props} />,
     ));
     return handlers;
   }
@@ -99,19 +99,48 @@ describe("AiDock", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
   });
 
-  it("inserts a panel from the @ menu, read-only after Tab, and removes the typed mention", () => {
+  it("sets every panel in the @ picker and applies them with one Enter", () => {
     const { onScopeChange } = render({ conversation: null });
     const input = host.querySelector("textarea")!;
     type(input, "总结一下 @记忆");
-    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(1);
-    expect(host.querySelector(".ai-mention-access")?.textContent).toBe("只读");
-    key(input, "Tab");
-    expect(host.querySelector(".ai-mention-access")?.textContent).toBe("可改");
-    key(input, "Tab");
+    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(4);
+    expect(host.querySelector(".ai-mention-row.is-active")?.textContent).toContain("记忆星云");
+    key(input, "ArrowRight");
+    key(input, "ArrowUp");
+    key(input, "ArrowRight");
+    key(input, "ArrowRight");
+    key(input, "ArrowUp");
+    key(input, "ArrowUp");
+    key(input, "ArrowLeft");
+    expect(onScopeChange).not.toHaveBeenCalled();
     key(input, "Enter");
-    expect(onScopeChange).toHaveBeenCalledWith({ board: "write", memories: "read" });
+    expect(onScopeChange).toHaveBeenCalledWith({ board: "read", forest: "write", memories: "read" });
     expect(input.value).toBe("总结一下 ");
     expect(host.querySelector(".ai-mention-menu")).toBeNull();
+  });
+
+  it("opens the picker from the @ button and cancels with Escape", () => {
+    const { onScopeChange } = render({ conversation: null });
+    const button = host.querySelector<HTMLButtonElement>(".ai-dock-at")!;
+    act(() => { button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    expect(host.querySelector(".ai-mention-menu")).not.toBeNull();
+    key(host.querySelector("textarea")!, "Escape");
+    expect(host.querySelector(".ai-mention-menu")).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
+  });
+
+  it("deletes the last pill with Backspace at the start of the input", () => {
+    const { onScopeChange } = render({ conversation: null, scope: { board: "write", memories: "read" } });
+    const input = host.querySelector("textarea")!;
+    key(input, "Backspace");
+    expect(onScopeChange).toHaveBeenCalledWith({ board: "write" });
+  });
+
+  it("turns send into stop while the assistant is working", () => {
+    const { onStop } = render({ busy: true });
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="停止"]')!.click());
+    expect(onStop).toHaveBeenCalled();
+    expect(host.querySelector(".ai-dock-new")?.textContent).toBe("新对话");
   });
 
   it("keeps pills when the panel changes and offers a one-click add for the current panel", () => {

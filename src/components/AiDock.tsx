@@ -1,5 +1,5 @@
-import { CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, MessageSquarePlus, Pencil, Plus, Send, Shield, Sparkles, X } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { AtSign, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, MessageSquarePlus, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { pendingBatch } from "../ai/turn";
 import { changePanel, type AiAccess, type AiBatch, type AiPanelId, type AiScope, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
 import { MarkdownContent } from "./MarkdownEditor";
@@ -11,7 +11,9 @@ export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
   memories: { name: "记忆星云", color: "#6366f1" },
 };
 const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories"];
-const ACCESS_LABELS: Record<AiAccess, string> = { read: "只读", write: "可改" };
+type PickerAccess = AiAccess | "off";
+const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
+const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", read: "只读", write: "可改" };
 const OP_LABELS: Record<ChangeKind, string> = { add: "新增", edit: "修改", move: "移动", del: "删除" };
 
 const panelStyle = (panel: AiPanelId) => ({ "--ai-panel-color": AI_PANELS[panel].color }) as CSSProperties;
@@ -26,18 +28,22 @@ interface AiDockProps {
   onScopeChange: (scope: AiScope) => void;
   /** Bump to focus the input (⌘K). */
   focusRequest: number;
+  /** The user stopped the last turn. */
+  stopped: boolean;
+  onStop: () => void;
   onOpenSettings: () => void;
   onSend: (text: string) => void;
   onResolveBatch: (batchId: string, selectedIds: string[] | null) => void;
   onNewConversation: () => void;
 }
 
-interface Mention {
-  /** Index of the "@" in the draft. */
-  start: number;
-  query: string;
+/** The @ picker edits all four panels at once; nothing changes until it is confirmed. */
+interface Picker {
+  draft: AiScope;
   highlighted: number;
-  access: Partial<Record<AiPanelId, AiAccess>>;
+  /** Where the typed "@query" starts, or null when opened with the @ button. */
+  start: number | null;
+  query: string;
 }
 
 /** Messages from the latest user message onward. */
@@ -62,16 +68,22 @@ function parseResult(content: string | undefined): Record<string, unknown> {
 /** One readable line per read tool; writes appear in the diff card instead. */
 function traceLabel(call: CheckedToolCall, result: Record<string, unknown>): string | null {
   const named = (value: unknown) => (typeof value === "string" && value ? `「${value.slice(0, 24)}」` : "");
+  // Batch reads return { items }; conversations saved before that hold a single object.
+  const items = (Array.isArray(result.items) ? result.items : [result]) as Array<Record<string, unknown>>;
+  const names = (key: (item: Record<string, unknown>) => unknown) => {
+    const list = items.filter((item) => !item.error).map((item) => named(key(item))).filter(Boolean);
+    return list.length > 3 ? `${list.slice(0, 3).join("")}等 ${list.length} 条` : list.join("");
+  };
   switch (call.name) {
     case "list_habits": return "读取了时间板的全部习惯";
     case "list_boards": return "查看了看板列表";
     case "list_nodes": return `读取了能力森林${named(result.name)}的节点`;
-    case "read_node": return `读了节点${named(result.name)}的笔记`;
+    case "read_node": return `读了节点${names((item) => item.name)}的笔记`;
     case "list_knowledge": return "读取了知识列表";
-    case "read_knowledge": return `读了知识${named(result.title)}`;
+    case "read_knowledge": return `读了知识${names((item) => item.title)}`;
     case "list_due_reviews": return `查看了待复习的知识${Array.isArray(result.due) ? `（${result.due.length} 篇）` : ""}`;
     case "list_memories": return "读取了全部记忆";
-    case "read_memory": return `读了记忆${named(result.song || result.content)}`;
+    case "read_memory": return `读了记忆${names((item) => item.song || item.content)}`;
     case "list_life_stages": return "查看了人生阶段";
     default: return null;
   }
@@ -173,18 +185,22 @@ function RoundView({ round, onResolve }: { round: ConversationMessage[]; onResol
   );
 }
 
-export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, onOpenSettings, onSend, onResolveBatch, onNewConversation }: AiDockProps) {
+function panelMatches(panel: AiPanelId, query: string): boolean {
+  return !query || AI_PANELS[panel].name.includes(query) || panel.startsWith(query.toLowerCase());
+}
+
+export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation }: AiDockProps) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
-  const [mention, setMention] = useState<Mention | null>(null);
+  const [picker, setPicker] = useState<Picker | null>(null);
+  const [flow, setFlow] = useState({ indent: 0, top: 0 });
   const input = useRef<HTMLTextAreaElement>(null);
+  const pillsRef = useRef<HTMLDivElement>(null);
   const bodyEnd = useRef<HTMLDivElement>(null);
   const messages = conversation?.messages ?? [];
   const round = latestRound(messages);
   const pendingId = pendingBatch(messages)?.id;
-  const options = mention
-    ? PANEL_ORDER.filter((panel) => !mention.query || AI_PANELS[panel].name.includes(mention.query) || panel.startsWith(mention.query.toLowerCase()))
-    : [];
+  const pills = PANEL_ORDER.filter((panel) => scope[panel]);
 
   useEffect(() => {
     if (pendingId) setOpen(true);
@@ -198,48 +214,78 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     if (focusRequest > 0) input.current?.focus();
   }, [focusRequest]);
 
+  // Pills sit in the text flow: the first text line starts after the last pill, later lines wrap under them.
+  useLayoutEffect(() => {
+    const container = pillsRef.current;
+    if (!container) return;
+    const measure = () => {
+      const last = container.lastElementChild as HTMLElement | null;
+      if (!last) {
+        setFlow({ indent: 0, top: 0 });
+      } else {
+        const indent = last.offsetLeft + last.offsetWidth + 6;
+        // Too little room left on the pill line: start the text on the next line.
+        setFlow(indent > container.clientWidth - 72 ? { indent: 0, top: last.offsetTop + last.offsetHeight + 4 } : { indent, top: last.offsetTop });
+      }
+      requestAnimationFrame(resize);
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [scope, activePanel, hasApiKey]);
+
   function resize() {
     const element = input.current;
     if (!element) return;
     element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
+    element.style.height = `${Math.min(element.scrollHeight, 156)}px`;
+  }
+
+  function openPicker(start: number | null, query: string) {
+    setPicker((current) => {
+      const highlighted = query ? Math.max(0, PANEL_ORDER.findIndex((panel) => panelMatches(panel, query))) : current?.highlighted ?? Math.max(0, PANEL_ORDER.indexOf(activePanel));
+      return { draft: current?.draft ?? { ...scope }, highlighted, start, query };
+    });
   }
 
   function updateDraft(value: string, caret: number) {
     setDraft(value);
     resize();
     const match = /(^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
-    if (!match) {
-      setMention(null);
-      return;
-    }
-    const query = match[2];
-    setMention((current) => ({
-      start: caret - query.length - 1,
-      query,
-      highlighted: current?.query === query ? current.highlighted : 0,
-      access: current?.access ?? {},
-    }));
+    if (match) openPicker(caret - match[2].length - 1, match[2]);
+    else if (picker?.start !== null) setPicker(null);
   }
 
-  function accessFor(panel: AiPanelId): AiAccess {
-    return mention?.access[panel] ?? scope[panel] ?? (panel === activePanel ? "write" : "read");
-  }
-
-  function insertMention(panel: AiPanelId) {
-    if (!mention) return;
-    onScopeChange({ ...scope, [panel]: accessFor(panel) });
-    const end = mention.start + 1 + mention.query.length;
-    setDraft(draft.slice(0, mention.start) + draft.slice(end));
-    setMention(null);
-    requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(mention.start, mention.start);
+  function setPickerAccess(panel: AiPanelId, access: PickerAccess) {
+    setPicker((current) => {
+      if (!current) return current;
+      const next = { ...current.draft };
+      if (access === "off") delete next[panel];
+      else next[panel] = access;
+      return { ...current, draft: next };
     });
   }
 
-  function toggleMentionAccess(panel: AiPanelId) {
-    setMention((current) => current && { ...current, access: { ...current.access, [panel]: accessFor(panel) === "write" ? "read" : "write" } });
+  function stepPickerAccess(direction: 1 | -1) {
+    if (!picker) return;
+    const panel = PANEL_ORDER[picker.highlighted];
+    const level = PICKER_LEVELS.indexOf(picker.draft[panel] ?? "off");
+    setPickerAccess(panel, PICKER_LEVELS[Math.max(0, Math.min(PICKER_LEVELS.length - 1, level + direction))]);
+  }
+
+  function applyPicker() {
+    if (!picker) return;
+    onScopeChange(picker.draft);
+    const { start, query } = picker;
+    setPicker(null);
+    if (start === null) return;
+    setDraft(draft.slice(0, start) + draft.slice(start + 1 + query.length));
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(start, start);
+    });
   }
 
   function removePill(panel: AiPanelId) {
@@ -252,7 +298,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     if (!draft.trim() || busy) return;
     onSend(draft);
     setDraft("");
-    setMention(null);
+    setPicker(null);
     setOpen(true);
     requestAnimationFrame(resize);
   }
@@ -260,29 +306,33 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Enter while an IME is composing picks a candidate; it must not send.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (mention && options.length > 0) {
-      const panel = options[Math.min(mention.highlighted, options.length - 1)];
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (picker) {
+      const keys: Record<string, () => void> = {
+        ArrowDown: () => setPicker({ ...picker, highlighted: (picker.highlighted + 1) % PANEL_ORDER.length }),
+        ArrowUp: () => setPicker({ ...picker, highlighted: (picker.highlighted + PANEL_ORDER.length - 1) % PANEL_ORDER.length }),
+        ArrowRight: () => stepPickerAccess(1),
+        ArrowLeft: () => stepPickerAccess(-1),
+        Tab: () => {
+          const panel = PANEL_ORDER[picker.highlighted];
+          const level = PICKER_LEVELS.indexOf(picker.draft[panel] ?? "off");
+          setPickerAccess(panel, PICKER_LEVELS[(level + 1) % PICKER_LEVELS.length]);
+        },
+        Enter: applyPicker,
+        Escape: () => setPicker(null),
+      };
+      const action = keys[event.key];
+      if (action) {
         event.preventDefault();
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        setMention({ ...mention, highlighted: (mention.highlighted + step + options.length) % options.length });
-        return;
+        action();
       }
-      if (event.key === "Tab") {
-        event.preventDefault();
-        toggleMentionAccess(panel);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        insertMention(panel);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setMention(null);
-        return;
-      }
+      return;
+    }
+    // Backspace at the very start deletes the last pill, like a chip in a token field.
+    const target = event.currentTarget;
+    if (event.key === "Backspace" && target.selectionStart === 0 && target.selectionEnd === 0 && pills.length > 0) {
+      event.preventDefault();
+      removePill(pills[pills.length - 1]);
+      return;
     }
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
@@ -303,8 +353,8 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           <header className="ai-dock-head">
             <Sparkles size={14} aria-hidden="true" />
             <span>最近一轮</span>
-            <button type="button" className="icon-button" onClick={onNewConversation} disabled={busy} aria-label="新对话" title="新对话">
-              <MessageSquarePlus size={15} />
+            <button type="button" className="ai-dock-new" onClick={onNewConversation} disabled={busy}>
+              <MessageSquarePlus size={14} aria-hidden="true" />新对话
             </button>
             <button type="button" className="icon-button" onClick={() => setOpen(false)} disabled={busy} aria-label="收起" title="收起">
               <X size={15} />
@@ -313,83 +363,115 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           <div className="ai-dock-body">
             <RoundView key={conversation?.id} round={round} onResolve={resolve} />
             {busy && <div className="ai-thinking"><LoaderCircle size={14} className="spin" aria-hidden="true" />思考中…</div>}
+            {stopped && !busy && <div className="ai-thinking">已停止。可以补充说明后再发一次。</div>}
             {error && <div className="inline-error" role="alert">{error}</div>}
             <div ref={bodyEnd} />
           </div>
         </section>
       )}
       <form className="ai-dock-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        {mention && options.length > 0 && (
-          <div className="ai-mention-menu" role="listbox" aria-label="选择要提及的 panel">
-            {options.map((panel, index) => (
-              <div
-                key={panel}
-                role="option"
-                aria-selected={index === mention.highlighted}
-                className={`ai-mention-row ${index === mention.highlighted ? "is-active" : ""}`}
-                style={panelStyle(panel)}
-                onMouseDown={(event) => { event.preventDefault(); insertMention(panel); }}
-              >
-                <span className="ai-mention-name">{AI_PANELS[panel].name}</span>
-                <button
-                  type="button"
-                  className={`ai-mention-access ${accessFor(panel)}`}
-                  onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); toggleMentionAccess(panel); }}
+        {picker && (
+          <div className="ai-mention-menu" role="dialog" aria-label="选择 AI 可以访问的 panel">
+            <div className="ai-mention-title">选择 AI 可以访问的 panel</div>
+            {PANEL_ORDER.map((panel, index) => {
+              const access = picker.draft[panel] ?? "off";
+              return (
+                <div
+                  key={panel}
+                  className={`ai-mention-row ${index === picker.highlighted ? "is-active" : ""}`}
+                  style={panelStyle(panel)}
+                  onMouseDown={(event) => { event.preventDefault(); setPicker({ ...picker, highlighted: index }); }}
                 >
-                  {accessFor(panel) === "write" ? <Pencil size={11} aria-hidden="true" /> : <Eye size={11} aria-hidden="true" />}
-                  {ACCESS_LABELS[accessFor(panel)]}
-                </button>
-              </div>
-            ))}
-            <div className="ai-mention-hint">↑↓ 选择 · Enter 插入 · Tab 切换只读 / 可改</div>
+                  <span className="ai-mention-name">{AI_PANELS[panel].name}</span>
+                  <span className="ai-mention-seg" role="radiogroup" aria-label={`${AI_PANELS[panel].name}的权限`}>
+                    {PICKER_LEVELS.map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        role="radio"
+                        aria-checked={access === level}
+                        className={access === level ? `is-on ${level}` : ""}
+                        onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); setPicker({ ...picker, highlighted: index }); setPickerAccess(panel, level); }}
+                      >
+                        {PICKER_LABELS[level]}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              );
+            })}
+            <div className="ai-mention-foot">
+              <span>↑↓ 选行 · ←→ 切换 · Enter 确定</span>
+              <button type="button" className="secondary-button" onMouseDown={(event) => { event.preventDefault(); setPicker(null); }}>取消</button>
+              <button type="button" className="primary-button" onMouseDown={(event) => { event.preventDefault(); applyPicker(); }}>确定</button>
+            </div>
           </div>
         )}
-        <div className="ai-dock-pills">
-          {PANEL_ORDER.filter((panel) => scope[panel]).map((panel) => (
-            <span key={panel} className="ai-at-pill" style={panelStyle(panel)}>
-              <button
-                type="button"
-                className="ai-at-pill-main"
-                onClick={() => onScopeChange({ ...scope, [panel]: scope[panel] === "write" ? "read" : "write" })}
-                title={`${scope[panel] === "write" ? "可以读取和修改" : "只能读取"}${AI_PANELS[panel].name}，点击切换`}
-              >
-                @{AI_PANELS[panel].name}
-                {scope[panel] === "write" ? <Pencil size={11} aria-label="可改" /> : <Eye size={11} aria-label="只读" />}
+        <div className="ai-dock-field">
+          <div className="ai-dock-pills" ref={pillsRef}>
+            {pills.map((panel) => (
+              <span key={panel} className="ai-at-pill" style={panelStyle(panel)}>
+                <button
+                  type="button"
+                  className="ai-at-pill-main"
+                  onClick={() => onScopeChange({ ...scope, [panel]: scope[panel] === "write" ? "read" : "write" })}
+                  title={`${scope[panel] === "write" ? "可以读取和修改" : "只能读取"}${AI_PANELS[panel].name}，点击切换`}
+                >
+                  @{AI_PANELS[panel].name}
+                  {scope[panel] === "write" ? <Pencil size={11} aria-label="可改" /> : <Eye size={11} aria-label="只读" />}
+                </button>
+                <button type="button" className="ai-at-pill-remove" onClick={() => removePill(panel)} aria-label={`移除 @${AI_PANELS[panel].name}`}>
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            {!scope[activePanel] && (
+              <button type="button" className="ai-at-ghost" style={panelStyle(activePanel)} onClick={() => onScopeChange({ ...scope, [activePanel]: "write" })}>
+                <Plus size={11} aria-hidden="true" />@{AI_PANELS[activePanel].name}
               </button>
-              <button type="button" className="ai-at-pill-remove" onClick={() => removePill(panel)} aria-label={`移除 @${AI_PANELS[panel].name}`}>
-                <X size={10} />
-              </button>
-            </span>
-          ))}
-          {!scope[activePanel] && (
-            <button type="button" className="ai-at-ghost" style={panelStyle(activePanel)} onClick={() => onScopeChange({ ...scope, [activePanel]: "write" })}>
-              <Plus size={11} aria-hidden="true" />@{AI_PANELS[activePanel].name}
-            </button>
+            )}
+          </div>
+          {hasApiKey ? (
+            <textarea
+              ref={input}
+              className="ai-dock-input"
+              rows={1}
+              value={draft}
+              style={{ textIndent: flow.indent, paddingTop: 4 + flow.top }}
+              placeholder={pills.length > 1 ? "问 AI…（@ 选择 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 选择 panel）`}
+              aria-label="给 AI 助手发消息"
+              onChange={(event) => updateDraft(event.target.value, event.target.selectionStart ?? event.target.value.length)}
+              onKeyDown={handleKeyDown}
+              onBlur={() => setPicker(null)}
+            />
+          ) : (
+            <button type="button" className="ai-dock-setup" style={{ textIndent: flow.indent, paddingTop: 4 + flow.top }} onClick={onOpenSettings}>先在 Settings 里保存 API key，才能使用 AI 助手</button>
           )}
         </div>
-        {hasApiKey ? (
-          <textarea
-            ref={input}
-            className="ai-dock-input"
-            rows={1}
-            value={draft}
-            placeholder={PANEL_ORDER.filter((panel) => scope[panel]).length > 1 ? "问 AI…（@ 添加 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 添加 panel）`}
-            aria-label="给 AI 助手发消息"
-            onChange={(event) => updateDraft(event.target.value, event.target.selectionStart ?? event.target.value.length)}
-            onKeyDown={handleKeyDown}
-            onBlur={() => setMention(null)}
-          />
+        <button
+          type="button"
+          className="icon-button ai-dock-at"
+          disabled={!hasApiKey}
+          aria-label="选择 AI 可以访问的 panel"
+          title="选择 AI 可以访问的 panel"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            input.current?.focus();
+            if (picker) setPicker(null);
+            else openPicker(null, "");
+          }}
+        >
+          <AtSign size={16} />
+        </button>
+        {busy ? (
+          <button type="button" className="primary-button ai-dock-send" onClick={onStop} aria-label="停止" title="停止">
+            <Square size={13} fill="currentColor" />
+          </button>
         ) : (
-          <button type="button" className="ai-dock-setup" onClick={onOpenSettings}>先在 Settings 里保存 API key，才能使用 AI 助手</button>
-        )}
-        {conversation && !showCard && (
-          <button type="button" className="icon-button" onClick={onNewConversation} disabled={busy} aria-label="新对话" title="新对话">
-            <MessageSquarePlus size={16} />
+          <button type="submit" className="primary-button ai-dock-send" disabled={!hasApiKey || !draft.trim()} aria-label="发送">
+            <Send size={15} />
           </button>
         )}
-        <button type="submit" className="primary-button ai-dock-send" disabled={!hasApiKey || busy || !draft.trim()} aria-label="发送">
-          {busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}
-        </button>
       </form>
     </div>
   );

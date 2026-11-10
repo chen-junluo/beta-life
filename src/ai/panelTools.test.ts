@@ -119,8 +119,9 @@ describe("assistant session", () => {
 
   it("stages writes per panel and reads memory bodies on demand", async () => {
     const session = createToolSession(data());
-    const read = JSON.parse((await session.run({ id: "1", name: "read_memory", arguments: { id: "m1" } })).content);
-    expect(read.content).toBe("操场");
+    const read = JSON.parse((await session.run({ id: "1", name: "read_memory", arguments: { ids: ["m1", "nope"] } })).content);
+    expect(read.items[0].content).toBe("操场");
+    expect(read.items[1]).toEqual({ id: "nope", error: 'No memory with id "nope"' });
     const staged = await session.run({ id: "2", name: "add_memory", arguments: { content: "毕业合唱", date: "2013Q2", emotion: "warm", intensity: 8 } });
     expect(staged.change).toMatchObject({ panel: "memories", kind: "add" });
     expect(staged.change?.createdId).toMatch(/^memory_\d+_[a-z0-9]+$/);

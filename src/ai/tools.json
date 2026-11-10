@@ -210,7 +210,7 @@
     "name": "read_node",
     "panel": "forest",
     "access": "read",
-    "description": "Read one node's Markdown note.",
+    "description": "Read the Markdown notes of one or more nodes in one call.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -222,14 +222,20 @@
           ],
           "description": "vision = Long-term Vision map, research = Research Agenda map."
         },
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "One or more ids; read everything you need in one call."
         }
       },
       "required": [
         "map",
-        "id"
+        "ids"
       ],
       "additionalProperties": false
     }
@@ -396,17 +402,23 @@
     "name": "read_knowledge",
     "panel": "recall",
     "access": "read",
-    "description": "Read one knowledge record: Markdown body, source and its recall points.",
+    "description": "Read one or more knowledge records in one call: Markdown body, source and recall points.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "One or more ids; read everything you need in one call."
         }
       },
       "required": [
-        "id"
+        "ids"
       ],
       "additionalProperties": false
     }
@@ -538,17 +550,23 @@
     "name": "read_memory",
     "panel": "memories",
     "access": "read",
-    "description": "Read one memory including its body text.",
+    "description": "Read the body text of one or more memories in one call. The index already has every memory's metadata, so only read bodies you actually need.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "One or more ids; read everything you need in one call."
         }
       },
       "required": [
-        "id"
+        "ids"
       ],
       "additionalProperties": false
     }

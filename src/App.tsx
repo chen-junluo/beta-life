@@ -665,6 +665,8 @@ export default function App() {
         scope={assistant.scope}
         onScopeChange={assistant.setScope}
         focusRequest={dockFocus}
+        stopped={assistant.stopped}
+        onStop={assistant.stop}
         onOpenSettings={() => setShowSettings(true)}
         onSend={(text) => void assistant.send(text)}
         onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}

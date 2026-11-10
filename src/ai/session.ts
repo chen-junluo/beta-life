@@ -50,6 +50,19 @@ export function assistantContext(scope: AiScope, data: AssistantData): string {
 }
 
 const json = (value: unknown) => JSON.stringify(value);
+
+/** Batch reads: one bad id becomes an error entry instead of failing the whole call. */
+async function eachId(args: AiToolCall["arguments"], read: (id: string) => unknown): Promise<{ items: unknown[] }> {
+  const ids = Array.isArray(args.ids) ? args.ids.map(String) : [];
+  const items = await Promise.all(ids.map(async (id) => {
+    try {
+      return await read(id);
+    } catch (error) {
+      return { id, error: error instanceof Error ? error.message : String(error) };
+    }
+  }));
+  return { items };
+}
 const createdIdFor = (name: string) => (name === "add_memory" ? newMemoryId() : name.startsWith("add_") ? crypto.randomUUID() : undefined);
 
 /**
@@ -74,15 +87,16 @@ export function createToolSession(data: AssistantData) {
         return forestMapIndex(data.forests[map], map);
       }
       case "read_node":
-        return readNode(data.forests, args);
+        return eachId(args, (id) => readNode(data.forests, { map: args.map, id }));
       case "list_knowledge":
         return recallIndex(data.knowledge);
-      case "read_knowledge": {
-        const record = data.knowledge.find((item) => item.id === args.id);
-        if (!record) throw new Error(`No knowledge record with id "${String(args.id)}"`);
-        const points = await loadPoints(record.id);
-        return { ...record, points: points.map((point) => ({ type: point.type, prompt: point.prompt, reference: point.reference })) };
-      }
+      case "read_knowledge":
+        return eachId(args, async (id) => {
+          const record = data.knowledge.find((item) => item.id === id);
+          if (!record) throw new Error(`No knowledge record with id "${id}"`);
+          const points = await loadPoints(record.id);
+          return { ...record, points: points.map((point) => ({ type: point.type, prompt: point.prompt, reference: point.reference })) };
+        });
       case "list_due_reviews":
         return {
           due: await Promise.all(dueRecords(data.knowledge).map(async (record) => ({
@@ -94,10 +108,11 @@ export function createToolSession(data: AssistantData) {
         };
       case "list_memories":
         return memoryIndex(data.memories, data.lifeStages).memories;
-      case "read_memory": {
-        if (!data.memories.some((memory) => memory.id === args.id)) throw new Error(`No memory with id "${String(args.id)}"`);
-        return readMemory(String(args.id));
-      }
+      case "read_memory":
+        return eachId(args, (id) => {
+          if (!data.memories.some((memory) => memory.id === id)) throw new Error(`No memory with id "${id}"`);
+          return readMemory(id);
+        });
       case "list_life_stages":
         return memoryIndex([], data.lifeStages).lifeStages;
       default:

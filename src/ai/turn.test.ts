@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { batchNote, MAX_STEPS, pendingBatch, runTurn, toWire } from "./turn";
+import { batchNote, pendingBatch, runTurn, toWire, TurnStopped } from "./turn";
 import type { AiChange, ChatStepReply, ConversationMessage, ToolOutcome, WireMessage } from "./types";
 
 const change = (id: string, selected = true): AiChange => ({
@@ -61,11 +61,31 @@ describe("assistant turn", () => {
     expect(requests[0][0]).toMatchObject({ role: "note", content: expect.stringContaining("discarded") });
   });
 
-  it("stops with an error after the step limit", async () => {
-    const replies = Array.from({ length: MAX_STEPS }, (_, index) => ({ content: "", toolCalls: [{ id: `c${index}`, name: "list_habits", arguments: {} }] }));
+  it("keeps calling tools past the old 8-step limit until the model answers", async () => {
+    const replies = [
+      ...Array.from({ length: 20 }, (_, index) => ({ content: "", toolCalls: [{ id: `c${index}`, name: "list_habits", arguments: {} }] })),
+      { content: "看完了", toolCalls: [] },
+    ];
     const { deps: d } = deps(replies);
-    await expect(runTurn([], "?", { board: "read" }, d)).rejects.toThrow(`${MAX_STEPS} 步`);
-    expect(d.onMessages).toHaveBeenCalled();
+    const messages = await runTurn([], "?", { board: "read" }, d);
+    expect(d.step).toHaveBeenCalledTimes(21);
+    expect(messages.at(-1)).toMatchObject({ role: "assistant", content: "看完了" });
+  });
+
+  it("stops when aborted, dropping the step in flight but keeping finished ones", async () => {
+    const controller = new AbortController();
+    const { deps: d } = deps([
+      { content: "", toolCalls: [{ id: "c1", name: "list_habits", arguments: {} }] },
+      { content: "", toolCalls: [{ id: "c2", name: "list_habits", arguments: {} }] },
+    ]);
+    d.step.mockImplementationOnce(async () => ({ content: "", toolCalls: [{ id: "c1", name: "list_habits", arguments: {} }] }))
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return { content: "", toolCalls: [{ id: "c2", name: "list_habits", arguments: {} }] };
+      });
+    await expect(runTurn([], "?", { board: "read" }, { ...d, signal: controller.signal })).rejects.toBeInstanceOf(TurnStopped);
+    const saved = d.onMessages.mock.calls.at(-1)![0];
+    expect(saved.map((message: { role: string }) => message.role)).toEqual(["user", "assistant", "tool"]);
   });
 
   it("tells the model what was applied, unchecked and failed", () => {

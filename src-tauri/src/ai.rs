@@ -300,6 +300,24 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
             }
         }
         Some("boolean") if !value.is_boolean() => return Err(format!("`{at}` must be a boolean")),
+        Some("array") => {
+            let items = value
+                .as_array()
+                .ok_or_else(|| format!("`{at}` must be an array"))?;
+            let min = schema.get("minItems").and_then(Value::as_u64);
+            let max = schema.get("maxItems").and_then(Value::as_u64);
+            let count = items.len() as u64;
+            if min.is_some_and(|min| count < min) || max.is_some_and(|max| count > max) {
+                return Err(format!(
+                    "`{at}` has {count} items, outside the allowed range"
+                ));
+            }
+            if let Some(item_schema) = schema.get("items") {
+                for item in items {
+                    validate_value(item_schema, item, at)?;
+                }
+            }
+        }
         _ => {}
     }
     if let Some(options) = schema.get("enum").and_then(Value::as_array) {
@@ -606,6 +624,21 @@ mod tests {
 
         let none = request_body(&settings, vec![], &Scope::new());
         assert!(none.get("tools").is_none());
+    }
+
+    #[test]
+    fn batch_reads_validate_array_items_and_bounds() {
+        let read = scope(&[(Panel::Memories, Access::Read)]);
+        let call =
+            |args: &str| check_tool_call("1".into(), "read_memory".into(), args, &read).error;
+        assert!(call(r#"{"ids":["m1","m2"]}"#).is_none());
+        assert!(call(r#"{"ids":[]}"#).unwrap().contains("allowed range"));
+        assert!(call(r#"{"ids":"m1"}"#)
+            .unwrap()
+            .contains("must be an array"));
+        assert!(call(r#"{"ids":["m1",""]}"#)
+            .unwrap()
+            .contains("must not be empty"));
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedAppState } from "../types";
 import { assistantContext, commitChanges, createToolSession, loadAssistantData, type CommitTargets } from "./session";
-import { runTurn } from "./turn";
+import { runTurn, TurnStopped } from "./turn";
 import type { AiBatch, AiPanelId, AiScope, ChatStepReply, Conversation, ConversationMessage, ConversationSummary } from "./types";
 
 function errorMessage(error: unknown): string {
@@ -32,6 +32,8 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
   const [scope, setScope] = useState<AiScope>({ [activePanel]: "write" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const abort = useRef<AbortController | null>(null);
   const current = useRef<Conversation | null>(null);
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
@@ -70,8 +72,11 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     const now = new Date().toISOString();
     const base = current.current ?? { id: crypto.randomUUID(), title: content.slice(0, 40), panel: activePanel, createdAt: now, updatedAt: now, messages: [] };
     const turnScope = scope;
+    const controller = new AbortController();
+    abort.current = controller;
     setBusy(true);
     setError(null);
+    setStopped(false);
     try {
       const data = await loadAssistantData(turnScope, state);
       const session = createToolSession(data);
@@ -79,13 +84,29 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
         step: (request) => invoke<ChatStepReply>("ai_chat_step", { request }),
         context: assistantContext(turnScope, data),
         runTool: session.run,
-        onMessages: (messages) => persist({ ...base, messages, updatedAt: new Date().toISOString() }),
+        // After stop, a late step must not overwrite a conversation the user has moved on with.
+        onMessages: (messages) => {
+          if (!controller.signal.aborted) persist({ ...base, messages, updatedAt: new Date().toISOString() });
+        },
+        signal: controller.signal,
       });
     } catch (reason) {
+      if (controller.signal.aborted || reason instanceof TurnStopped) return;
       setError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      if (abort.current === controller) {
+        abort.current = null;
+        setBusy(false);
+      }
     }
+  }
+
+  /** Ends the running turn; the request in flight finishes in the background and is ignored. */
+  function stop() {
+    abort.current?.abort();
+    abort.current = null;
+    setBusy(false);
+    setStopped(true);
   }
 
   /** `selectedIds === null` cancels the batch; otherwise the selected changes are written, one undo step per panel. */
@@ -117,7 +138,8 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     persist(null);
     setScope({ [panel]: "write" });
     setError(null);
+    setStopped(false);
   }
 
-  return { conversation, scope, setScope, busy, error, send, resolveBatch, startNew };
+  return { conversation, scope, setScope, busy, error, stopped, send, stop, resolveBatch, startNew };
 }
