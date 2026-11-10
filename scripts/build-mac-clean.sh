@@ -37,8 +37,14 @@ if ! /usr/bin/lockf -s -t 0 9; then
 fi
 
 detach_previous_installer() {
-  local device
-  if ! device="$(hdiutil info | awk -v target="$DMG_PATH" '
+  local info device
+  # Capture first: awk exits on the first match, which would SIGPIPE a piped
+  # hdiutil and fail the script under pipefail while the old DMG is mounted.
+  if ! info="$(hdiutil info)"; then
+    echo "Could not inspect attached disk images; refusing to replace $DMG_PATH." >&2
+    return 1
+  fi
+  device="$(awk -v target="$DMG_PATH" '
     /^image-path[[:space:]]*:/ {
       path = $0
       sub(/^[^:]*:[[:space:]]*/, "", path)
@@ -46,10 +52,7 @@ detach_previous_installer() {
       next
     }
     matches && $1 ~ /^\/dev\/disk[0-9]+$/ { print $1; exit }
-  ')"; then
-    echo "Could not inspect attached disk images; refusing to replace $DMG_PATH." >&2
-    return 1
-  fi
+  ' <<<"$info")"
 
   [[ -n "$device" ]] || return 0
 
