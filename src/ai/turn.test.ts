@@ -25,8 +25,7 @@ function deps(replies: ChatStepReply[], runTool: (name: string) => ToolOutcome =
       context: "{}",
       runTool: (call: { name: string }) => runTool(call.name),
       onMessages: vi.fn(),
-      panel: "board" as const,
-    },
+          },
   };
 }
 
@@ -54,7 +53,7 @@ describe("assistant turn", () => {
 
   it("supersedes a pending batch when the user sends a new message", async () => {
     const history: ConversationMessage[] = [
-      { id: "b", role: "batch", createdAt: "", batch: { id: "batch", panel: "board", status: "pending", changes: [change("a")] } },
+      { id: "b", role: "batch", createdAt: "", batch: { id: "batch", status: "pending", changes: [change("a")] } },
     ];
     const { deps: d, requests } = deps([{ content: "好的", toolCalls: [] }]);
     const messages = await runTurn(history, "算了", { board: "write" }, d);
@@ -72,7 +71,6 @@ describe("assistant turn", () => {
   it("tells the model what was applied, unchecked and failed", () => {
     const note = batchNote({
       id: "batch",
-      panel: "board",
       status: "confirmed",
       changes: [change("a"), change("b", false), { ...change("c"), name: "add_habit", createdId: "new-1" }],
       failed: [{ changeId: "c", reason: "gone" }],
@@ -80,6 +78,6 @@ describe("assistant turn", () => {
     expect(note).toContain('Applied:\n- delete_habit({"id":"a"})');
     expect(note).toContain('Unchecked by the user, not applied:\n- delete_habit({"id":"b"})');
     expect(note).toContain('Failed, not applied:\n- add_habit({"id":"c"}) -> new id new-1: gone');
-    expect(toWire([{ id: "x", role: "batch", createdAt: "", batch: { id: "p", panel: "board", status: "pending", changes: [] } }])).toEqual([]);
+    expect(toWire([{ id: "x", role: "batch", createdAt: "", batch: { id: "p", status: "pending", changes: [] } }])).toEqual([]);
   });
 });

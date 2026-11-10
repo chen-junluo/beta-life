@@ -4,14 +4,22 @@
     "panel": "board",
     "access": "read",
     "description": "List all boards with their ids, names and habit counts, and which one is active. Habit tools only work on the active board.",
-    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
   },
   {
     "name": "list_habits",
     "panel": "board",
     "access": "read",
     "description": "List every habit on the active board with id, title, tags, description, placement (period or hour), position inside that placement, and today's done state. Returns confirmed data only; staged changes are not included.",
-    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
   },
   {
     "name": "add_habit",
@@ -21,14 +29,45 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "title": { "type": "string", "minLength": 1, "maxLength": 120, "description": "One concise action." },
-        "description": { "type": "string", "maxLength": 4000, "description": "Optional Markdown note." },
-        "tags": { "type": "string", "maxLength": 200, "description": "Comma-separated tags, e.g. \"运动, 每天\"." },
-        "period": { "type": "string", "enum": ["morning", "noon", "evening", "sleep"] },
-        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
-        "position": { "type": "integer", "minimum": 0, "description": "0-based slot inside the target placement; omit to put it first." }
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "One concise action."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Optional Markdown note."
+        },
+        "tags": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Comma-separated tags, e.g. \"运动, 每天\"."
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "morning",
+            "noon",
+            "evening",
+            "sleep"
+          ]
+        },
+        "hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based slot inside the target placement; omit to put it first."
+        }
       },
-      "required": ["title"],
+      "required": [
+        "title"
+      ],
       "additionalProperties": false
     }
   },
@@ -40,12 +79,27 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "description": { "type": "string", "maxLength": 4000 },
-        "tags": { "type": "string", "maxLength": 200 }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "string",
+          "maxLength": 200
+        }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     }
   },
@@ -57,12 +111,33 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "period": { "type": "string", "enum": ["morning", "noon", "evening", "sleep"] },
-        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
-        "position": { "type": "integer", "minimum": 0, "description": "0-based slot inside the target placement; omit to put it last." }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "morning",
+            "noon",
+            "evening",
+            "sleep"
+          ]
+        },
+        "hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based slot inside the target placement; omit to put it last."
+        }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     }
   },
@@ -73,8 +148,15 @@
     "description": "Stage deleting a habit. Only use when the user clearly asks to remove it.",
     "inputSchema": {
       "type": "object",
-      "properties": { "id": { "type": "string", "minLength": 1 } },
-      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     }
   },
@@ -86,10 +168,532 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "done": { "type": "boolean" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "done": {
+          "type": "boolean"
+        }
       },
-      "required": ["id", "done"],
+      "required": [
+        "id",
+        "done"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_nodes",
+    "panel": "forest",
+    "access": "read",
+    "description": "List every node of one ability map as a tree: id, name, level (0 = 领域, 1 = 能力组, 2 = 能力), parentId, order among siblings, and whether it has a note.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        }
+      },
+      "required": [
+        "map"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_node",
+    "panel": "forest",
+    "access": "read",
+    "description": "Read one node's Markdown note.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "map",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_node",
+    "panel": "forest",
+    "access": "write",
+    "description": "Stage a new node. Without parentId it becomes a top-level 领域 (level 0); under a level-0 node it is a 能力组; under a level-1 node it is a 能力. Level-2 nodes cannot have children. The result returns the new node id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "parentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 8000,
+          "description": "Optional Markdown note."
+        }
+      },
+      "required": [
+        "map",
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_node",
+    "panel": "forest",
+    "access": "write",
+    "description": "Stage edits to a node's name, Markdown note, or color (color only applies to level-0 nodes).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "color": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "description": "Hex color like #7FB77E."
+        }
+      },
+      "required": [
+        "map",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "move_node",
+    "panel": "forest",
+    "access": "write",
+    "description": "Stage moving a node (with its subtree) under another parent, or to the top level with parentId \"\". position is the 0-based slot among the new siblings; omit to put it last. The tree is at most three levels deep.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Target parent id, or \"\" for the top level."
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "map",
+        "id",
+        "parentId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_node",
+    "panel": "forest",
+    "access": "write",
+    "description": "Stage deleting a node together with all of its descendants. Only use when the user clearly asks to remove it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "map": {
+          "type": "string",
+          "enum": [
+            "vision",
+            "research"
+          ],
+          "description": "vision = Long-term Vision map, research = Research Agenda map."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "map",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_knowledge",
+    "panel": "recall",
+    "access": "read",
+    "description": "List every knowledge record with id, title, hierarchical tags and next review time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_knowledge",
+    "panel": "recall",
+    "access": "read",
+    "description": "Read one knowledge record: Markdown body, source and its recall points.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_due_reviews",
+    "panel": "recall",
+    "access": "read",
+    "description": "List knowledge records that are due for review now, with their recall point prompts.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_knowledge",
+    "panel": "recall",
+    "access": "write",
+    "description": "Stage a new knowledge record. Keep the user's Markdown as the body; do not invent facts. Recall points are drafted later in the Recall panel. The result returns the new id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "markdown": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        },
+        "tags": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Hierarchical tag path separated by /, e.g. \"社会学/组织理论\"."
+        },
+        "sourceUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "sourceNote": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "title",
+        "markdown"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_knowledge",
+    "panel": "recall",
+    "access": "write",
+    "description": "Stage edits to a knowledge record. Only the given fields change.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "markdown": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        },
+        "tags": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "sourceUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "sourceNote": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_knowledge",
+    "panel": "recall",
+    "access": "write",
+    "description": "Stage deleting a knowledge record with its recall points and review history. Only use when the user clearly asks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_memories",
+    "panel": "memories",
+    "access": "read",
+    "description": "List every memory's metadata: id, song, date, life stage, location, emotion and intensity (no body text).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_memory",
+    "panel": "memories",
+    "access": "read",
+    "description": "Read one memory including its body text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_life_stages",
+    "panel": "memories",
+    "access": "read",
+    "description": "List the user's life stages with start and end months (YYYY-MM).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_memory",
+    "panel": "memories",
+    "access": "write",
+    "description": "Stage a new memory. date is YYYYMMDD when the day is known, otherwise YYYYQn (e.g. 2021Q2). stage must be one of the life stage names or omitted. Keep the user's own words in content. The result returns the new id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "song": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "stage": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "emotion": {
+          "type": "string",
+          "enum": [
+            "nostalgic",
+            "melancholic",
+            "excited",
+            "calm",
+            "confused",
+            "warm"
+          ]
+        },
+        "intensity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "content",
+        "date",
+        "emotion",
+        "intensity"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_memory",
+    "panel": "memories",
+    "access": "write",
+    "description": "Stage edits to a memory. Only the given fields change; stage \"\" clears it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "song": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "stage": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "emotion": {
+          "type": "string",
+          "enum": [
+            "nostalgic",
+            "melancholic",
+            "excited",
+            "calm",
+            "confused",
+            "warm"
+          ]
+        },
+        "intensity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_memory",
+    "panel": "memories",
+    "access": "write",
+    "description": "Stage deleting a memory. Only use when the user clearly asks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
       "additionalProperties": false
     }
   }

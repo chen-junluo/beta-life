@@ -142,7 +142,11 @@ fn system_prompt(settings: &AppSettings, scope: &Scope, context: &str) -> String
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        r#"You are the assistant inside Beta Life, a local-first desktop app with four panels: 时间板 (board: daily habits and to-dos placed in a period or at an hour), 回想 (recall), 能力森林 (forest) and 记忆星云 (memories).
+        r#"You are the assistant inside Beta Life, a local-first desktop app with four panels:
+- 时间板 (board): daily habits and to-dos placed in a period or at an hour.
+- 回想 (recall): knowledge records (Markdown notes with hierarchical tags) reviewed with spaced repetition.
+- 能力森林 (forest): two three-level ability maps, vision (Long-term Vision) and research (Research Agenda); levels are 领域 → 能力组 → 能力.
+- 记忆星云 (memories): personal memories tied to songs, dates, life stages, places and emotions.
 
 User-editable assistant preferences:
 {prompt}

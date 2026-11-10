@@ -21,7 +21,6 @@ const conversation: Conversation = {
       createdAt: "",
       batch: {
         id: "batch",
-        panel: "board",
         status: "pending",
         changes: [
           { id: "x", toolCallId: "c2", name: "add_habit", arguments: {}, createdId: "n", kind: "add", title: "晨跑", detail: "早上", selected: true },
@@ -49,8 +48,10 @@ describe("AiDock", () => {
   });
 
   function render(props: Partial<Parameters<typeof AiDock>[0]> = {}) {
-    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn() };
-    act(() => root.render(<AiDock conversation={conversation} busy={false} error={null} hasApiKey {...handlers} {...props} />));
+    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn() };
+    act(() => root.render(
+      <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} {...handlers} {...props} />,
+    ));
     return handlers;
   }
 
@@ -67,7 +68,7 @@ describe("AiDock", () => {
     expect(host.querySelector(".ai-dock-card")).toBeNull();
   });
 
-  it("sends on Enter with the board scope but not while an IME is composing", () => {
+  it("sends on Enter but not while an IME is composing", () => {
     const { onSend } = render({ conversation: null });
     const input = host.querySelector("textarea")!;
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -82,7 +83,48 @@ describe("AiDock", () => {
     act(() => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
-    expect(onSend).toHaveBeenCalledWith("加一个晨跑", { board: "write" });
+    expect(onSend).toHaveBeenCalledWith("加一个晨跑");
+  });
+
+  function type(input: HTMLTextAreaElement, value: string) {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, value);
+      input.setSelectionRange(value.length, value.length);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  const key = (input: HTMLTextAreaElement, name: string) => act(() => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
+  });
+
+  it("inserts a panel from the @ menu, read-only after Tab, and removes the typed mention", () => {
+    const { onScopeChange } = render({ conversation: null });
+    const input = host.querySelector("textarea")!;
+    type(input, "总结一下 @记忆");
+    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(1);
+    expect(host.querySelector(".ai-mention-access")?.textContent).toBe("只读");
+    key(input, "Tab");
+    expect(host.querySelector(".ai-mention-access")?.textContent).toBe("可改");
+    key(input, "Tab");
+    key(input, "Enter");
+    expect(onScopeChange).toHaveBeenCalledWith({ board: "write", memories: "read" });
+    expect(input.value).toBe("总结一下 ");
+    expect(host.querySelector(".ai-mention-menu")).toBeNull();
+  });
+
+  it("keeps pills when the panel changes and offers a one-click add for the current panel", () => {
+    const { onScopeChange } = render({ conversation: null, activePanel: "forest" });
+    expect([...host.querySelectorAll(".ai-at-pill-main")].map((pill) => pill.textContent)).toEqual(["@时间板"]);
+    const ghost = host.querySelector<HTMLButtonElement>(".ai-at-ghost")!;
+    expect(ghost.textContent).toBe("@能力森林");
+    act(() => ghost.click());
+    expect(onScopeChange).toHaveBeenCalledWith({ board: "write", forest: "write" });
+    act(() => host.querySelector<HTMLButtonElement>(".ai-at-pill-main")!.click());
+    expect(onScopeChange).toHaveBeenLastCalledWith({ board: "read" });
+    act(() => host.querySelector<HTMLButtonElement>(".ai-at-pill-remove")!.click());
+    expect(onScopeChange).toHaveBeenLastCalledWith({});
   });
 
   it("asks for an API key instead of showing the input", () => {

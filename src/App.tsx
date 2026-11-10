@@ -10,8 +10,8 @@ import { AiPanel } from "./components/AiPanel";
 import { AiDock } from "./components/AiDock";
 import { useAssistant } from "./ai/useAssistant";
 import { usePanelHistory } from "./history";
-import { restoreKnowledgeBundle } from "./recallStorage";
-import { restoreMemorySnapshot } from "./memoryStorage";
+import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
+import { restoreMemorySnapshot, type MemorySnapshot } from "./memoryStorage";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
@@ -276,7 +276,41 @@ export default function App() {
     [applyBoard, recordHistory],
   );
 
-  const assistant = useAssistant({ getState: () => stateRef.current, commitBoard });
+  /** One undo step for any number of knowledge records; undo writes them back and reloads the view. */
+  const recordRecall = useCallback((before: KnowledgeBundle[], after: KnowledgeBundle[]) => recordHistory("recall", {
+    before,
+    after,
+    restore: async (bundles) => {
+      for (const bundle of bundles) await restoreKnowledgeBundle(bundle);
+      setRecallRevision((revision) => revision + 1);
+    },
+  }), [recordHistory]);
+
+  const recordMemories = useCallback((before: MemorySnapshot[], after: MemorySnapshot[]) => recordHistory("memories", {
+    before,
+    after,
+    restore: async (snapshots) => {
+      for (const snapshot of snapshots) await restoreMemorySnapshot(snapshot);
+      setMemoriesRevision((revision) => revision + 1);
+    },
+  }), [recordHistory]);
+
+  const [dockFocus, setDockFocus] = useState(0);
+  const assistant = useAssistant({
+    activePanel: activeSection,
+    getState: () => stateRef.current,
+    commitBoard,
+    commitForest: (map, forest) => changeAbilityForest(map, forest, true),
+    // AI writes recall and memories on disk, so the views reload after recording the step.
+    recordRecall: (before, after) => {
+      recordRecall(before, after);
+      setRecallRevision((revision) => revision + 1);
+    },
+    recordMemories: (before, after) => {
+      recordMemories(before, after);
+      setMemoriesRevision((revision) => revision + 1);
+    },
+  });
 
   const petItems = state ? activeItems(state.board) : null;
   const petPeriods = state?.settings.periods;
@@ -426,17 +460,9 @@ export default function App() {
         if (event.shiftKey) void history.redo(activeSection);
         else void history.undo(activeSection);
       }
-      if (
-        !typing &&
-        activeSection === "board" &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "k" &&
-        !showEditor &&
-        !showAi &&
-        !showSettings
-      ) {
+      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !showEditor && !showAi && !showSettings) {
         event.preventDefault();
-        setShowAi(true);
+        setDockFocus((count) => count + 1);
       }
       if (!typing && event.altKey && ["+", "=", "-", "_", "0"].includes(event.key)) {
         event.preventDefault();
@@ -568,8 +594,8 @@ export default function App() {
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
-            <button className="secondary-button" onClick={() => setShowAi(true)} aria-label="AI 提取" title="AI 提取 ⌘K">
-              <Sparkles size={16} /> <span className="topbar-label">AI 提取</span> <kbd>⌘K</kbd>
+            <button className="secondary-button" onClick={() => setShowAi(true)} aria-label="AI 提取" title="AI 提取">
+              <Sparkles size={16} /> <span className="topbar-label">AI 提取</span>
             </button>
             <button className="primary-button" onClick={() => openCreate()}>
               <Plus size={16} /> 新习惯 <kbd>N</kbd>
@@ -598,14 +624,7 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
         topbarActions={topbarActions}
         revision={recallRevision}
-        onHistory={(before, after) => recordHistory("recall", {
-          before,
-          after,
-          restore: async (bundle) => {
-            await restoreKnowledgeBundle(bundle);
-            setRecallRevision((revision) => revision + 1);
-          },
-        })}
+        onHistory={(before, after) => recordRecall([before], [after])}
       /> : activeSection === "forest" ? <AbilityForestView
         key={activeAbilityMap}
         forest={state[ABILITY_MAP_STATE_KEYS[activeAbilityMap]]}
@@ -623,14 +642,7 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
         lifeStagesRevision={lifeStagesRevision}
         dataRevision={memoriesRevision}
-        onHistory={(before, after) => recordHistory("memories", {
-          before,
-          after,
-          restore: async (snapshot) => {
-            await restoreMemorySnapshot(snapshot);
-            setMemoriesRevision((revision) => revision + 1);
-          },
-        })}
+        onHistory={(before, after) => recordMemories([before], [after])}
       /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
@@ -644,18 +656,20 @@ export default function App() {
         />
       </main>}
 
-      {activeSection === "board" && (
-        <AiDock
-          conversation={assistant.conversation}
-          busy={assistant.busy}
-          error={assistant.error}
-          hasApiKey={state.hasApiKey}
-          onOpenSettings={() => setShowSettings(true)}
-          onSend={(text, scope) => void assistant.send(text, scope)}
-          onResolveBatch={assistant.resolveBatch}
-          onNewConversation={assistant.startNew}
-        />
-      )}
+      <AiDock
+        conversation={assistant.conversation}
+        busy={assistant.busy}
+        error={assistant.error}
+        hasApiKey={state.hasApiKey}
+        activePanel={activeSection}
+        scope={assistant.scope}
+        onScopeChange={assistant.setScope}
+        focusRequest={dockFocus}
+        onOpenSettings={() => setShowSettings(true)}
+        onSend={(text) => void assistant.send(text)}
+        onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
+        onNewConversation={() => assistant.startNew(activeSection)}
+      />
 
       {loadError && !window.__TAURI_INTERNALS__ && (
         <div className="browser-warning">当前是浏览器预览模式；数据不会写入本地文件。请使用 <code>npm run tauri dev</code> 测试桌面能力。</div>

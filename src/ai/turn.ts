@@ -1,4 +1,4 @@
-import type { AiBatch, AiPanelId, AiScope, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
+import type { AiBatch, AiScope, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
 
 export const MAX_STEPS = 8;
 
@@ -6,11 +6,9 @@ export interface TurnDeps {
   step: (request: { messages: WireMessage[]; scope: AiScope; context: string }) => Promise<ChatStepReply>;
   /** Index of every readable panel, taken once at the start of the turn. */
   context: string;
-  runTool: (call: AiToolCall) => ToolOutcome;
+  runTool: (call: AiToolCall) => ToolOutcome | Promise<ToolOutcome>;
   /** Called after every change so the UI and storage follow the turn as it runs. */
   onMessages: (messages: ConversationMessage[]) => void;
-  /** Panel that receives the staged writes of this turn. */
-  panel: AiPanelId;
 }
 
 function changeLabel(change: AiBatch["changes"][number]): string {
@@ -82,11 +80,13 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
     const reply = await deps.step({ messages: toWire(messages), scope, context: deps.context });
-    const results = reply.toolCalls.map((call): ConversationMessage => {
-      const outcome = call.error ? { content: JSON.stringify({ error: call.error }) } : deps.runTool(call);
+    const results: ConversationMessage[] = [];
+    // Sequential: a later write in the same step may build on an earlier staged one.
+    for (const call of reply.toolCalls) {
+      const outcome = call.error ? { content: JSON.stringify({ error: call.error }) } : await deps.runTool(call);
       if (outcome.change) changes.push(outcome.change);
-      return { ...stamp(), role: "tool", toolCallId: call.id, name: call.name, content: outcome.content };
-    });
+      results.push({ ...stamp(), role: "tool", toolCallId: call.id, name: call.name, content: outcome.content });
+    }
     messages = [...messages, { ...stamp(), role: "assistant", content: reply.content, toolCalls: reply.toolCalls }, ...results];
     if (reply.toolCalls.length === 0 || changes.length > 0) {
       answered = true;
@@ -96,7 +96,7 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
   }
 
   if (changes.length > 0) {
-    messages = [...messages, { ...stamp(), role: "batch", batch: { id: crypto.randomUUID(), panel: deps.panel, status: "pending", changes } }];
+    messages = [...messages, { ...stamp(), role: "batch", batch: { id: crypto.randomUUID(), status: "pending", changes } }];
   }
   deps.onMessages(messages);
   if (!answered) throw new Error(`AI 连续调用了 ${MAX_STEPS} 步工具仍没有给出回答，已停止。可以把问题说得更具体一些再试。`);

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { itemsInContainer } from "../boardLogic";
-import { DEFAULT_SETTINGS } from "../defaults";
+import { DEFAULT_ABILITY_FOREST, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS } from "../defaults";
 import type { BoardFile, Habit } from "../types";
-import { AI_TOOLS, applyBoardBatch, boardIndex, createBoardSession } from "./boardTools";
+import { AI_TOOLS, applyBoardBatch, boardIndex } from "./boardTools";
+import { createToolSession } from "./session";
+
+const createBoardSession = (board: BoardFile, settings = DEFAULT_SETTINGS) =>
+  createToolSession({ board, settings, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [] });
 
 function habit(id: string, title: string, placement: Habit["placement"], order: number, extra: Partial<Habit> = {}): Habit {
   return { id, title, description: "", tags: "", placement, order, createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z", ...extra };
@@ -20,36 +24,36 @@ const titles = (file: BoardFile, lane: Parameters<typeof itemsInContainer>[1]) =
 describe("board tools", () => {
   const start = board([habit("a", "喝水", morning, 0), habit("b", "拉伸", morning, 1), habit("c", "读书", evening, 0)]);
 
-  it("stages writes on a draft and never touches the confirmed board", () => {
-    const session = createBoardSession(start, DEFAULT_SETTINGS);
-    const added = session.run({ id: "1", name: "add_habit", arguments: { title: "晨跑", period: "morning", tags: "运动" } });
+  it("stages writes on a draft and never touches the confirmed board", async () => {
+    const session = createBoardSession(start);
+    const added = await session.run({ id: "1", name: "add_habit", arguments: { title: "晨跑", period: "morning", tags: "运动" } });
     expect(JSON.parse(added.content)).toMatchObject({ status: "staged", id: added.change!.createdId });
     expect(added.change).toMatchObject({ kind: "add", title: "晨跑", detail: "早上 · 运动", selected: true });
 
     // A later call in the same turn can build on the staged habit.
-    const moved = session.run({ id: "2", name: "move_habit", arguments: { id: added.change!.createdId, hour: 9 } });
+    const moved = await session.run({ id: "2", name: "move_habit", arguments: { id: added.change!.createdId, hour: 9 } });
     expect(moved.change).toMatchObject({ kind: "move", detail: "早上 → 09:00" });
 
-    expect(JSON.parse(session.run({ id: "3", name: "list_habits", arguments: {} }).content).habits).toHaveLength(3);
+    expect(JSON.parse((await session.run({ id: "3", name: "list_habits", arguments: {} })).content).habits).toHaveLength(3);
     expect(items(start)).toHaveLength(3);
   });
 
-  it("returns model-readable errors for bad ids and ambiguous placements", () => {
-    const session = createBoardSession(start, DEFAULT_SETTINGS);
-    const missing = session.run({ id: "1", name: "delete_habit", arguments: { id: "nope" } });
+  it("returns model-readable errors for bad ids and ambiguous placements", async () => {
+    const session = createBoardSession(start);
+    const missing = await session.run({ id: "1", name: "delete_habit", arguments: { id: "nope" } });
     expect(missing.change).toBeUndefined();
     expect(JSON.parse(missing.content).error).toContain('No habit with id "nope"');
-    const both = session.run({ id: "2", name: "add_habit", arguments: { title: "x", period: "noon", hour: 3 } });
+    const both = await session.run({ id: "2", name: "add_habit", arguments: { title: "x", period: "noon", hour: 3 } });
     expect(JSON.parse(both.content).error).toBe("Give exactly one of period or hour");
   });
 
-  it("applies only the selected changes and reports the ones that no longer apply", () => {
-    const session = createBoardSession(start, DEFAULT_SETTINGS);
-    const add = session.run({ id: "1", name: "add_habit", arguments: { title: "冥想", period: "morning", position: 1 } }).change!;
-    const move = session.run({ id: "2", name: "move_habit", arguments: { id: add.createdId, period: "evening" } }).change!;
-    const done = session.run({ id: "3", name: "set_habit_done", arguments: { id: "c", done: true } }).change!;
-    const rename = session.run({ id: "4", name: "update_habit", arguments: { id: "b", title: "全身拉伸", tags: "运动" } }).change!;
-    const remove = session.run({ id: "5", name: "delete_habit", arguments: { id: "a" } }).change!;
+  it("applies only the selected changes and reports the ones that no longer apply", async () => {
+    const session = createBoardSession(start);
+    const add = (await session.run({ id: "1", name: "add_habit", arguments: { title: "冥想", period: "morning", position: 1 } })).change!;
+    const move = (await session.run({ id: "2", name: "move_habit", arguments: { id: add.createdId, period: "evening" } })).change!;
+    const done = (await session.run({ id: "3", name: "set_habit_done", arguments: { id: "c", done: true } })).change!;
+    const rename = (await session.run({ id: "4", name: "update_habit", arguments: { id: "b", title: "全身拉伸", tags: "运动" } })).change!;
+    const remove = (await session.run({ id: "5", name: "delete_habit", arguments: { id: "a" } })).change!;
     expect(rename).toMatchObject({ kind: "edit", title: "拉伸", detail: "标题 → 全身拉伸 · tags → 运动" });
 
     // The user unchecks the add, so the move of that new habit cannot apply.
@@ -61,17 +65,17 @@ describe("board tools", () => {
     expect(itemsInContainer(items(result.board), "period:morning")[0].order).toBe(0);
   });
 
-  it("inserts at the requested position and moves to the end by default", () => {
-    const session = createBoardSession(start, DEFAULT_SETTINGS);
-    const add = session.run({ id: "1", name: "add_habit", arguments: { title: "冥想", period: "morning", position: 1 } }).change!;
-    const move = session.run({ id: "2", name: "move_habit", arguments: { id: "a", period: "evening" } }).change!;
+  it("inserts at the requested position and moves to the end by default", async () => {
+    const session = createBoardSession(start);
+    const add = (await session.run({ id: "1", name: "add_habit", arguments: { title: "冥想", period: "morning", position: 1 } })).change!;
+    const move = (await session.run({ id: "2", name: "move_habit", arguments: { id: "a", period: "evening" } })).change!;
     const { board: next } = applyBoardBatch(start, [add, move]);
     expect(titles(next, "period:morning")).toEqual(["冥想", "拉伸"]);
     expect(titles(next, "period:evening")).toEqual(["读书", "喝水"]);
     expect(next.boards[1]).toBe(start.boards[1]);
   });
 
-  it("indexes the active board in display order without empty fields", () => {
+  it("indexes the active board in display order without empty fields", async () => {
     const file = board([habit("x", "复盘", evening, 0, { tags: "每天", done: true }), habit("y", "早餐", morning, 0), habit("z", "开会", { kind: "hour", hour: 9 }, 0)]);
     expect(boardIndex(file, DEFAULT_SETTINGS)).toEqual({
       board: "My Life",
@@ -83,7 +87,7 @@ describe("board tools", () => {
     });
   });
 
-  it("keeps the registry in MCP shape with a panel and access level", () => {
+  it("keeps the registry in MCP shape with a panel and access level", async () => {
     for (const tool of AI_TOOLS) {
       expect(tool).toMatchObject({ name: expect.any(String), description: expect.any(String), inputSchema: { type: "object" } });
       expect(["read", "write"]).toContain(tool.access);

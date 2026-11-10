@@ -1,11 +1,9 @@
 import { containerForPlacement, hourLabel, itemsInContainer, orderedPeriods, reindexItems } from "../boardLogic";
 import type { AppSettings, BoardFile, Habit, PeriodId, Placement } from "../types";
 import tools from "./tools.json";
-import type { AiChange, AiToolCall, AiToolSpec, ChangeKind, ToolArguments, ToolOutcome } from "./types";
+import type { AiChange, AiToolSpec, ChangeKind, ToolArguments } from "./types";
 
 export const AI_TOOLS = tools as AiToolSpec[];
-
-const WRITE_TOOLS = new Set(AI_TOOLS.filter((tool) => tool.access === "write").map((tool) => tool.name));
 
 type ChangeInput = Pick<AiChange, "name" | "arguments" | "createdId">;
 
@@ -99,7 +97,7 @@ export function placementLabel(placement: Placement, settings: AppSettings): str
 }
 
 /** Human-readable diff row, computed against the board before the change. */
-function describeChange(file: BoardFile, change: ChangeInput, settings: AppSettings): { kind: ChangeKind; title: string; detail: string } {
+export function describeBoardChange(file: BoardFile, change: ChangeInput, settings: AppSettings): { kind: ChangeKind; title: string; detail: string } {
   const args = change.arguments;
   const items = activeItems(file);
   const where = (placement: Placement) => placementLabel(placement, settings);
@@ -152,46 +150,6 @@ export function boardIndex(file: BoardFile, settings: AppSettings) {
   );
   const board = file.boards.find((entry) => entry.id === file.activeBoardId);
   return { board: board?.name ?? "", habits };
-}
-
-const json = (value: unknown) => JSON.stringify(value);
-
-/**
- * Runs board tools for one assistant turn. Reads see the confirmed board; writes are checked and
- * staged on a draft so later calls in the same turn can build on them, but nothing is committed.
- */
-export function createBoardSession(file: BoardFile, settings: AppSettings) {
-  let draft = file;
-  return {
-    run(call: AiToolCall): ToolOutcome {
-      if (call.name === "list_boards") {
-        return {
-          content: json({
-            activeBoardId: file.activeBoardId,
-            boards: file.boards.map((board) => ({ id: board.id, name: board.name, habits: board.items.length })),
-          }),
-        };
-      }
-      if (call.name === "list_habits") return { content: json(boardIndex(file, settings)) };
-      if (!WRITE_TOOLS.has(call.name)) return { content: json({ error: `Unknown tool ${call.name}` }) };
-      try {
-        const input: ChangeInput = {
-          name: call.name,
-          arguments: call.arguments,
-          createdId: call.name === "add_habit" ? crypto.randomUUID() : undefined,
-        };
-        const display = describeChange(draft, input, settings);
-        draft = applyBoardChange(draft, input);
-        const change: AiChange = { id: crypto.randomUUID(), toolCallId: call.id, ...input, ...display, selected: true };
-        return {
-          content: json({ status: "staged", ...(input.createdId && { id: input.createdId }), note: "Waiting for the user to confirm in the diff card." }),
-          change,
-        };
-      } catch (error) {
-        return { content: json({ error: error instanceof Error ? error.message : String(error) }) };
-      }
-    },
-  };
 }
 
 /** Replays the selected changes on the live board. Changes that no longer apply are reported, not thrown. */

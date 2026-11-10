@@ -34,6 +34,8 @@ export type ChangeKind = "add" | "edit" | "move" | "del";
 /** One staged write. It is replayed against the live data when the user confirms. */
 export interface AiChange {
   id: string;
+  /** Missing on changes saved by P2.1, which were all board changes. */
+  panel?: AiPanelId;
   toolCallId: string;
   name: string;
   arguments: ToolArguments;
@@ -50,7 +52,6 @@ export type AiBatchStatus = "pending" | "confirmed" | "cancelled" | "superseded"
 
 export interface AiBatch {
   id: string;
-  panel: AiPanelId;
   status: AiBatchStatus;
   changes: AiChange[];
   failed?: Array<{ changeId: string; reason: string }>;
@@ -86,6 +87,8 @@ export type WireMessage =
   | { role: "assistant"; content: string; toolCalls: AiToolCall[] }
   | { role: "tool"; content: string; toolCallId: string }
   | { role: "note"; content: string };
+
+export const changePanel = (change: AiChange): AiPanelId => change.panel ?? "board";
 
 export interface ToolOutcome {
   /** JSON string returned to the model as the tool result. */
