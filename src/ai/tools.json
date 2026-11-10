@@ -1,0 +1,96 @@
+[
+  {
+    "name": "list_boards",
+    "panel": "board",
+    "access": "read",
+    "description": "List all boards with their ids, names and habit counts, and which one is active. Habit tools only work on the active board.",
+    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+  },
+  {
+    "name": "list_habits",
+    "panel": "board",
+    "access": "read",
+    "description": "List every habit on the active board with id, title, tags, description, placement (period or hour), position inside that placement, and today's done state. Returns confirmed data only; staged changes are not included.",
+    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+  },
+  {
+    "name": "add_habit",
+    "panel": "board",
+    "access": "write",
+    "description": "Stage a new habit on the active board. Give exactly one of period or hour. Use period unless the user states an exact hour. The result returns the new habit id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120, "description": "One concise action." },
+        "description": { "type": "string", "maxLength": 4000, "description": "Optional Markdown note." },
+        "tags": { "type": "string", "maxLength": 200, "description": "Comma-separated tags, e.g. \"运动, 每天\"." },
+        "period": { "type": "string", "enum": ["morning", "noon", "evening", "sleep"] },
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "position": { "type": "integer", "minimum": 0, "description": "0-based slot inside the target placement; omit to put it first." }
+      },
+      "required": ["title"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_habit",
+    "panel": "board",
+    "access": "write",
+    "description": "Stage edits to a habit's title, description or tags. Only the given fields change. Use move_habit to change its time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 4000 },
+        "tags": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "move_habit",
+    "panel": "board",
+    "access": "write",
+    "description": "Stage moving a habit to another period or hour, or to another position in the same one. Give exactly one of period or hour.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "period": { "type": "string", "enum": ["morning", "noon", "evening", "sleep"] },
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "position": { "type": "integer", "minimum": 0, "description": "0-based slot inside the target placement; omit to put it last." }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_habit",
+    "panel": "board",
+    "access": "write",
+    "description": "Stage deleting a habit. Only use when the user clearly asks to remove it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "id": { "type": "string", "minLength": 1 } },
+      "required": ["id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "set_habit_done",
+    "panel": "board",
+    "access": "write",
+    "description": "Stage checking or unchecking a habit as done today.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "done": { "type": "boolean" }
+      },
+      "required": ["id", "done"],
+      "additionalProperties": false
+    }
+  }
+]

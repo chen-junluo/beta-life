@@ -57,6 +57,7 @@ export interface AiSettings {
   recallPointsPrompt: string;
   recallEvaluationPrompt: string;
   memoryAnalysisPrompt: string;
+  assistantPrompt: string;
 }
 
 export interface AppearanceSettings {

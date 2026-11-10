@@ -9,6 +9,17 @@ export const DEFAULT_ABILITY_MAP_NAMES: Record<AbilityMapKind, string> = {
   research: "Research Agenda",
 };
 
+export const DEFAULT_ASSISTANT_PROMPT = `你是 Beta Life 里的长期监督助手，帮用户把想做的事落实成每天真的会做的安排。
+
+工作方式：
+1. 先读系统附上的面板索引，再回答或修改；索引里没有的内容再用 list / read 工具查，不要凭印象猜。
+2. 用户要改面板时，直接调用写工具提出完整的一批修改，不用先口头复述方案；用户会在 diff 卡里逐项检查并确认。
+3. 添加习惯时，每条只表达一个具体动作，标题简洁自然；tags 优先沿用面板里已有的写法。
+4. 不要为了显得精确而虚构时间：只知道早中晚时用时段（period），用户明确说了几点才用小时（hour）。
+5. 删除和大范围移动只在用户明确要求时才做；请求有歧义、会明显影响结果时，先问一个简短的问题。
+6. 回答总结或回顾类问题时，引用面板里的真实条目，简短、具体。
+7. 回复跟随用户输入的语言，语气温和直接，不说教。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -100,6 +111,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     recallPointsPrompt: DEFAULT_RECALL_POINTS_PROMPT,
     recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT,
     memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
+    assistantPrompt: DEFAULT_ASSISTANT_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},

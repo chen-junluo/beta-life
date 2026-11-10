@@ -7,6 +7,8 @@ import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "
 import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
 import { AiPanel } from "./components/AiPanel";
+import { AiDock } from "./components/AiDock";
+import { useAssistant } from "./ai/useAssistant";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
@@ -238,6 +240,8 @@ export default function App() {
     },
     [queueBoardSave],
   );
+
+  const assistant = useAssistant({ getState: () => stateRef.current, commitBoard });
 
   const petItems = state ? activeItems(state.board) : null;
   const petPeriods = state?.settings.periods;
@@ -589,6 +593,19 @@ export default function App() {
           onTagIconChange={(tag, icon) => saveTagIcons((tagIcons) => ({ ...tagIcons, [tag]: icon }))}
         />
       </main>}
+
+      {activeSection === "board" && (
+        <AiDock
+          conversation={assistant.conversation}
+          busy={assistant.busy}
+          error={assistant.error}
+          hasApiKey={state.hasApiKey}
+          onOpenSettings={() => setShowSettings(true)}
+          onSend={(text, scope) => void assistant.send(text, scope)}
+          onResolveBatch={assistant.resolveBatch}
+          onNewConversation={assistant.startNew}
+        />
+      )}
 
       {loadError && !window.__TAURI_INTERNALS__ && (
         <div className="browser-warning">当前是浏览器预览模式；数据不会写入本地文件。请使用 <code>npm run tauri dev</code> 测试桌面能力。</div>

@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
+mod ai;
 mod pet;
 #[allow(dead_code)]
 mod windows_secure_storage;
@@ -83,6 +84,17 @@ const DEFAULT_MEMORY_ANALYSIS_PROMPT: &str = r#"你负责从用户提供的回�
 6. content 保留用户输入的回忆原文，不要改写或补充；不要把已有记忆的内容写进任何字段。
 7. 字段中的自然语言应跟随输入内容的主要语言；固定情绪代码和 JSON 字段名除外。
 8. 只返回符合应用协议的 JSON 对象，不要附加 Markdown 代码块或说明文字。"#;
+
+const DEFAULT_ASSISTANT_PROMPT: &str = r#"你是 Beta Life 里的长期监督助手，帮用户把想做的事落实成每天真的会做的安排。
+
+工作方式：
+1. 先读系统附上的面板索引，再回答或修改；索引里没有的内容再用 list / read 工具查，不要凭印象猜。
+2. 用户要改面板时，直接调用写工具提出完整的一批修改，不用先口头复述方案；用户会在 diff 卡里逐项检查并确认。
+3. 添加习惯时，每条只表达一个具体动作，标题简洁自然；tags 优先沿用面板里已有的写法。
+4. 不要为了显得精确而虚构时间：只知道早中晚时用时段（period），用户明确说了几点才用小时（hour）。
+5. 删除和大范围移动只在用户明确要求时才做；请求有歧义、会明显影响结果时，先问一个简短的问题。
+6. 回答总结或回顾类问题时，引用面板里的真实条目，简短、具体。
+7. 回复跟随用户输入的语言，语气温和直接，不说教。"#;
 
 const LEGACY_DEFAULT_MEMORY_ANALYSIS_PROMPT: &str = r#"你负责从用户提供的回忆中提取记忆星云字段。
 
@@ -237,6 +249,8 @@ struct AiSettings {
     recall_evaluation_prompt: String,
     #[serde(default = "default_memory_analysis_prompt")]
     memory_analysis_prompt: String,
+    #[serde(default = "default_assistant_prompt")]
+    assistant_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -757,6 +771,7 @@ fn default_settings() -> AppSettings {
             recall_points_prompt: DEFAULT_RECALL_POINTS_PROMPT.into(),
             recall_evaluation_prompt: DEFAULT_RECALL_EVALUATION_PROMPT.into(),
             memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
+            assistant_prompt: DEFAULT_ASSISTANT_PROMPT.into(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -781,6 +796,10 @@ fn default_recall_evaluation_prompt() -> String {
 
 fn default_memory_analysis_prompt() -> String {
     DEFAULT_MEMORY_ANALYSIS_PROMPT.into()
+}
+
+fn default_assistant_prompt() -> String {
+    DEFAULT_ASSISTANT_PROMPT.into()
 }
 
 fn migrate_recall_evaluation_prompt(settings: &mut AppSettings) -> bool {
@@ -2895,6 +2914,10 @@ pub fn run() {
             save_memory,
             delete_memory,
             parse_memory_with_ai,
+            ai::ai_chat_step,
+            ai::list_ai_conversations,
+            ai::load_ai_conversation,
+            ai::save_ai_conversation,
             pet::show_main_window,
             pet::set_pet_hit_regions,
             pet::drag_pet_window,
