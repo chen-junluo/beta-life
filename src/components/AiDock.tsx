@@ -471,6 +471,8 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
 
   return (
     <div className="ai-dock">
+      {/* One box: collapsed it is just the composer; expanded it grows upward with the conversation above the composer. */}
+      <div className={`ai-dock-shell ${showCard ? "is-open" : ""}`}>
       {showCard && (
         <section className="ai-dock-card" aria-label="AI 对话">
           <header className="ai-dock-head">
@@ -583,6 +585,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           </button>
         )}
       </form>
+      </div>
     </div>
   );
 }
