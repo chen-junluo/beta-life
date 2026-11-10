@@ -3330,7 +3330,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .timeline-notice span { flex: 1; }
 .timeline-notice .secondary-button { flex: none; }
 .timeline-band-wrap { display: grid; gap: 4px; }
-.timeline-band { position: relative; height: 34px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: repeating-linear-gradient(90deg, transparent 0 calc(100% / 8 - 1px), var(--line) calc(100% / 8 - 1px) calc(100% / 8)), var(--panel-soft); }
+.timeline-band { position: relative; height: 34px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: repeating-linear-gradient(90deg, transparent 0 calc(100% / 24 - 1px), var(--line) calc(100% / 24 - 1px) calc(100% / 24)), var(--panel-soft); }
 .timeline-seg { position: absolute; top: 5px; bottom: 5px; border-radius: 2px; }
 .timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: .55; }
 .timeline-ticks { position: relative; height: 14px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
