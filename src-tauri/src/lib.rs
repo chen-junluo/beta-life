@@ -1864,6 +1864,48 @@ fn delete_recall_review(
     write_knowledge_index(&app, &index)
 }
 
+/// Serializes the full review log of one knowledge record, rejecting records of other records.
+fn reviews_jsonl(knowledge_id: &str, reviews: &[ReviewRecord]) -> Result<String, String> {
+    let mut lines = Vec::with_capacity(reviews.len());
+    for review in reviews {
+        if review.knowledge_id != knowledge_id || !valid_knowledge_id(&review.review_id) {
+            return Err("评价记录与知识 ID 不匹配或缺少有效 ID".into());
+        }
+        lines.push(
+            serde_json::to_string(review).map_err(|error| format!("无法生成评价记录：{error}"))?,
+        );
+    }
+    Ok(if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    })
+}
+
+/// Undo support: writes back exactly `reviews`, then drops the scheduler so it is replayed.
+#[tauri::command]
+fn replace_recall_reviews(
+    app: AppHandle,
+    knowledge_id: String,
+    reviews: Vec<ReviewRecord>,
+) -> Result<(), String> {
+    if !valid_knowledge_id(&knowledge_id) {
+        return Err("知识 ID 无效".into());
+    }
+    let content = reviews_jsonl(&knowledge_id, &reviews)?;
+    let scheduler_path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    if scheduler_path.exists() {
+        fs::remove_file(&scheduler_path)
+            .map_err(|error| format!("无法清除旧的 FSRS 调度快照：{error}"))?;
+    }
+    atomic_write_text(&knowledge_reviews_path(&app, &knowledge_id)?, &content)?;
+    let mut index = read_knowledge_index(&app)?;
+    if let Some(entry) = index.iter_mut().find(|item| item.id == knowledge_id) {
+        entry.next_review_at = reviews.iter().map(|review| review.next_review_at.clone()).min();
+    }
+    write_knowledge_index(&app, &index)
+}
+
 fn remove_review_from_jsonl(
     content: &str,
     knowledge_id: &str,
@@ -2901,6 +2943,7 @@ pub fn run() {
             load_recall_reviews,
             append_recall_review,
             delete_recall_review,
+            replace_recall_reviews,
             load_recall_scheduler,
             save_recall_scheduler,
             parse_knowledge_content,
@@ -3291,6 +3334,23 @@ mod tests {
         for legacy_status in ["wrong", "omitted", "incomplete", "misunderstood", "correct"] {
             assert!(serde_json::from_str::<FsrsGrade>(&format!("\"{legacy_status}\"")).is_err());
         }
+    }
+
+    #[test]
+    fn replaced_review_log_round_trips_and_rejects_foreign_records() {
+        let review: ReviewRecord = serde_json::from_value(json!({
+            "reviewId": "r1", "knowledgeId": "k1", "mode": "full", "answer": "a",
+            "status": "omitted", "feedback": "", "evidence": "",
+            "confirmedAt": "2026-11-01T00:00:00Z", "nextReviewAt": "2026-11-02T00:00:00Z",
+            "source": "manual"
+        }))
+        .expect("legacy review should deserialize");
+        let content = reviews_jsonl("k1", &[review.clone()]).unwrap();
+        let parsed: ReviewRecord = serde_json::from_str(content.trim_end()).unwrap();
+        assert_eq!(parsed.review_id, "r1");
+        assert!(content.ends_with('\n'));
+        assert_eq!(reviews_jsonl("k1", &[]).unwrap(), "");
+        assert!(reviews_jsonl("k2", &[review]).is_err());
     }
 
     #[test]

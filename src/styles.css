@@ -3265,3 +3265,12 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   .ai-op.add { color: #6ee7b7; }
   .ai-op.edit { color: #fbbf24; }
 }
+
+/* Undo / redo feedback: a short pill under the topbar. */
+.history-toast { position: fixed; top: 64px; left: 50%; z-index: 60; padding: 6px 14px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 999px; background: #1e293b; color: #fff; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22); font-size: 12px; font-weight: 600; pointer-events: none; transform: translateX(-50%); animation: history-toast-in .16s ease-out; }
+.history-toast.is-error { background: var(--danger); }
+@keyframes history-toast-in { from { opacity: 0; transform: translate(-50%, -6px); } }
+@media (prefers-color-scheme: dark) {
+  .history-toast { background: #e2e8f0; color: #0f172a; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+  .history-toast.is-error { background: var(--danger); color: #fff; }
+}

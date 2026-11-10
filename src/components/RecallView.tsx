@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, Check, ChevronDown, ChevronRight, FileText, FolderTree, Link2, MessageSquareText, Pencil, Plus, RefreshCw, Save, Shuffle, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler } from "../recallStorage";
+import { appendReview, deleteKnowledge, deleteRecallReview, loadRecallData, saveKnowledge, saveRecallPoints, saveRecallScheduler, type KnowledgeBundle } from "../recallStorage";
 import { buildTagTree, chooseCandidate, matchesTag, normalizeTags, pointsForKnowledge, statusHint, statusLabel } from "../recallLogic";
 import type { SelectionCandidate } from "../recallLogic";
 import { applyGrade, buildKnowledgeCurve, cardForPoint, createSchedulerSnapshot, DEFAULT_DESIRED_RETENTION, DEFAULT_FSRS_PARAMETERS, ensureSchedulerCards, FSRS_ALGORITHM, FSRS_VERSION, gradeForStatus, gradeLabel, replayReviewLog, retrievability, reviewDayKey } from "../recall/fsrs";
@@ -15,6 +15,10 @@ interface RecallViewProps {
   hasApiKey: boolean;
   onOpenSettings: () => void;
   topbarActions?: HTMLElement | null;
+  /** Bumped after an undo/redo wrote to disk; the view reloads quietly. */
+  revision?: number;
+  /** Reports one undoable change of a knowledge record with its points and reviews. */
+  onHistory?: (before: KnowledgeBundle, after: KnowledgeBundle) => void;
 }
 
 type EditorState = { knowledge: KnowledgeRecord; points: RecallPoint[] };
@@ -303,7 +307,7 @@ function ReviewStatusBadge({ status, feedback }: { status: RecallStatus; feedbac
   return <span className={`review-status status-${status}`} aria-label={statusLabel(status)} title={statusHint(status, feedback)} />;
 }
 
-export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions }: RecallViewProps) {
+export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions, revision = 0, onHistory }: RecallViewProps) {
   const [knowledge, setKnowledge] = useState<KnowledgeRecord[]>([]);
   const [points, setPoints] = useState<RecallPoint[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
@@ -320,8 +324,9 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
   const [showKnowledgeDetails, setShowKnowledgeDetails] = useState(false);
   const desiredRetention = Math.min(0.99, Math.max(0.5, settings.recall?.desiredRetention ?? DEFAULT_DESIRED_RETENTION));
 
-  async function refresh() {
-    setLoading(true); setError(null);
+  async function refresh(showLoading = true) {
+    if (showLoading) setLoading(true);
+    setError(null);
     try {
       const data = await loadRecallData();
       const schedulerEntries: FsrsSchedulerSnapshot[] = [];
@@ -344,6 +349,11 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
   }
 
   useEffect(() => { void refresh(); }, [desiredRetention]);
+  useEffect(() => { if (revision > 0) void refresh(false); }, [revision]);
+
+  function bundleOf(id: string): KnowledgeBundle {
+    return { id, record: knowledge.find((item) => item.id === id) ?? null, points: pointsForKnowledge(points, id), reviews: reviews.filter((review) => review.knowledgeId === id) };
+  }
 
   const tagTree = useMemo(() => buildTagTree(knowledge), [knowledge]);
   const knownTagPaths = useMemo(() => [...new Set(knowledge.map((item) => item.tags).filter(Boolean))], [knowledge]);
@@ -461,8 +471,10 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
     const pendingReviews = [...reviews, ...records];
     const nextScheduler = replayReviewLog(session.knowledge.id, knowledgePoints.map((point) => point.pointId), pendingReviews, { createdAt: knowledgeCreatedAt(session.knowledge), now: new Date(confirmedAt), desiredRetention }).snapshot;
     try {
+      const before = bundleOf(session.knowledge.id);
       for (const record of records) await appendReview(record);
       await saveRecallScheduler(nextScheduler);
+      onHistory?.(before, { ...before, reviews: [...before.reviews, ...records] });
       setReviews((current) => [...current, ...records]);
       setSchedulers((current) => [...current.filter((item) => item.knowledgeId !== nextScheduler.knowledgeId), nextScheduler]);
       const nextReviewAt = Object.values(nextScheduler.cards).map((card) => card.due).sort()[0] ?? records[0]?.nextReviewAt;
@@ -477,7 +489,9 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
     const target = reviews.find((review) => review.reviewId === reviewId);
     if (!target) return false;
     try {
+      const before = bundleOf(target.knowledgeId);
       await deleteRecallReview(target.knowledgeId, reviewId);
+      onHistory?.(before, { ...before, reviews: before.reviews.filter((review) => review.reviewId !== reviewId) });
       const remainingReviews = reviews.filter((review) => review.reviewId !== reviewId);
       setReviews(remainingReviews);
       const record = knowledge.find((item) => item.id === target.knowledgeId);
@@ -521,7 +535,7 @@ export function RecallView({ settings, hasApiKey, onOpenSettings, topbarActions 
     {!session ? showKnowledgeDetails && selectedKnowledge ? <KnowledgeOverview knowledge={selectedKnowledge} points={pointsForKnowledge(points, selectedKnowledge.id)} reviews={reviews.filter((review) => review.knowledgeId === selectedKnowledge.id)} scheduler={schedulers.find((snapshot) => snapshot.knowledgeId === selectedKnowledge.id)} desiredRetention={desiredRetention} onEdit={() => openEdit(selectedKnowledge)} onReviewDeleted={removeReview} /> : <div className="recall-start-card"><div className="recall-start-copy"><span className="eyebrow">RECALL SPACE</span><h3>{selectedKnowledge ? `当前选中：${selectedKnowledge.title}` : filtered.length > 0 ? "选择一篇知识查看记忆曲线" : "当前筛选范围没有可抽查的知识"}</h3><p>{selectedKnowledge ? "点击左侧知识条目可查看 Memory Curve；答题、AI 审稿和确认反馈期间会隐藏曲线。" : filtered.length > 0 ? "点击左侧知识条目打开详情和曲线。答题与确认评价期间不会显示 Memory Curve。" : "清空标签筛选，或先加入一篇知识。顶部三个抽查入口都作用于左侧当前可见的知识列表。"}</p></div></div> : <ReviewSession session={session} points={pointsForKnowledge(points, session.knowledge.id)} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onBack={() => { setSession(null); setShowKnowledgeDetails(false); }} onModeChange={(mode) => setSession({ ...session, mode, point: mode === "point" ? session.point ?? pointsForKnowledge(points, session.knowledge.id)[0] : session.point, submitted: false, items: [] })} onPointChange={(pointId) => setSession({ ...session, point: pointsForKnowledge(points, session.knowledge.id).find((point) => point.pointId === pointId), submitted: false, items: [] })} onAnswerChange={(answer) => setSession({ ...session, answer })} onSubmit={submitAnswer} onAi={evaluateWithAi} onItemChange={updateReviewItem} onAcceptAll={acceptAllReviewItems} onConfirm={confirmReview} onReject={() => setSession({ ...session, submitted: false, items: [], source: "manual" })} />}
       </section>
     </div>
-    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} knownTagPaths={knownTagPaths} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setShowKnowledgeDetails(false); setEditor(null); void refresh(); }} onDeleted={(id) => { setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setShowKnowledgeDetails(false); setEditor(null); }} />}
+    {editor && <KnowledgeEditor initial={editor.knowledge} points={editor.points} knownTagPaths={knownTagPaths} hasApiKey={hasApiKey} onOpenSettings={onOpenSettings} onClose={() => setEditor(null)} onSaved={(saved, savedPoints) => { const before = bundleOf(saved.id); onHistory?.(before, { ...before, record: saved, points: savedPoints }); setKnowledge((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]); setPoints((current) => [...current.filter((item) => item.knowledgeId !== saved.id), ...savedPoints]); setSelectedKnowledgeId(saved.id); setShowKnowledgeDetails(false); setEditor(null); void refresh(); }} onDeleted={(id) => { onHistory?.(bundleOf(id), { id, record: null, points: [], reviews: [] }); setKnowledge((current) => current.filter((item) => item.id !== id)); setPoints((current) => current.filter((item) => item.knowledgeId !== id)); setReviews((current) => current.filter((item) => item.knowledgeId !== id)); setSchedulers((current) => current.filter((item) => item.knowledgeId !== id)); setSelectedKnowledgeId((current) => current === id ? null : current); setShowKnowledgeDetails(false); setEditor(null); }} />}
   </main>;
 }
 

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { EmotionType, LifeStage, Memory, MemoryMetadata } from "../types";
 import { matchesSongQuery, memoryHasLocation, splitMemoryLocations } from "../memoryLogic";
+import { memoryForSave, type MemorySnapshot } from "../memoryStorage";
 import { MemoryConstellation } from "./MemoryConstellation";
 import { MemoryCreateSheet } from "./MemoryCreateSheet";
 import { MemoryEditor } from "./MemoryEditor";
@@ -12,9 +13,18 @@ interface MemoriesViewProps {
   hasApiKey: boolean;
   onOpenSettings: () => void;
   lifeStagesRevision: number;
+  /** Bumped after an undo/redo wrote to disk; the view reloads quietly. */
+  dataRevision?: number;
+  /** Reports one undoable change of a memory. */
+  onHistory?: (before: MemorySnapshot, after: MemorySnapshot) => void;
 }
 
-export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: MemoriesViewProps) {
+/** Undo snapshots keep the stored shape but with stage as a string. */
+function savedSnapshot(payload: ReturnType<typeof memoryForSave>): MemorySnapshot {
+  return { id: payload.id, memory: { ...payload, stage: payload.stage ?? "" } };
+}
+
+export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision, dataRevision = 0, onHistory }: MemoriesViewProps) {
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const topSectionRef = useRef<HTMLElement>(null);
   const splitterDrag = useRef<
@@ -45,6 +55,14 @@ export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: 
   useEffect(() => {
     if (lifeStagesRevision > 0) void loadData(false);
   }, [lifeStagesRevision]);
+
+  useEffect(() => {
+    if (dataRevision === 0) return;
+    memoryReadVersion.current += 1;
+    setSelectedMemory(null);
+    setPreviewIntensity(null);
+    void loadData(false);
+  }, [dataRevision]);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -108,15 +126,10 @@ export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: 
 
   async function handleSaveMemory(memory: Memory) {
     try {
-      const now = new Date().toISOString();
-      await invoke("save_memory", {
-        memory: {
-          ...memory,
-          stage: memory.stage.trim() || null,
-          createdAt: memory.createdAt || now,
-          updatedAt: now,
-        },
-      });
+      const before = selectedMemory?.id === memory.id ? selectedMemory : await invoke<Memory>("read_memory", { id: memory.id });
+      const payload = memoryForSave(memory);
+      await invoke("save_memory", { memory: payload });
+      onHistory?.({ id: memory.id, memory: before }, savedSnapshot(payload));
       await loadData(false);
       setSelectedMemory(null);
       setPreviewIntensity(null);
@@ -127,7 +140,9 @@ export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: 
 
   async function handleDeleteMemory(id: string) {
     try {
+      const before = await invoke<Memory>("read_memory", { id });
       await invoke("delete_memory", { id });
+      onHistory?.({ id, memory: before }, { id, memory: null });
       await loadData(false);
       if (selectedMemory?.id === id) setSelectedMemory(null);
       setPreviewIntensity((current) => current?.id === id ? null : current);
@@ -196,15 +211,9 @@ export function MemoriesView({ hasApiKey, onOpenSettings, lifeStagesRevision }: 
   }
 
   async function handleCreateMemory(memory: Memory) {
-    const now = new Date().toISOString();
-    await invoke("save_memory", {
-      memory: {
-        ...memory,
-        stage: memory.stage.trim() || null,
-        createdAt: memory.createdAt || now,
-        updatedAt: now,
-      },
-    });
+    const payload = memoryForSave(memory);
+    await invoke("save_memory", { memory: payload });
+    onHistory?.({ id: memory.id, memory: null }, savedSnapshot(payload));
     const refreshedMemories = await invoke<MemoryMetadata[]>("list_memories");
     setMemories(refreshedMemories);
   }

@@ -174,6 +174,36 @@ export async function deleteRecallReview(knowledgeId: string, reviewId: string):
   persistBrowser(data);
 }
 
+/** Replaces every review of one knowledge record with exactly `reviews` (used by undo). */
+export async function replaceRecallReviews(knowledgeId: string, reviews: ReviewRecord[]): Promise<void> {
+  if (isTauriRuntime()) {
+    await invoke("replace_recall_reviews", { knowledgeId, reviews });
+    return;
+  }
+  const data = browserData();
+  data.reviews = [...data.reviews.filter((review) => review.knowledgeId !== knowledgeId), ...reviews];
+  persistBrowser(data);
+}
+
+/** One knowledge record with its points and reviews; `record: null` means it did not exist. */
+export interface KnowledgeBundle {
+  id: string;
+  record: KnowledgeRecord | null;
+  points: RecallPoint[];
+  reviews: ReviewRecord[];
+}
+
+/** Writes a bundle back. The FSRS scheduler is rebuilt from the reviews on the next refresh. */
+export async function restoreKnowledgeBundle(bundle: KnowledgeBundle): Promise<void> {
+  if (!bundle.record) {
+    await deleteKnowledge(bundle.id);
+    return;
+  }
+  await saveKnowledge(bundle.record);
+  await saveRecallPoints(bundle.id, bundle.points);
+  await replaceRecallReviews(bundle.id, bundle.reviews);
+}
+
 export async function loadRecallScheduler(knowledgeId: string): Promise<FsrsSchedulerSnapshot | undefined> {
   if (isTauriRuntime()) return (await invoke<FsrsSchedulerSnapshot | null>("load_recall_scheduler", { knowledgeId })) ?? undefined;
   return browserData().schedulers.find((item) => item.knowledgeId === knowledgeId);

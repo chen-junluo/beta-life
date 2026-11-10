@@ -9,6 +9,9 @@ import { assignTagIcons } from "./tagIcons";
 import { AiPanel } from "./components/AiPanel";
 import { AiDock } from "./components/AiDock";
 import { useAssistant } from "./ai/useAssistant";
+import { usePanelHistory } from "./history";
+import { restoreKnowledgeBundle } from "./recallStorage";
+import { restoreMemorySnapshot } from "./memoryStorage";
 import { BoardView } from "./components/BoardView";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
@@ -85,6 +88,17 @@ function withActiveItems(boardFile: BoardFile, items: Habit[]): BoardFile {
   };
 }
 
+/** Typing in one node's name or note merges into one undo step; anything else is its own step. */
+function forestEditKey(map: AbilityMapKind, previous: AbilityForest, next: AbilityForest): string | undefined {
+  if (previous.nodes.length !== next.nodes.length) return undefined;
+  const changed = next.nodes.filter((node, index) => node !== previous.nodes[index]);
+  if (changed.length !== 1) return undefined;
+  const before = previous.nodes.find((node) => node.id === changed[0].id);
+  if (!before) return undefined;
+  const fields = (["name", "markdown", "level", "parentId", "order", "color"] as const).filter((field) => before[field] !== changed[0][field]);
+  return fields.length === 1 && (fields[0] === "name" || fields[0] === "markdown") ? `${map}:${before.id}:${fields[0]}` : undefined;
+}
+
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
@@ -108,13 +122,15 @@ export default function App() {
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lifeStagesRevision, setLifeStagesRevision] = useState(0);
+  const [recallRevision, setRecallRevision] = useState(0);
+  const [memoriesRevision, setMemoriesRevision] = useState(0);
   const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
   const [showWorkspaceDrawer, setShowWorkspaceDrawer] = useState(false);
-  const [undoStack, setUndoStack] = useState<BoardFile[]>([]);
-  const [redoStack, setRedoStack] = useState<BoardFile[]>([]);
+  const history = usePanelHistory();
+  const recordHistory = history.record;
   const [topbarActions, setTopbarActions] = useState<HTMLDivElement | null>(null);
   const workspaceDrawerTrigger = useRef<HTMLButtonElement>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -175,9 +191,23 @@ export default function App() {
       });
   }, []);
 
-  const changeAbilityForest = useCallback((map: AbilityMapKind, abilityForest: AbilityForest, immediate = false) => {
+  const changeAbilityForest = useCallback((map: AbilityMapKind, abilityForest: AbilityForest, immediate = false, record = true) => {
     const current = stateRef.current;
     if (!current) return;
+    const previous = current[ABILITY_MAP_STATE_KEYS[map]];
+    // View-only changes (zoom, pan, selection) keep the same nodes and positions and are not undo steps.
+    if (record && (previous.nodes !== abilityForest.nodes || previous.mapPositions !== abilityForest.mapPositions)) {
+      recordHistory("forest", {
+        before: { map, forest: previous },
+        after: { map, forest: abilityForest },
+        key: forestEditKey(map, previous, abilityForest),
+        restore: ({ map: target, forest }) => {
+          const latest = stateRef.current?.[ABILITY_MAP_STATE_KEYS[target]];
+          changeAbilityForest(target, { ...forest, mapState: latest?.mapState ?? forest.mapState }, true, false);
+          setActiveAbilityMap(target);
+        },
+      });
+    }
     const nextState = { ...current, [ABILITY_MAP_STATE_KEYS[map]]: abilityForest };
     stateRef.current = nextState;
     setState(nextState);
@@ -208,7 +238,7 @@ export default function App() {
     };
     if (immediate) persist();
     else timers[map] = window.setTimeout(persist, 420);
-  }, []);
+  }, [recordHistory]);
 
   const changeActiveAbilityForest = useCallback(
     (abilityForest: AbilityForest, immediate?: boolean) => changeAbilityForest(activeAbilityMap, abilityForest, immediate),
@@ -228,17 +258,22 @@ export default function App() {
     return pending;
   }, []);
 
+  const applyBoard = useCallback((board: BoardFile) => {
+    const current = stateRef.current;
+    if (!current) return;
+    const nextState = { ...current, board };
+    stateRef.current = nextState;
+    setState(nextState);
+    queueBoardSave(board);
+  }, [queueBoardSave]);
+
   const commitBoard = useCallback(
-    (board: BoardFile, recordHistory = true) => {
+    (board: BoardFile) => {
       const previous = stateRef.current?.board;
-      if (recordHistory && previous) {
-        setUndoStack((current) => [...current.slice(-49), previous]);
-        setRedoStack([]);
-      }
-      setState((current) => (current ? { ...current, board } : current));
-      queueBoardSave(board);
+      if (previous) recordHistory("board", { before: previous, after: board, restore: applyBoard });
+      applyBoard(board);
     },
-    [queueBoardSave],
+    [applyBoard, recordHistory],
   );
 
   const assistant = useAssistant({ getState: () => stateRef.current, commitBoard });
@@ -363,22 +398,6 @@ export default function App() {
     updateItems([...imported, ...shifted]);
   }
 
-  function undo() {
-    if (!state || undoStack.length === 0) return;
-    const previous = undoStack.at(-1)!;
-    setUndoStack((current) => current.slice(0, -1));
-    setRedoStack((current) => [...current, state.board]);
-    commitBoard(previous, false);
-  }
-
-  function redo() {
-    if (!state || redoStack.length === 0) return;
-    const next = redoStack.at(-1)!;
-    setRedoStack((current) => current.slice(0, -1));
-    setUndoStack((current) => [...current, state.board]);
-    commitBoard(next, false);
-  }
-
   function updateZoomByKeyboard(nextPercent: number) {
     const current = stateRef.current;
     if (!current) return;
@@ -402,10 +421,10 @@ export default function App() {
         event.preventDefault();
         openCreate();
       }
-      if (!typing && activeSection === "board" && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
+        if (event.shiftKey) void history.redo(activeSection);
+        else void history.undo(activeSection);
       }
       if (
         !typing &&
@@ -429,7 +448,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeSection, showEditor, showAi, showSettings, state, undoStack, redoStack]);
+  }, [activeSection, showEditor, showAi, showSettings, history.undo, history.redo]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
@@ -541,11 +560,11 @@ export default function App() {
         )}
 
         <div className="topbar-actions">
+          <div className="history-actions">
+            <button className="icon-button" onClick={() => void history.undo(activeSection)} disabled={!history.canUndo(activeSection)} title="撤销 ⌘Z" aria-label="撤销"><Undo2 size={18} /></button>
+            <button className="icon-button" onClick={() => void history.redo(activeSection)} disabled={!history.canRedo(activeSection)} title="重做 ⇧⌘Z" aria-label="重做"><Redo2 size={18} /></button>
+          </div>
           {activeSection === "board" && <>
-            <div className="history-actions">
-              <button className="icon-button" onClick={undo} disabled={undoStack.length === 0} title="撤销 ⌘Z"><Undo2 size={18} /></button>
-              <button className="icon-button" onClick={redo} disabled={redoStack.length === 0} title="重做 ⇧⌘Z"><Redo2 size={18} /></button>
-            </div>
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
@@ -561,6 +580,10 @@ export default function App() {
         </div>
       </header>
 
+      {history.notice && (
+        <div key={history.notice.id} className={`history-toast ${history.notice.error ? "is-error" : ""}`} role="status">{history.notice.text}</div>
+      )}
+
       <WorkspaceDrawer
         activeSection={activeSection}
         open={showWorkspaceDrawer}
@@ -569,7 +592,21 @@ export default function App() {
         triggerRef={workspaceDrawerTrigger}
       />
 
-      {activeSection === "recall" ? <RecallView settings={state.settings} hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} topbarActions={topbarActions} /> : activeSection === "forest" ? <AbilityForestView
+      {activeSection === "recall" ? <RecallView
+        settings={state.settings}
+        hasApiKey={state.hasApiKey}
+        onOpenSettings={() => setShowSettings(true)}
+        topbarActions={topbarActions}
+        revision={recallRevision}
+        onHistory={(before, after) => recordHistory("recall", {
+          before,
+          after,
+          restore: async (bundle) => {
+            await restoreKnowledgeBundle(bundle);
+            setRecallRevision((revision) => revision + 1);
+          },
+        })}
+      /> : activeSection === "forest" ? <AbilityForestView
         key={activeAbilityMap}
         forest={state[ABILITY_MAP_STATE_KEYS[activeAbilityMap]]}
         saveState={forestSaveState}
@@ -581,7 +618,20 @@ export default function App() {
           onSelect={setActiveAbilityMap}
           onRename={renameAbilityMap}
         />}
-      /> : activeSection === "memories" ? <MemoriesView hasApiKey={state.hasApiKey} onOpenSettings={() => setShowSettings(true)} lifeStagesRevision={lifeStagesRevision} /> : <main className="workspace-scroll">
+      /> : activeSection === "memories" ? <MemoriesView
+        hasApiKey={state.hasApiKey}
+        onOpenSettings={() => setShowSettings(true)}
+        lifeStagesRevision={lifeStagesRevision}
+        dataRevision={memoriesRevision}
+        onHistory={(before, after) => recordHistory("memories", {
+          before,
+          after,
+          restore: async (snapshot) => {
+            await restoreMemorySnapshot(snapshot);
+            setMemoriesRevision((revision) => revision + 1);
+          },
+        })}
+      /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
           settings={state.settings}
