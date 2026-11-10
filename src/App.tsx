@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
 import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
-import { AiPanel } from "./components/AiPanel";
 import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
 import { useAssistant } from "./ai/useAssistant";
@@ -42,7 +41,6 @@ import {
   type PetMarkDone,
 } from "./pet/bridge";
 import type {
-  AiProposalItem,
   AbilityForest,
   AbilityMapKind,
   AppSettings,
@@ -142,7 +140,6 @@ export default function App() {
   const [lifeStagesRevision, setLifeStagesRevision] = useState(0);
   const [recallRevision, setRecallRevision] = useState(0);
   const [memoriesRevision, setMemoriesRevision] = useState(0);
-  const [showAi, setShowAi] = useState(false);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
@@ -383,6 +380,27 @@ export default function App() {
     return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
   }, []);
 
+  // Native file drops are off so the dock can take images; a file dropped anywhere else must not open in the window.
+  useEffect(() => {
+    const ignore = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", ignore);
+    window.addEventListener("drop", ignore);
+    return () => {
+      window.removeEventListener("dragover", ignore);
+      window.removeEventListener("drop", ignore);
+    };
+  }, []);
+
+  /** AI 提取: a new conversation with the 提取习惯 chip and the board writable, ready for text or screenshots. */
+  function startHabitExtraction() {
+    assistant.startNew("board", "extract_habits");
+    setDockHidden(false);
+    setDockFlight(null);
+    setDockFocus((count) => count + 1);
+  }
+
   async function minimizeDock() {
     const target = window.__TAURI_INTERNALS__ ? await invoke<[number, number] | null>("pet_position_in_main").catch(() => null) : null;
     setDockFlight(target ? { x: target[0], y: target[1] } : { x: window.innerWidth, y: window.innerHeight });
@@ -474,46 +492,6 @@ export default function App() {
     setShowEditor(false);
   }
 
-  function importAiItems(proposals: AiProposalItem[]) {
-    if (!state) return;
-    const current = activeItems(state.board);
-    const counts = new Map<ContainerId, number>();
-    const positions = new Map<ContainerId, number>();
-
-    proposals.forEach((proposal) => {
-      const container = proposal.placement.kind === "hour"
-        ? (`hour:${proposal.placement.hour ?? 9}` as ContainerId)
-        : (`period:${proposal.placement.period ?? "morning"}` as ContainerId);
-      counts.set(container, (counts.get(container) ?? 0) + 1);
-    });
-
-    const shifted = current.map((item) => {
-      const count = counts.get(containerForPlacement(item.placement)) ?? 0;
-      return count ? { ...item, order: item.order + count } : item;
-    });
-    const now = new Date().toISOString();
-    const imported = proposals.map((proposal): Habit => {
-      const placement = proposal.placement.kind === "hour"
-        ? { kind: "hour" as const, hour: proposal.placement.hour ?? 9 }
-        : { kind: "period" as const, period: (proposal.placement.period ?? "morning") as PeriodId };
-      const container = containerForPlacement(placement);
-      const order = positions.get(container) ?? 0;
-      positions.set(container, order + 1);
-      return {
-        id: crypto.randomUUID(),
-        title: proposal.title.trim(),
-        description: proposal.reason?.trim() ?? "",
-        tags: proposal.tags?.trim() ?? "",
-        placement,
-        order,
-        sourceExcerpt: proposal.sourceExcerpt?.trim(),
-        createdAt: now,
-        updatedAt: now,
-      };
-    });
-    updateItems([...imported, ...shifted]);
-  }
-
   function updateZoomByKeyboard(nextPercent: number) {
     const current = stateRef.current;
     if (!current) return;
@@ -533,7 +511,7 @@ export default function App() {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const typing = target?.matches("input, textarea, select, [contenteditable='true']");
-      if (!typing && !showWorkbench && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showAi && !showSettings) {
+      if (!typing && !showWorkbench && activeSection === "board" && event.key.toLowerCase() === "n" && !showEditor && !showSettings) {
         event.preventDefault();
         openCreate();
       }
@@ -542,7 +520,7 @@ export default function App() {
         if (event.shiftKey) void history.redo(activeSection);
         else void history.undo(activeSection);
       }
-      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !showEditor && !showAi && !showSettings) {
+      if (!typing && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !showEditor && !showSettings) {
         event.preventDefault();
         setDockHidden(false);
         setDockFocus((count) => count + 1);
@@ -557,7 +535,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeSection, showWorkbench, showEditor, showAi, showSettings, history.undo, history.redo]);
+  }, [activeSection, showWorkbench, showEditor, showSettings, history.undo, history.redo]);
 
   async function saveSettings(settings: AppSettings, apiKey?: string) {
     await queueSettingsSave(settings);
@@ -636,7 +614,10 @@ export default function App() {
       stopped={assistant.stopped}
       onStop={assistant.stop}
       onOpenSettings={() => setShowSettings(true)}
-      onSend={(text) => void assistant.send(text)}
+      onSend={(text, images) => void assistant.send(text, undefined, images)}
+      supportsImages={state.settings.ai.supportsImages}
+      task={assistant.task}
+      onRemoveTask={() => assistant.setTask(null)}
       onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
       onNewConversation={() => assistant.startNew(activeSection)}
       onRename={assistant.rename}
@@ -712,7 +693,7 @@ export default function App() {
             <span className={`save-state ${saveState}`}>
               {saveState === "saving" ? "保存中" : saveState === "error" ? "保存失败" : "已保存"}
             </span>
-            <button className="secondary-button" onClick={() => setShowAi(true)} aria-label="AI 提取" title="AI 提取">
+            <button className="secondary-button" onClick={startHabitExtraction} disabled={assistant.busy} aria-label="AI 提取" title={assistant.busy ? "AI 正在回复，稍后再开始提取" : "从文字或截图提取习惯（在 AI 对话里进行）"}>
               <Sparkles size={16} /> <span className="topbar-label">AI 提取</span>
             </button>
             <button className="primary-button" onClick={() => openCreate()}>
@@ -805,17 +786,6 @@ export default function App() {
           onClose={() => setShowEditor(false)}
           onSave={saveHabit}
           onDelete={deleteHabit}
-        />
-      )}
-
-      {showAi && (
-        <AiPanel
-          settings={state.settings}
-          hasApiKey={state.hasApiKey}
-          knownTags={collectTags(activeItems(state.board).map((item) => item.tags))}
-          onClose={() => setShowAi(false)}
-          onOpenSettings={() => { setShowAi(false); setShowSettings(true); }}
-          onImport={importAiItems}
         />
       )}
 

@@ -75,6 +75,13 @@ describe("board tools", () => {
     expect(next.boards[1]).toBe(start.boards[1]);
   });
 
+  it("keeps the source excerpt of an extracted habit", async () => {
+    const session = createBoardSession(start);
+    const add = (await session.run({ id: "1", name: "add_habit", arguments: { title: "晨跑", period: "morning", sourceExcerpt: " 每天早上跑 20 分钟 " } })).change!;
+    const { board: next } = applyBoardBatch(start, [add]);
+    expect(next.boards[0].items.find((item) => item.id === add.createdId)?.sourceExcerpt).toBe("每天早上跑 20 分钟");
+  });
+
   it("indexes the active board in display order without empty fields", async () => {
     const file = board([habit("x", "复盘", evening, 0, { tags: "每天", done: true }), habit("y", "早餐", morning, 0), habit("z", "开会", { kind: "hour", hour: 9 }, 0)]);
     expect(boardIndex(file, DEFAULT_SETTINGS)).toEqual({

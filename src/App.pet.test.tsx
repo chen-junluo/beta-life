@@ -46,6 +46,8 @@ describe("App and bebe", () => {
         list_ai_conversations: [{ ...conversation, messages: undefined }],
         load_ai_conversation: conversation,
         pet_hidden_by_user: false,
+        ai_chat_step: { content: "需要每天几点？", toolCalls: [] },
+        ai_generate_title: "晨间习惯",
       };
       return Promise.resolve(replies[command]) as never;
     });
@@ -73,6 +75,30 @@ describe("App and bebe", () => {
     expect(input?.placeholder).not.toBe("继续对话…");
     expect(document.activeElement).toBe(input);
     expect(host.querySelector(".ai-dock")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("AI 提取 opens a new conversation with the 提取习惯 chip, even from bebe, and sends it as the task", async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="缩小成 bebe"]')?.click());
+    expect(host.querySelector(".ai-dock")?.hasAttribute("hidden")).toBe(true);
+
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="AI 提取"]')?.click());
+    const input = host.querySelector<HTMLTextAreaElement>(".ai-dock-input")!;
+    expect(host.querySelector(".ai-dock")?.hasAttribute("hidden")).toBe(false);
+    expect(host.querySelector(".ai-dock-pills .ai-task-chip")?.textContent).toBe("提取习惯");
+    expect(host.querySelector(".ai-dock-pills")?.textContent).toContain("@时间板");
+    expect(document.activeElement).toBe(input);
+    expect(host.querySelector(".ai-panel, .ai-sheet")).toBeNull();
+
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      setValue.call(input, "每天早上跑步，睡前读书");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const step = mockedInvoke.mock.calls.find(([command]) => command === "ai_chat_step")?.[1] as { request: { messages: Array<{ task?: string }>; scope: unknown } };
+    expect(step.request.messages[0].task).toBe("extract_habits");
+    expect(step.request.scope).toEqual({ board: "write" });
+    expect(host.querySelector(".ai-dock-pills")).toBeNull();
   });
 
   it("tells Rust the dock is in front unless it is minimized into bebe", async () => {

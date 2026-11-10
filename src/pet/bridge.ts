@@ -63,5 +63,5 @@ export function petChatSnapshot(
   const round = messages.slice(start);
   const reply = round.flatMap((message) => (message.role === "assistant" && message.content.trim() ? [message.content] : [])).at(-1) ?? null;
   const batch = round.flatMap((message) => (message.role === "batch" ? [message.batch] : [])).at(-1) ?? null;
-  return { ...state, title: conversation?.title ?? null, lastUser: user?.role === "user" ? user.content : null, reply, batch };
+  return { ...state, title: conversation?.title ?? null, lastUser: user?.role === "user" ? user.content || (user.images?.length ? `[图片 ×${user.images.length}]` : "") : null, reply, batch };
 }

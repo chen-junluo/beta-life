@@ -1,4 +1,4 @@
-import type { AiBatch, AiScope, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
+import type { AiBatch, AiImageDraft, AiScope, AiTask, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
 
 export interface TurnDeps {
   step: (request: { messages: WireMessage[]; scope: AiScope; context: string }) => Promise<ChatStepReply>;
@@ -37,11 +37,20 @@ export function batchNote(batch: AiBatch): string {
   return `${reason}:\n${list(batch.changes)}`;
 }
 
-export function toWire(messages: ConversationMessage[]): WireMessage[] {
+/** `live` carries the full images of the running turn; earlier images only leave a note behind. */
+export function toWire(messages: ConversationMessage[], live?: { messageId: string; images: AiImageDraft[] }): WireMessage[] {
   return messages.flatMap((message): WireMessage[] => {
     switch (message.role) {
-      case "user":
-        return [{ role: "user", content: message.content }];
+      case "user": {
+        const images = live?.messageId === message.id ? live.images : [];
+        const gone = images.length === 0 && message.images?.length ? `\n\n[${message.images.length} image(s) were attached here; they are no longer visible to you]` : "";
+        return [{
+          role: "user",
+          content: message.content + gone,
+          ...(message.task && { task: message.task }),
+          ...(images.length > 0 && { images: images.map(({ mimeType, dataUrl }) => ({ mimeType, dataUrl })) }),
+        }];
+      }
       case "assistant":
         return [{ role: "assistant", content: message.content, toolCalls: message.toolCalls.map(({ id, name, arguments: args }) => ({ id, name, arguments: args })) }];
       case "tool":
@@ -74,21 +83,30 @@ export class TurnStopped extends Error {
  * without tools. There is no step limit (the user can stop the turn); a step that stages any write
  * ends the turn and the batch waits for the user.
  */
-export async function runTurn(history: ConversationMessage[], text: string, scope: AiScope, deps: TurnDeps): Promise<ConversationMessage[]> {
+export async function runTurn(history: ConversationMessage[], text: string, scope: AiScope, deps: TurnDeps, input: { images?: AiImageDraft[]; task?: AiTask } = {}): Promise<ConversationMessage[]> {
+  const images = input.images ?? [];
+  const user: ConversationMessage = {
+    ...stamp(),
+    role: "user",
+    content: text,
+    scope,
+    ...(images.length > 0 && { images: images.map(({ id, name, thumbnail }) => ({ id, name, thumbnail })) }),
+    ...(input.task && { task: input.task }),
+  };
   let messages: ConversationMessage[] = [
     ...history.map((message) =>
       message.role === "batch" && message.batch.status === "pending"
         ? { ...message, batch: { ...message.batch, status: "superseded" as const } }
         : message,
     ),
-    { ...stamp(), role: "user", content: text, scope },
+    user,
   ];
   deps.onMessages(messages);
   const changes: AiBatch["changes"] = [];
   const stopped = () => deps.signal?.aborted === true;
 
   while (!stopped()) {
-    const reply = await deps.step({ messages: toWire(messages), scope, context: deps.context });
+    const reply = await deps.step({ messages: toWire(messages, { messageId: user.id, images }), scope, context: deps.context });
     if (stopped()) break;
     const results: ConversationMessage[] = [];
     // Sequential: a later write in the same step may build on an earlier staged one.

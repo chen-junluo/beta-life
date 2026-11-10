@@ -48,9 +48,9 @@ describe("AiDock", () => {
   });
 
   function render(props: Partial<Parameters<typeof AiDock>[0]> = {}) {
-    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn(), onRename: vi.fn() };
+    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn(), onRename: vi.fn(), onRemoveTask: vi.fn() };
     act(() => root.render(
-      <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} stopped={false} {...handlers} {...props} />,
+      <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} stopped={false} supportsImages task={null} {...handlers} {...props} />,
     ));
     return handlers;
   }
@@ -83,7 +83,7 @@ describe("AiDock", () => {
     act(() => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
-    expect(onSend).toHaveBeenCalledWith("加一个晨跑");
+    expect(onSend).toHaveBeenCalledWith("加一个晨跑", []);
   });
 
   function type(input: HTMLTextAreaElement, value: string) {
@@ -134,6 +134,44 @@ describe("AiDock", () => {
     const input = host.querySelector("textarea")!;
     key(input, "Backspace");
     expect(onScopeChange).toHaveBeenCalledWith({ board: "write" });
+  });
+
+  it("shows the entry chip ahead of the pills; Backspace removes pills first, then the chip", () => {
+    const { onScopeChange, onRemoveTask } = render({ conversation: null, task: "extract_habits", scope: {} });
+    const chip = host.querySelector(".ai-task-chip")!;
+    expect(chip.textContent).toBe("提取习惯");
+    expect(chip.nextElementSibling?.className).toBe("ai-at-ghost");
+    key(host.querySelector("textarea")!, "Backspace");
+    expect(onRemoveTask).toHaveBeenCalled();
+    expect(onScopeChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the chip on the first message once the conversation started", () => {
+    render({
+      task: "extract_habits",
+      expandRequest: 1,
+      conversation: { ...conversation, messages: [{ id: "u", role: "user", content: "", scope: { board: "write" }, task: "extract_habits", images: [{ id: "i", name: "plan.png", thumbnail: "data:image/jpeg;base64,AA" }], createdAt: "" }] },
+    });
+    expect(host.querySelector(".ai-dock-pills")).toBeNull();
+    expect(host.querySelector(".ai-msg-user-wrap .ai-task-chip")?.textContent).toBe("提取习惯");
+    expect(host.querySelector<HTMLImageElement>(".ai-msg-images img")?.alt).toBe("plan.png");
+    expect(host.querySelector(".ai-msg-user")).toBeNull();
+  });
+
+  it("refuses pasted images when the provider has no image support, and keeps text paste", () => {
+    render({ conversation: null, supportsImages: false });
+    const input = host.querySelector("textarea")!;
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.assign(paste, { clipboardData: { files: [file] } });
+    act(() => input.dispatchEvent(paste));
+    expect(paste.defaultPrevented).toBe(true);
+    expect(host.querySelector(".ai-dock-image-notice")?.textContent).toContain("没有开启图片能力");
+    expect(host.querySelector(".ai-dock-thumb")).toBeNull();
+    const text = new Event("paste", { bubbles: true, cancelable: true });
+    Object.assign(text, { clipboardData: { files: [] } });
+    act(() => input.dispatchEvent(text));
+    expect(text.defaultPrevented).toBe(false);
   });
 
   it("turns send into stop while the assistant is working", () => {

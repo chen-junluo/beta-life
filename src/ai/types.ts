@@ -57,8 +57,26 @@ export interface AiBatch {
   failed?: Array<{ changeId: string; reason: string }>;
 }
 
+/** Entry action that pre-fills a new conversation: a chip in the composer, the prompt lives in `AppSettings.ai`. */
+export type AiTask = "extract_habits";
+export const AI_TASKS: Record<AiTask, { label: string; panel: AiPanelId }> = {
+  extract_habits: { label: "提取习惯", panel: "board" },
+};
+
+/** An image pasted or dropped into the composer: `dataUrl` reaches the model in this turn only. */
+export interface AiImageDraft {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  /** Small JPEG kept in the conversation. */
+  thumbnail: string;
+}
+
+export type StoredImage = Pick<AiImageDraft, "id" | "name" | "thumbnail">;
+
 export type ConversationMessage =
-  | { id: string; role: "user"; content: string; scope: AiScope; createdAt: string }
+  | { id: string; role: "user"; content: string; scope: AiScope; images?: StoredImage[]; task?: AiTask; createdAt: string }
   | { id: string; role: "assistant"; content: string; toolCalls: CheckedToolCall[]; createdAt: string }
   | { id: string; role: "tool"; toolCallId: string; name: string; content: string; createdAt: string }
   | { id: string; role: "batch"; batch: AiBatch; createdAt: string };
@@ -83,7 +101,7 @@ export interface ConversationSummary {
 
 /** Message shape sent to the Rust `ai_chat_step` command. */
 export type WireMessage =
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; task?: AiTask; images?: Array<{ mimeType: string; dataUrl: string }> }
   | { role: "assistant"; content: string; toolCalls: AiToolCall[] }
   | { role: "tool"; content: string; toolCallId: string }
   | { role: "note"; content: string };

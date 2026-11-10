@@ -30,6 +30,25 @@ function deps(replies: ChatStepReply[], runTool: (name: string) => ToolOutcome =
 }
 
 describe("assistant turn", () => {
+  it("sends images only during their own turn and keeps thumbnails and the task", async () => {
+    const image = { id: "i1", name: "plan.png", mimeType: "image/png", dataUrl: "data:image/png;base64,FULL", thumbnail: "data:image/jpeg;base64,THUMB" };
+    const { deps: d, requests } = deps([
+      { content: "", toolCalls: [{ id: "c1", name: "list_boards", arguments: {} }] },
+      { content: "好了", toolCalls: [] },
+    ]);
+    const messages = await runTurn([], "", { board: "write" }, d, { images: [image], task: "extract_habits" });
+    expect(messages[0]).toMatchObject({ role: "user", task: "extract_habits", images: [{ id: "i1", name: "plan.png", thumbnail: image.thumbnail }] });
+    expect(JSON.stringify(messages)).not.toContain("FULL");
+    // Every step of the turn still sees the image.
+    for (const request of requests) {
+      expect(request[0]).toEqual({ role: "user", content: "", task: "extract_habits", images: [{ mimeType: "image/png", dataUrl: image.dataUrl }] });
+    }
+    const later = toWire(messages);
+    expect(later[0]).toMatchObject({ role: "user", task: "extract_habits" });
+    expect(later[0]).not.toHaveProperty("images");
+    expect((later[0] as { content: string }).content).toContain("1 image(s) were attached here");
+  });
+
   it("feeds read results back until the model answers", async () => {
     const { deps: d, requests } = deps([
       { content: "", toolCalls: [{ id: "c1", name: "list_habits", arguments: {} }] },

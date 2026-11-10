@@ -137,43 +137,6 @@ export interface AbilityForest {
   mapState?: AbilityMapState;
 }
 
-export interface ImageAttachment {
-  id: string;
-  name: string;
-  mimeType: string;
-  dataUrl: string;
-}
-
-export interface AiChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  images?: ImageAttachment[];
-}
-
-export interface AiProposalPlacement {
-  kind: "period" | "hour";
-  period?: PeriodId;
-  hour?: number;
-}
-
-export interface AiProposalItem {
-  id: string;
-  title: string;
-  placement: AiProposalPlacement;
-  tags: string;
-  reason?: string;
-  sourceExcerpt?: string;
-  confidence?: "high" | "medium" | "low";
-  selected: boolean;
-}
-
-export interface AiReply {
-  status: "needs_clarification" | "proposal";
-  message: string;
-  items: Array<Omit<AiProposalItem, "id" | "selected">>;
-}
-
 export type ContainerId = `period:${PeriodId}` | `hour:${number}`;
 
 export type RecallPointType = "framework" | "mechanism" | "relationship";

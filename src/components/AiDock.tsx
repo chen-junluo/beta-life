@@ -1,7 +1,8 @@
 import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle, Maximize2, MessageSquarePlus, PawPrint, Pencil, Plus, Send, Shield, Sparkles, Square, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { isImageFile, MAX_IMAGES, readImage } from "../ai/images";
 import { pendingBatch } from "../ai/turn";
-import { changePanel, type AiAccess, type AiBatch, type AiPanelId, type AiScope, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
+import { AI_TASKS, changePanel, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
 import { MarkdownContent } from "./MarkdownEditor";
 
 export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
@@ -32,7 +33,12 @@ interface AiDockProps {
   stopped: boolean;
   onStop: () => void;
   onOpenSettings: () => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, images: AiImageDraft[]) => void;
+  /** Provider accepts images (`AppSettings.ai.supportsImages`); otherwise pasted or dropped images are refused. */
+  supportsImages: boolean;
+  /** Chip of an entry action for the new conversation, e.g. 提取习惯. */
+  task: AiTask | null;
+  onRemoveTask: () => void;
   onResolveBatch: (batchId: string, selectedIds: string[] | null) => void;
   onNewConversation: () => void;
   onRename: (title: string) => void;
@@ -242,7 +248,13 @@ function ConversationView({ messages, onResolve, pendingInSide }: { messages: Co
           previousScope = message.scope;
           return (
             <div key={message.id} className="ai-msg-user-wrap">
-              <div className="ai-msg-user">{message.content}</div>
+              {message.task && <TaskChip task={message.task} />}
+              {message.images && message.images.length > 0 && (
+                <div className="ai-msg-images">
+                  {message.images.map((image) => <img key={image.id} src={image.thumbnail} alt={image.name} title={image.name} />)}
+                </div>
+              )}
+              {message.content && <div className="ai-msg-user">{message.content}</div>}
               {changed && <div className="ai-msg-scope"><Shield size={11} aria-hidden="true" />权限改为：{scopeText(message.scope)}</div>}
             </div>
           );
@@ -274,13 +286,30 @@ function ConversationView({ messages, onResolve, pendingInSide }: { messages: Co
   );
 }
 
+function TaskChip({ task, onRemove }: { task: AiTask; onRemove?: () => void }) {
+  return (
+    <span className="ai-task-chip" style={panelStyle(AI_TASKS[task].panel)}>
+      <Sparkles size={11} aria-hidden="true" />
+      {AI_TASKS[task].label}
+      {onRemove && (
+        <button type="button" className="ai-at-pill-remove" onClick={onRemove} aria-label={`移除「${AI_TASKS[task].label}」`}>
+          <X size={10} />
+        </button>
+      )}
+    </span>
+  );
+}
+
 function panelMatches(panel: AiPanelId, query: string): boolean {
   return !query || AI_PANELS[panel].name.includes(query) || panel.startsWith(query.toLowerCase());
 }
 
-export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench, onMinimize, flightTarget = null, onFlightEnd, hidden = false, expandRequest = 0 }: AiDockProps) {
+export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, supportsImages, task, onRemoveTask, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench, onMinimize, flightTarget = null, onFlightEnd, hidden = false, expandRequest = 0 }: AiDockProps) {
   const workbench = layout === "workbench";
   const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<AiImageDraft[]>([]);
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
+  const [dropping, setDropping] = useState(false);
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [flow, setFlow] = useState({ indent: 0, top: 0 });
@@ -297,6 +326,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   const pills = PANEL_ORDER.filter((panel) => scope[panel]);
   // Permissions are chosen once in the composer; after the first message it is plain text.
   const isNew = !messages.some((message) => message.role === "user");
+  const draftTask = isNew ? task : null;
 
   useEffect(() => {
     if (pendingId) setOpen(true);
@@ -359,7 +389,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     const observer = new ResizeObserver(measure);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [scope, activePanel, hasApiKey, isNew]);
+  }, [scope, activePanel, hasApiKey, isNew, draftTask]);
 
   useLayoutEffect(() => {
     resize();
@@ -427,10 +457,47 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     onScopeChange(next);
   }
 
+  async function addImages(files: File[]) {
+    if (files.length === 0 || !hasApiKey) return;
+    if (!supportsImages) {
+      setImageNotice("当前模型没有开启图片能力：在 Settings → AI Provider 里打开图片支持，或直接粘贴图片里的文字。");
+      return;
+    }
+    const room = MAX_IMAGES - images.length;
+    const accepted = files.slice(0, Math.max(0, room));
+    const notices = files.length > accepted.length ? [`每条消息最多 ${MAX_IMAGES} 张图片`] : [];
+    const read = await Promise.all(accepted.map((file) => readImage(file).catch((reason: Error) => {
+      notices.push(reason.message);
+      return null;
+    })));
+    setImages((current) => [...current, ...read.filter((image): image is AiImageDraft => image !== null)].slice(0, MAX_IMAGES));
+    setImageNotice(notices.length > 0 ? notices.join("；") : null);
+    input.current?.focus();
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files).filter(isImageFile);
+    if (files.length === 0) return;
+    // Screenshots arrive as files; text pasted alongside them is kept out so the image is not doubled as a file name.
+    event.preventDefault();
+    void addImages(files);
+  }
+
+  const dragsFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes("Files");
+
+  function handleDrop(event: DragEvent<HTMLFormElement>) {
+    if (!dragsFiles(event)) return;
+    event.preventDefault();
+    setDropping(false);
+    void addImages(Array.from(event.dataTransfer.files).filter(isImageFile));
+  }
+
   function submit() {
-    if (!draft.trim() || busy) return;
-    onSend(draft);
+    if ((!draft.trim() && images.length === 0) || busy) return;
+    onSend(draft, images);
     setDraft("");
+    setImages([]);
+    setImageNotice(null);
     setStacked(false);
     setPicker(null);
     setOpen(true);
@@ -463,9 +530,10 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
     }
     // Backspace at the very start deletes the last pill, like a chip in a token field.
     const target = event.currentTarget;
-    if (isNew && event.key === "Backspace" && target.selectionStart === 0 && target.selectionEnd === 0 && pills.length > 0) {
+    if (isNew && event.key === "Backspace" && target.selectionStart === 0 && target.selectionEnd === 0 && (pills.length > 0 || draftTask)) {
       event.preventDefault();
-      removePill(pills[pills.length - 1]);
+      if (pills.length > 0) removePill(pills[pills.length - 1]);
+      else onRemoveTask();
       return;
     }
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -572,11 +640,37 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           </div>
         </section>
       )}
-      <form className="ai-dock-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <form
+        className={`ai-dock-composer ${dropping ? "is-dropping" : ""}`}
+        onSubmit={(event) => { event.preventDefault(); submit(); }}
+        onDragOver={(event) => {
+          if (!dragsFiles(event) || !hasApiKey) return;
+          event.preventDefault();
+          setDropping(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false);
+        }}
+        onDrop={handleDrop}
+      >
         {picker?.anchor === "composer" && pickerMenu}
+        {(images.length > 0 || imageNotice) && (
+          <div className="ai-dock-attachments">
+            {images.map((image) => (
+              <span key={image.id} className="ai-dock-thumb">
+                <img src={image.thumbnail} alt={image.name} title={image.name} />
+                <button type="button" onClick={() => setImages((current) => current.filter((item) => item.id !== image.id))} aria-label={`移除图片 ${image.name}`}>
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            {imageNotice && <span className="ai-dock-image-notice" role="status">{imageNotice}</span>}
+          </div>
+        )}
         <div className={`ai-dock-field ${stacked && isNew ? "is-stacked" : ""}`}>
           {isNew && (
             <div className="ai-dock-pills" ref={pillsRef}>
+              {draftTask && <TaskChip task={draftTask} onRemove={onRemoveTask} />}
               {pills.map((panel) => (
                 <span key={panel} className="ai-at-pill" style={panelStyle(panel)}>
                   <button
@@ -607,10 +701,11 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
               rows={1}
               value={draft}
               style={isNew ? flowStyle : undefined}
-              placeholder={!isNew ? "继续对话…" : pills.length > 1 ? "问 AI…（@ 选择 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 选择 panel）`}
+              placeholder={draftTask ? (supportsImages ? "粘贴文字或截图，也可以把图片拖进来…" : "粘贴要整理的文字…") : !isNew ? "继续对话…" : pills.length > 1 ? "问 AI…（@ 选择 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 选择 panel）`}
               aria-label="给 AI 助手发消息"
               onChange={(event) => updateDraft(event.target.value, event.target.selectionStart ?? event.target.value.length)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               onBlur={() => setPicker(null)}
             />
           ) : (
@@ -645,7 +740,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
             <Square size={13} fill="currentColor" />
           </button>
         ) : (
-          <button type="submit" className="primary-button ai-dock-send" disabled={!hasApiKey || !draft.trim()} aria-label="发送">
+          <button type="submit" className="primary-button ai-dock-send" disabled={!hasApiKey || (!draft.trim() && images.length === 0)} aria-label="发送">
             <Send size={15} />
           </button>
         )}

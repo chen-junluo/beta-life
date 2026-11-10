@@ -10,7 +10,7 @@ type PromptKey = "assistantPrompt" | "extractionPrompt" | "knowledgeImportPrompt
 
 const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
   { key: "assistantPrompt", label: "AI 助手", help: "AI 助手的工作方式和语气。工具协议、@ 权限和「写入前先确认」由应用管理，这里改不掉。", fallback: DEFAULT_ASSISTANT_PROMPT },
-  { key: "extractionPrompt", label: "习惯提取", help: "从文字、对话或图片中提取时间板习惯。", fallback: DEFAULT_EXTRACTION_PROMPT },
+  { key: "extractionPrompt", label: "习惯提取", help: "点时间板的「AI 提取」后，AI 助手按这里的要求从文字或截图里提取习惯；工具协议和「写入前先确认」由应用管理。", fallback: DEFAULT_EXTRACTION_PROMPT },
   { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },
   { key: "recallPointsPrompt", label: "抽查点起草", help: "根据知识正文生成 framework、mechanism、relationship 抽查点。", fallback: DEFAULT_RECALL_POINTS_PROMPT },
   { key: "recallEvaluationPrompt", label: "抽查评价与反馈", help: "按 FSRS 等级评价关键点，并生成待确认反馈。", fallback: DEFAULT_RECALL_EVALUATION_PROMPT },

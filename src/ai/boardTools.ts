@@ -54,6 +54,7 @@ export function applyBoardChange(file: BoardFile, change: ChangeInput, now = new
         tags: typeof args.tags === "string" ? args.tags.trim() : "",
         placement: placementFrom(args),
         order: 0,
+        ...(typeof args.sourceExcerpt === "string" && args.sourceExcerpt.trim() && { sourceExcerpt: args.sourceExcerpt.trim() }),
         createdAt: now,
         updatedAt: now,
       };
