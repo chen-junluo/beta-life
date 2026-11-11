@@ -23,6 +23,16 @@ describe("activity summary", () => {
     expect(band[0].width).toBeCloseTo(100 / 24);
   });
 
+  it("totals time per category, unclassified apart", () => {
+    const { categories, band } = summarizeDay([
+      { ...s(at(9), at(10), "Code"), category: "focus" },
+      { ...s(at(10), at(10, 20), "Microsoft Edge", "", "bilibili.com"), category: "slack" },
+      { ...s(at(10, 20), at(10, 30), "Notion"), category: null },
+    ], bounds);
+    expect(categories).toEqual({ focus: 60 * 60_000, neutral: 0, slack: 20 * 60_000, none: 10 * 60_000 });
+    expect(band.map((segment) => segment.categoryColor)).toEqual(["#16a34a", "#ea580c", "#cbd5e1"]);
+  });
+
   it("clips sessions to the day", () => {
     const { total, band } = summarizeDay([s(at(23, 30), at(23, 30) + 3_600_000, "Code")], bounds);
     expect(total).toBe(30 * 60_000);

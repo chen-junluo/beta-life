@@ -16,6 +16,7 @@ use std::process::Command;
 
 mod activity;
 mod ai;
+mod categories;
 mod pet;
 mod vault;
 #[allow(dead_code)]
@@ -2574,7 +2575,11 @@ pub fn run() {
             activity::activity_status,
             activity::request_accessibility,
             activity::open_automation_settings,
-            activity::load_activity_day,
+            categories::load_activity_day,
+            categories::load_activity_rules,
+            categories::save_activity_rules,
+            categories::set_activity_rule,
+            categories::activity_pulse,
             ai::ai_chat_step,
             ai::ai_generate_title,
             ai::list_ai_conversations,

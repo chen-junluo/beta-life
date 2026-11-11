@@ -1,7 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ChevronDown, ChevronLeft, ChevronRight, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { dayBounds, dayKey, formatDuration, summarizeDay, type ActivitySession, type ActivityStatus } from "../activity";
+import {
+  CATEGORIES,
+  dayBounds,
+  dayKey,
+  formatDuration,
+  RULES_CHANGED,
+  setActivityRule,
+  summarizeDay,
+  UNCLASSIFIED,
+  type ActivityCategory,
+  type ActivityDay,
+  type ActivityStatus,
+  type TargetState,
+} from "../activity";
+import { CategoryChip } from "./CategoryChip";
 
 const REFRESH_MS = 15_000;
 const TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -10,10 +25,10 @@ function errorText(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
-/** Read-only day view of the activity record: a 24h band and apps ranked by time. */
+/** Day view of the activity record: a 24h band, apps ranked by time, and a category per app / site. */
 export function TimelineView() {
   const [day, setDay] = useState(() => new Date());
-  const [sessions, setSessions] = useState<ActivitySession[]>([]);
+  const [record, setRecord] = useState<ActivityDay | null>(null);
   const [status, setStatus] = useState<ActivityStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -25,10 +40,10 @@ export function TimelineView() {
     setNow(Date.now());
     try {
       const [loaded, current] = await Promise.all([
-        invoke<ActivitySession[]>("load_activity_day", { date: key }),
+        invoke<ActivityDay>("load_activity_day", { date: key }),
         invoke<ActivityStatus>("activity_status"),
       ]);
-      setSessions(loaded ?? []);
+      setRecord(loaded ?? null);
       setStatus(current ?? null);
       setError(null);
     } catch (reason) {
@@ -48,6 +63,13 @@ export function TimelineView() {
     };
   }, [refresh, isToday]);
 
+  // bebe and Settings change the rules too.
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    const unlisten = listen(RULES_CHANGED, () => void refresh());
+    return () => void unlisten.then((stop) => stop());
+  }, [refresh]);
+
   function shiftDay(days: number) {
     setExpanded(null);
     setDay((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + days));
@@ -62,8 +84,21 @@ export function TimelineView() {
     }
   }
 
+  async function classify(target: TargetState, category: ActivityCategory | null) {
+    try {
+      await setActivityRule(target, category);
+      await refresh();
+    } catch (reason) {
+      setError(`分类保存失败：${errorText(reason)}`);
+    }
+  }
+
+  function chip(target: TargetState | undefined) {
+    return target ? <CategoryChip category={target.category} name={target.label} onChange={(category) => void classify(target, category)} /> : <span />;
+  }
+
   const bounds = dayBounds(day);
-  const { total, groups, band } = summarizeDay(sessions, bounds);
+  const { total, groups, band, categories } = summarizeDay(record?.sessions ?? [], bounds);
   const longest = groups[0]?.total ?? 1;
   const nowLeft = isToday ? ((now - bounds[0]) / (bounds[1] - bounds[0])) * 100 : null;
   const deniedBrowsers = status?.browsers.filter((browser) => browser.access === "denied").map((browser) => browser.name) ?? [];
@@ -82,6 +117,13 @@ export function TimelineView() {
           </div>
           <div className="timeline-total"><span>活跃</span><strong>{formatDuration(total)}</strong></div>
         </header>
+        {total > 0 && (
+          <ul className="timeline-cats" aria-label="各类时长">
+            {[...CATEGORIES, { id: "none" as const, ...UNCLASSIFIED }].map((item) => (
+              <li key={item.id}><i style={{ background: item.color }} aria-hidden="true" />{item.label}<strong>{formatDuration(categories[item.id])}</strong></li>
+            ))}
+          </ul>
+        )}
 
         {status && !status.supported && <div className="timeline-notice"><ShieldAlert size={15} aria-hidden="true" /><span>活动记录目前只支持 macOS。</span></div>}
         {status?.supported && !status.accessibility && (
@@ -107,6 +149,11 @@ export function TimelineView() {
             ))}
             {nowLeft !== null && <span className="timeline-now" style={{ left: `${nowLeft}%` }} aria-hidden="true" />}
           </div>
+          <div className="timeline-cat-band" aria-hidden="true">
+            {band.map((segment, index) => (
+              <span key={index} style={{ left: `${segment.left}%`, width: `max(${segment.width}%, 1px)`, background: segment.categoryColor }} />
+            ))}
+          </div>
           <div className="timeline-ticks" aria-hidden="true">
             {TICKS.map((hour) => <span key={hour} style={{ left: `${(hour / 24) * 100}%` }}>{hour}</span>)}
           </div>
@@ -122,19 +169,23 @@ export function TimelineView() {
               const open = expanded === group.app;
               return (
                 <li key={group.app}>
-                  <button type="button" className="timeline-row" aria-expanded={open} onClick={() => setExpanded(open ? null : group.app)}>
-                    <i style={{ background: group.color }} aria-hidden="true" />
-                    <span className="timeline-name" title={group.app}>{group.app}</span>
-                    <span className="timeline-bar"><span style={{ width: `${(group.total / longest) * 100}%`, background: group.color }} /></span>
-                    <span className="timeline-time">{formatDuration(group.total)}</span>
-                    <ChevronDown size={14} className="timeline-chevron" aria-hidden="true" />
-                  </button>
+                  <div className="timeline-line">
+                    <button type="button" className="timeline-row" aria-expanded={open} onClick={() => setExpanded(open ? null : group.app)}>
+                      <i style={{ background: group.color }} aria-hidden="true" />
+                      <span className="timeline-name" title={group.app}>{group.app}</span>
+                      <span className="timeline-bar"><span style={{ width: `${(group.total / longest) * 100}%`, background: group.color }} /></span>
+                      <span className="timeline-time">{formatDuration(group.total)}</span>
+                      <ChevronDown size={14} className="timeline-chevron" aria-hidden="true" />
+                    </button>
+                    {chip(record?.apps[group.app])}
+                  </div>
                   {open && (
                     <ul className="timeline-children">
                       {group.children.map((child) => (
                         <li key={child.label}>
                           <span title={child.label}>{child.label}</span>
                           <span className="timeline-time">{formatDuration(child.total)}</span>
+                          {group.byDomain ? chip(record?.domains[child.label]) : <span />}
                         </li>
                       ))}
                     </ul>
@@ -145,6 +196,7 @@ export function TimelineView() {
           </ol>
         )}
 
+        {groups.some((group) => group.byDomain) && <p className="timeline-foot">浏览器那一行的分类只管没有域名的页面（新标签页等）；网站展开后单独分类，子域名跟着主站。标题关键词例外在 Settings「分类」里加。</p>}
         {status?.supported && askedBrowsers && <p className="timeline-foot">第一次切到 Edge 或 Chrome 时，macOS 会询问是否允许 beta-life 控制它；允许后才记录网页域名（只存域名，不存完整网址）。</p>}
       </div>
     </main>

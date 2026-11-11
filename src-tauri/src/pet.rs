@@ -222,6 +222,12 @@ fn update_presence(app: &AppHandle, change: impl FnOnce(&mut Presence)) {
     }
 }
 
+/// The main window is focused (bebe's bubbles wait until the user leaves beta-life).
+pub fn main_focused(app: &AppHandle) -> bool {
+    app.try_state::<PetPresence>()
+        .is_some_and(|state| state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).main_focused)
+}
+
 /// Called from the main window's focus events.
 pub fn set_main_focused(app: &AppHandle, focused: bool) {
     update_presence(app, |presence| presence.main_focused = focused);

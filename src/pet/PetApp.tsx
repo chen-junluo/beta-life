@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { MessageCircle, Send, Square, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { RULES_CHANGED, setActivityRule, CATEGORIES, type ActivityCategory, type RuleTarget } from "../activity";
 import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { renderMarkdown } from "../markdown";
@@ -23,12 +24,29 @@ import {
   type PetMarkDone,
 } from "./bridge";
 import { isSleepPeriod, localDateKey, reminderSlot } from "./reminders";
+import {
+  afterNudge,
+  ASK_GAP_MS,
+  askCandidate,
+  FRESH_NUDGES,
+  isWorried,
+  nudgeLevel,
+  nudgeText,
+  PULSE_REQUEST,
+  SNOOZE_SLACK_MS,
+  targetKey,
+  type ActivityPulse,
+  type NudgeLevel,
+  type NudgeMemory,
+} from "./slack";
 import { SpritePlayer, preloadStrips, type PetManifest } from "./sprite";
 
 const ASSET_BASE = "/assets/bebe/";
 const TICK_MS = 30_000;
 const SNOOZE_MS = 15 * 60_000;
 const FOCUS_MS = 5 * 60_000;
+/** The light (level 1) slack reminder goes away by itself. */
+const LIGHT_NUDGE_MS = 15_000;
 const DRAG_THRESHOLD = 4;
 const DAY_STORAGE_KEY = "bebe:day";
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
@@ -37,12 +55,16 @@ type Bubble =
   | { kind: "reminder"; hour: number; queue: Habit[] }
   | { kind: "focus"; habit: Habit; endsAt: number }
   | { kind: "checkin"; habit: Habit }
+  | { kind: "nudge"; level: NudgeLevel; label: string; minutes: number; target: RuleTarget | null }
+  | { kind: "ask"; target: RuleTarget; minutes: number }
   | { kind: "chat" };
 
 interface DayMemory {
   date: string;
   reminded: string[];
   skipped: string[];
+  /** Apps / sites bebe should not ask about again today (`targetKey`). */
+  askSkipped?: string[];
 }
 
 function loadDay(now: Date): DayMemory {
@@ -83,6 +105,8 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
     reminder: { kind: "reminder", hour: 14, queue: [habit, { ...habit, id: "second", title: "回复导师邮件" }] },
     focus: { kind: "focus", habit, endsAt: Date.now() + FOCUS_MS },
     checkin: { kind: "checkin", habit },
+    nudge: { kind: "nudge", level: Number(params.get("level") ?? 2) as NudgeLevel, label: "bilibili.com", minutes: 12, target: { kind: "domain", key: "bilibili.com", label: "bilibili.com" } },
+    ask: { kind: "ask", target: { kind: "domain", key: "ycombinator.com", label: "ycombinator.com" }, minutes: 7 },
     chat: { kind: "chat" },
   };
   const chat: PetChatSnapshot = {
@@ -208,6 +232,17 @@ export function PetApp() {
   const [items, setItems] = useState<Habit[]>([]);
   const [periods, setPeriods] = useState<PeriodSetting[]>([]);
   const [bubble, setBubble] = useState<Bubble | null>(preview.bubble);
+  // Both the hourly reminders and the activity pulse raise bubbles; the ref stops one from
+  // overwriting the other when they fire in the same commit.
+  const bubbleRef = useRef(bubble);
+  bubbleRef.current = bubble;
+  const raise = useCallback((next: Bubble) => {
+    bubbleRef.current = next;
+    setBubble(next);
+  }, []);
+  const [pulse, setPulse] = useState<ActivityPulse | null>(null);
+  const [nudges, setNudges] = useState<NudgeMemory>(FRESH_NUDGES);
+  const lastAskAt = useRef(0);
   const [snoozed, setSnoozed] = useState<{ until: number; hour: number; queue: Habit[] } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const dayRef = useRef<DayMemory>(loadDay(new Date()));
@@ -218,7 +253,8 @@ export function PetApp() {
   const chatBusy = chat?.busy ?? false;
 
   const sleeping = isSleepPeriod(new Date(now), periods);
-  const baseState = preview.state ?? (sleeping ? "sleep" : "idle");
+  const worried = !sleeping && isWorried(pulse, nudges);
+  const baseState = preview.state ?? (sleeping ? "sleep" : worried ? "worried" : "idle");
   const baseStateRef = useRef(baseState);
   baseStateRef.current = baseState;
 
@@ -302,7 +338,7 @@ export function PetApp() {
     if (dayRef.current.date !== localDateKey(date)) dayRef.current = loadDay(date);
 
     if (bubble?.kind === "focus" && now >= bubble.endsAt) {
-      setBubble({ kind: "checkin", habit: bubble.habit });
+      raise({ kind: "checkin", habit: bubble.habit });
       play("alert");
       return;
     }
@@ -313,7 +349,7 @@ export function PetApp() {
       setSnoozed(null);
       const queue = pendingOnly(snoozed.queue);
       if (queue.length === 0) return;
-      setBubble({ kind: "reminder", hour: snoozed.hour, queue });
+      raise({ kind: "reminder", hour: snoozed.hour, queue });
       play("alert");
       return;
     }
@@ -323,9 +359,57 @@ export function PetApp() {
     saveDay(dayRef.current);
     const queue = pendingOnly(slot.habits);
     if (queue.length === 0) return;
-    setBubble({ kind: "reminder", hour: date.getHours(), queue });
+    raise({ kind: "reminder", hour: date.getHours(), queue });
     play("alert");
-  }, [now, items, periods, bubble, sleeping, away, snoozed, pendingOnly, play, preview.bubble]);
+  }, [now, items, periods, bubble, sleeping, away, snoozed, pendingOnly, play, raise, preview.bubble]);
+
+  // The activity pulse: what is in front, the slack streak, unclassified apps used long enough.
+  useEffect(() => {
+    if (!isTauri) return;
+    const poll = () => void invoke<ActivityPulse>("activity_pulse", { request: PULSE_REQUEST }).then(setPulse).catch(() => setPulse(null));
+    poll();
+    const interval = setInterval(poll, TICK_MS);
+    const unlisten = listen(RULES_CHANGED, poll);
+    return () => {
+      clearInterval(interval);
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  // Slack reminders first, then one "what is this?" question; never while asleep or in beta-life.
+  useEffect(() => {
+    if (!pulse || preview.bubble) return;
+    const current = bubbleRef.current;
+    // Back to work (or gone): an open slack reminder is no longer true.
+    if (current?.kind === "nudge" && pulse.slackSince === null) {
+      setBubble(null);
+      return;
+    }
+    if (current || sleeping || away) return;
+    const at = Date.now();
+    const level = nudgeLevel(pulse, nudges, at);
+    if (level && pulse.current && pulse.slackSince !== null) {
+      setNudges(afterNudge(level, at));
+      raise({ kind: "nudge", level, label: pulse.current.label, minutes: Math.round((at - pulse.slackSince) / 60_000), target: pulse.current.target });
+      // Level 3 makes worried the base state (it loops); the others only perk up once.
+      play(level === 3 ? "worried" : "alert");
+      return;
+    }
+    if (at - lastAskAt.current < ASK_GAP_MS) return;
+    const date = new Date(at);
+    if (dayRef.current.date !== localDateKey(date)) dayRef.current = loadDay(date);
+    const candidate = askCandidate(pulse, dayRef.current.askSkipped ?? []);
+    if (!candidate) return;
+    lastAskAt.current = at;
+    raise({ kind: "ask", target: candidate, minutes: Math.max(1, Math.round(candidate.todayMs / 60_000)) });
+  }, [pulse, nudges, sleeping, away, raise, play, preview.bubble]);
+
+  // The light reminder goes away by itself.
+  useEffect(() => {
+    if (bubble?.kind !== "nudge" || bubble.level !== 1 || preview.bubble) return;
+    const timer = setTimeout(() => setBubble((open) => (open === bubble ? null : open)), LIGHT_NUDGE_MS);
+    return () => clearTimeout(timer);
+  }, [bubble, preview.bubble]);
 
   // Keep the reminder queue in sync when to-dos are finished from the main window.
   useEffect(() => {
@@ -374,6 +458,22 @@ export function PetApp() {
 
   function snooze(queue: Habit[], hour: number) {
     setSnoozed({ until: Date.now() + SNOOZE_MS, hour, queue });
+    setBubble(null);
+  }
+
+  function snoozeSlack() {
+    setNudges((memory) => ({ ...memory, quietUntil: Date.now() + SNOOZE_SLACK_MS }));
+    setBubble(null);
+  }
+
+  async function classify(target: RuleTarget, category: ActivityCategory) {
+    setBubble(null);
+    if (isTauri) await setActivityRule(target, category).catch(console.error);
+  }
+
+  function skipAsk(target: RuleTarget) {
+    dayRef.current = { ...dayRef.current, askSkipped: [...(dayRef.current.askSkipped ?? []), targetKey(target)] };
+    saveDay(dayRef.current);
     setBubble(null);
   }
 
@@ -435,6 +535,41 @@ export function PetApp() {
               <span className="pet-bubble-meta">专注中</span>
               <p className="pet-bubble-text" title={bubble.habit.title}>{bubble.habit.title}</p>
               <strong className="pet-countdown" aria-label="剩余时间">{formatCountdown(bubble.endsAt - now)}</strong>
+            </>
+          )}
+          {bubble.kind === "nudge" && (
+            <>
+              <span className="pet-bubble-meta">摸鱼提醒</span>
+              <p className="pet-bubble-text" title={bubble.label}>{nudgeText(bubble.level, bubble.label, bubble.minutes)}</p>
+              <div className="pet-bubble-actions">
+                {bubble.level === 1 ? (
+                  <button type="button" className="secondary-button" onClick={() => setBubble(null)}>知道啦</button>
+                ) : (
+                  <>
+                    <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>回去做事</button>
+                    <button type="button" className="secondary-button" onClick={snoozeSlack}>10 分钟后再说</button>
+                    {bubble.target && (
+                      <button type="button" className="secondary-button" onClick={() => void classify(bubble.target!, "neutral")} title={`把 ${bubble.target.label} 改成中性；也可以在时间轴里改成专注`}>
+                        这个不算摸鱼
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+          {bubble.kind === "ask" && (
+            <>
+              <span className="pet-bubble-meta">今天用了 {bubble.minutes} 分钟</span>
+              <p className="pet-bubble-text" title={bubble.target.label}>「{bubble.target.label}」算什么？</p>
+              <div className="pet-bubble-actions">
+                {CATEGORIES.map((category) => (
+                  <button key={category.id} type="button" className="secondary-button" onClick={() => void classify(bubble.target, category.id)}>
+                    {category.label}
+                  </button>
+                ))}
+                <button type="button" className="secondary-button" onClick={() => skipAsk(bubble.target)}>今天不问</button>
+              </div>
             </>
           )}
           {bubble.kind === "checkin" && (

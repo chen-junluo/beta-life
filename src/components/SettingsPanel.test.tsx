@@ -194,4 +194,25 @@ describe("SettingsPanel destructive actions", () => {
     expect(invoke).toHaveBeenCalledWith("save_life_stages", { stages: [{ name: "本科", start: "2019-09", end: "2024-06" }] });
     expect(onLifeStagesSaved).toHaveBeenCalledTimes(1);
   });
+
+  it("adds a title keyword and saves the category rules only when they changed", async () => {
+    const rules = { apps: [{ key: "md.obsidian", name: "Obsidian", category: "focus" }], domains: [{ domain: "bilibili.com", category: "slack" }], keywords: [] };
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "load_activity_rules" ? structuredClone(rules) : command === "save_activity_rules" ? (args as { rules: unknown }).rules : undefined,
+    );
+    await act(async () => openSection("分类"));
+    await act(async () => findButton("保存设置").click());
+    expect(invoke).not.toHaveBeenCalledWith("save_activity_rules", expect.anything());
+
+    const input = host.querySelector<HTMLInputElement>('[aria-label="新关键词"]')!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, "课程");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => findButton("添加").click());
+    expect(host.querySelector(".rule-list")?.textContent).toContain("课程");
+    await act(async () => findButton("保存设置").click());
+    expect(invoke).toHaveBeenCalledWith("save_activity_rules", { rules: { ...rules, keywords: [{ keyword: "课程", category: "focus" }] } });
+  });
 });

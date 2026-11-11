@@ -4,7 +4,9 @@
 //! The design follows ActivityWatch (`aw-watcher-window`, `aw-watcher-afk`, `aw-server-rust`
 //! heartbeats), with our own changes for its known macOS problems: window titles come from the
 //! Accessibility API in-process (no polled osascript), sleep / lock / idle cut the open session
-//! instead of being bridged into it, and private browser windows are never recorded.
+//! instead of being bridged into it, and private browser windows are never recorded. Unlike
+//! `aw-watcher-afk`, no input is not away while the front app keeps the display on (a video or a
+//! call holds a display power assertion; music players do not).
 //!
 //! Storage: closed segments are appended to `pet/sessions/YYYY-MM-DD.jsonl` (local days, split at
 //! midnight); the open one is mirrored to `pet/sessions/open.json` so a crash loses one sample.
@@ -38,16 +40,16 @@ const MIN_SESSION_MS: i64 = 1_000;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Session {
     /// Unix milliseconds.
-    start: i64,
-    end: i64,
-    app: String,
+    pub(crate) start: i64,
+    pub(crate) end: i64,
+    pub(crate) app: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    bundle_id: Option<String>,
+    pub(crate) bundle_id: Option<String>,
     /// Empty when Accessibility is not granted or the browser check could not run.
     #[serde(default)]
-    title: String,
+    pub(crate) title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    domain: Option<String>,
+    pub(crate) domain: Option<String>,
 }
 
 impl Session {
@@ -316,6 +318,13 @@ fn parse_browser_reply(reply: &str) -> Lookup {
     Lookup::Page(lines.next().and_then(|url| domain_of(url.trim())))
 }
 
+/// The outermost `.app` a process runs from, so helpers count as their app:
+/// `/Applications/Google Chrome.app/Contents/Frameworks/…/Google Chrome Helper.app/…` → `/Applications/Google Chrome.app`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn app_bundle(executable: &str) -> Option<&str> {
+    executable.find(".app/").map(|index| &executable[..index + 4])
+}
+
 /// Window titles that announce a private window (a second guard besides the browser's own mode).
 fn looks_private(title: &str) -> bool {
     ["InPrivate", "Incognito", "无痕", "隐身"].iter().any(|marker| title.contains(marker))
@@ -334,9 +343,11 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(target_os = "macos")]
 mod mac {
     use core_foundation::{
+        array::{CFArray, CFArrayRef},
         base::{CFType, CFTypeRef, TCFType},
         boolean::CFBoolean,
         dictionary::{CFDictionary, CFDictionaryRef},
+        number::{CFNumber, CFNumberRef},
         string::{CFString, CFStringRef},
     };
     use objc2_app_kit::NSWorkspace;
@@ -356,6 +367,62 @@ mod mac {
     extern "C" {
         fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
         fn CGSessionCopyCurrentDictionary() -> CFDictionaryRef;
+    }
+
+    #[link(name = "IOKit", kind = "framework")]
+    extern "C" {
+        fn IOPMCopyAssertionsByProcess(assertions: *mut CFDictionaryRef) -> i32;
+    }
+
+    extern "C" {
+        fn proc_pidpath(pid: i32, buffer: *mut std::ffi::c_void, size: u32) -> i32;
+    }
+
+    /// Power assertion types that keep the display on: video playback and calls set them,
+    /// music players only keep the system awake.
+    const DISPLAY_ASSERTIONS: [&str; 2] = ["PreventUserIdleDisplaySleep", "NoDisplaySleepAssertion"];
+
+    fn process_path(pid: i32) -> Option<String> {
+        // PROC_PIDPATHINFO_MAXSIZE
+        let mut buffer = vec![0u8; 4096];
+        let length = unsafe { proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
+        (length > 0).then(|| String::from_utf8_lossy(&buffer[..length as usize]).into_owned())
+    }
+
+    /// Pids that hold, or had someone hold on their behalf, an assertion keeping the display on.
+    pub fn display_awake_pids() -> Vec<i32> {
+        let mut raw: CFDictionaryRef = ptr::null();
+        if unsafe { IOPMCopyAssertionsByProcess(&mut raw) } != 0 || raw.is_null() {
+            return Vec::new();
+        }
+        let by_pid: CFDictionary = unsafe { CFDictionary::wrap_under_create_rule(raw) };
+        let (pids, lists) = by_pid.get_keys_and_values();
+        let mut found = Vec::new();
+        for (pid, list) in pids.into_iter().zip(lists) {
+            let owner = unsafe { CFNumber::wrap_under_get_rule(pid as CFNumberRef) }.to_i32();
+            let list: CFArray<CFDictionary<CFString, CFType>> = unsafe { CFArray::wrap_under_get_rule(list as CFArrayRef) };
+            for assertion in list.iter() {
+                let kind = assertion.find(CFString::from_static_string("AssertType")).and_then(|value| value.downcast::<CFString>());
+                if !kind.is_some_and(|kind| DISPLAY_ASSERTIONS.contains(&kind.to_string().as_str())) {
+                    continue;
+                }
+                found.extend(owner);
+                let behalf = assertion.find(CFString::from_static_string("AssertionOnBehalfOfPID")).and_then(|value| value.downcast::<CFNumber>());
+                found.extend(behalf.and_then(|number| number.to_i32()));
+            }
+        }
+        found
+    }
+
+    /// The app (or one of its helper processes) is keeping the display on: a video or a call.
+    pub fn keeps_display_awake(pid: i32) -> bool {
+        let pids = display_awake_pids();
+        if pids.contains(&pid) {
+            return true;
+        }
+        let Some(front) = process_path(pid) else { return false };
+        let Some(bundle) = super::app_bundle(&front) else { return false };
+        pids.into_iter().any(|holder| process_path(holder).as_deref().and_then(super::app_bundle) == Some(bundle))
     }
 
     /// Name, bundle id and pid of the frontmost app. Needs no permission.
@@ -535,17 +602,25 @@ mod sampler {
         }
     }
 
-    fn sample(now: i64, probe: &mut BrowserProbe, state: &ActivityState) -> Sample {
+    /// `held` is the last sample the front app kept the display on (video, call) without input.
+    fn sample(now: i64, probe: &mut BrowserProbe, state: &ActivityState, held: &mut Option<i64>) -> Sample {
         if mac::screen_unavailable() {
             return Sample::Away { since: now };
-        }
-        let idle = mac::idle_seconds();
-        if idle >= AWAY_AFTER_SECS {
-            return Sample::Away { since: now - (idle * 1000.0) as i64 };
         }
         let Some((app, bundle_id, pid)) = mac::frontmost() else { return Sample::Away { since: now } };
         if bundle_id.as_deref().is_some_and(|id| AWAY_BUNDLES.contains(&id)) {
             return Sample::Away { since: now };
+        }
+        let idle = mac::idle_seconds();
+        if idle < AWAY_AFTER_SECS {
+            *held = None;
+        } else if mac::keeps_display_awake(pid) {
+            // Watching or in a call without touching anything is not being away.
+            *held = Some(now);
+        } else {
+            // Away since the last input, or since the video stopped if one kept the session going.
+            let since = now - (idle * 1000.0) as i64;
+            return Sample::Away { since: held.take().map_or(since, |at| at.max(since)) };
         }
         let mut title = mac::window_title(pid).unwrap_or_default();
         let mut domain = None;
@@ -573,9 +648,10 @@ mod sampler {
             let state = app.state::<ActivityState>();
             let mut tracker = Tracker::default();
             let mut probe = BrowserProbe::default();
+            let mut held = None;
             loop {
                 let now = now_ms();
-                let sample = objc2::rc::autoreleasepool(|_| sample(now, &mut probe, &state));
+                let sample = objc2::rc::autoreleasepool(|_| sample(now, &mut probe, &state, &mut held));
                 let closed = tracker.observe(now, sample);
                 if !closed.is_empty() {
                     if let Err(error) = append_sessions(&dir, closed) {
@@ -646,6 +722,11 @@ pub(crate) fn open_automation_settings() -> Result<(), String> {
     open_privacy_pane("Privacy_Automation")
 }
 
+/// The session in front right now; `None` while away.
+pub(crate) fn open_session(state: &ActivityState) -> Option<Session> {
+    lock(&state.open).clone()
+}
+
 fn open_privacy_pane(pane: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -662,11 +743,9 @@ fn open_privacy_pane(pane: &str) -> Result<(), String> {
     }
 }
 
-/// Sessions of one local day (`YYYY-MM-DD`), merged, including the part of the open session.
-#[tauri::command]
-pub(crate) fn load_activity_day(app: AppHandle, state: State<'_, ActivityState>, date: String) -> Result<Vec<Session>, String> {
-    let day = NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|_| "日期格式应为 YYYY-MM-DD".to_string())?;
-    let mut sessions = read_day(&sessions_dir(&app)?, day);
+/// Sessions of one local day, merged, including the part of the open session.
+pub(crate) fn day_sessions(app: &AppHandle, state: &ActivityState, day: NaiveDate) -> Result<Vec<Session>, String> {
+    let mut sessions = read_day(&sessions_dir(app)?, day);
     if let Some(open) = lock(&state.open).clone() {
         sessions.extend(split_by_day(open, &Local).into_iter().filter(|(part_day, _)| *part_day == day).map(|(_, part)| part));
     }
@@ -772,6 +851,31 @@ mod tests {
         // Only fixed bundle ids from BROWSERS reach the script, as a literal.
         assert!(browser_script("com.microsoft.edgemac").starts_with("tell application id \"com.microsoft.edgemac\""));
         assert!(!looks_private("Pull requests · GitHub"));
+    }
+
+    #[test]
+    fn helper_processes_belong_to_their_app() {
+        let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper";
+        assert_eq!(app_bundle(helper), Some("/Applications/Google Chrome.app"));
+        assert_eq!(app_bundle("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"), Some("/Applications/Google Chrome.app"));
+        assert_eq!(app_bundle("/usr/bin/caffeinate"), None);
+    }
+
+    /// A real display assertion (`caffeinate -d`) is found for its pid.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn display_assertions_are_found() {
+        let mut child = std::process::Command::new("/usr/bin/caffeinate").args(["-d", "-t", "20"]).spawn().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let pid = child.id() as i32;
+        let found = mac::display_awake_pids().contains(&pid);
+        let keeps = mac::keeps_display_awake(pid);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(found, "caffeinate's display assertion was not found");
+        assert!(keeps);
+        assert!(!mac::keeps_display_awake(std::process::id() as i32));
     }
 
     /// Compiles the real script for every supported browser (needs them installed; no Apple Events are sent).

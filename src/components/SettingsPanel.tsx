@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, KeyRound, NotebookPen, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, Gauge, KeyRound, NotebookPen, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
+import { ActivityRulesSettings } from "./ActivityRulesSettings";
 import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
 type PromptKey = "assistantPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
@@ -17,7 +19,7 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
 ];
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "slogan" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "board", label: "时间板" },
@@ -174,6 +176,10 @@ export function SettingsPanel({
   // Where the vault lives (Tauri only); changing it moves or adopts the data and restarts the app.
   const [dataFolder, setDataFolder] = useState<{ path: string; isDefault: boolean } | null>(null);
   const [changingFolder, setChangingFolder] = useState(false);
+  // Activity categories live in the timeline folder; like life stages they load on first visit.
+  const [activityRules, setActivityRules] = useState<ActivityRules | null>(null);
+  const [rulesError, setRulesError] = useState<string | null>(null);
+  const savedRules = useRef<string | null>(null);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -197,6 +203,16 @@ export function SettingsPanel({
       })
       .catch((error) => setStagesError(typeof error === "string" ? error : "阶段读取失败"));
   }, [section, lifeStages]);
+
+  useEffect(() => {
+    if (section !== "categories" || activityRules) return;
+    invoke<ActivityRules>("load_activity_rules")
+      .then((rules) => {
+        savedRules.current = JSON.stringify(rules);
+        setActivityRules(rules);
+      })
+      .catch((error) => setRulesError(typeof error === "string" ? error : "分类规则读取失败"));
+  }, [section, activityRules]);
 
   function updatePeriod(id: PeriodId, patch: Partial<AppSettings["periods"][number]>) {
     setDraft((current) => ({
@@ -257,6 +273,11 @@ export function SettingsPanel({
         await invoke("save_life_stages", { stages: lifeStages });
         savedStages.current = JSON.stringify(lifeStages);
         onLifeStagesSaved();
+      }
+      if (activityRules !== null && JSON.stringify(activityRules) !== savedRules.current) {
+        const saved = await invoke<ActivityRules>("save_activity_rules", { rules: activityRules });
+        savedRules.current = JSON.stringify(saved);
+        setActivityRules(saved);
       }
       setApiKey("");
       setStatus("设置已保存");
@@ -328,6 +349,7 @@ export function SettingsPanel({
     { id: "recall", label: "回想与记忆", icon: <Target size={17} /> },
     { id: "stages", label: "记忆阶段", icon: <Orbit size={17} /> },
     { id: "diary", label: "日记", icon: <NotebookPen size={17} /> },
+    { id: "categories", label: "分类", icon: <Gauge size={17} /> },
     { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
@@ -634,6 +656,16 @@ export function SettingsPanel({
                   <textarea className="diary-template" rows={6} value={draft.diary.template} onChange={(event) => setDraft((current) => ({ ...current, diary: { ...current.diary, template: event.target.value } }))} onKeyDown={typeTab} spellCheck={false} />
                   <button className="secondary-button align-start" type="button" onClick={() => setDraft((current) => ({ ...current, diary: { ...current.diary, template: DEFAULT_DIARY_TEMPLATE } }))}><RotateCcw size={15} /> 恢复默认</button>
                 </label>
+              </div>
+            )}
+
+            {section === "categories" && (
+              <div className="settings-section categories-settings">
+                <div className="section-heading">
+                  <Gauge size={21} />
+                  <div><h3>分类</h3><p>时间轴里的每段时间算专注、中性还是摸鱼；bebe 按这些规则判断要不要提醒。没有规则的算「待分类」，不计入摸鱼。</p></div>
+                </div>
+                {activityRules ? <ActivityRulesSettings rules={activityRules} onChange={setActivityRules} /> : <div className="settings-note">{rulesError ?? "正在读取分类规则…"}</div>}
               </div>
             )}
 
