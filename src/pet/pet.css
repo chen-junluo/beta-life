@@ -99,7 +99,7 @@
 .pet-chat-head { display: flex; align-items: center; gap: 6px; }
 .pet-chat-head .pet-bubble-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pet-chat-head .icon-button { width: 24px; height: 24px; }
-.pet-chat-body { flex: 1 1 auto; min-height: 0; display: grid; align-content: start; gap: var(--pet-gap); overflow-y: auto; }
+.pet-chat-body { flex: 1 1 auto; min-height: 0; display: grid; grid-auto-rows: max-content; align-content: start; gap: var(--pet-gap); overflow-y: auto; }
 .pet-chat-user { justify-self: end; max-width: 90%; margin: 0; padding: 6px 9px; border-radius: 10px 10px 3px 10px; background: var(--accent); color: #fff; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pet-chat-reply { color: var(--ink); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .pet-chat-reply > :first-child { margin-top: 0; }
