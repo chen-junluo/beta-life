@@ -170,12 +170,22 @@ export function SettingsPanel({
   const [lifeStages, setLifeStages] = useState<LifeStage[] | null>(null);
   const [stagesError, setStagesError] = useState<string | null>(null);
   const savedStages = useRef<string | null>(null);
+  // Where the vault lives (Tauri only); changing it moves or adopts the data and restarts the app.
+  const [dataFolder, setDataFolder] = useState<{ path: string; isDefault: boolean } | null>(null);
+  const [changingFolder, setChangingFolder] = useState(false);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, [onClose]);
+
+  useEffect(() => {
+    if (section !== "data" || dataFolder || !window.__TAURI_INTERNALS__) return;
+    invoke<{ path: string; isDefault: boolean } | undefined>("data_folder")
+      .then((folder) => setDataFolder(folder ?? null))
+      .catch((error) => setStatus(`数据文件夹读取失败：${typeof error === "string" ? error : "未知错误"}`));
+  }, [section, dataFolder]);
 
   useEffect(() => {
     if (section !== "stages" || lifeStages) return;
@@ -254,6 +264,18 @@ export function SettingsPanel({
       setStatus("API key 已清除");
     } catch (error) {
       setStatus(typeof error === "string" ? error : "清除失败");
+    }
+  }
+
+  /** Rust shows the folder picker and the confirmation; on success the app restarts. */
+  async function changeDataFolder() {
+    setChangingFolder(true);
+    try {
+      await invoke("change_data_folder");
+    } catch (error) {
+      setStatus(`更改数据文件夹失败：${typeof error === "string" ? error : "未知错误"}`);
+    } finally {
+      setChangingFolder(false);
     }
   }
 
@@ -629,8 +651,20 @@ export function SettingsPanel({
               <div className="settings-section">
                 <div className="section-heading">
                   <Database size={21} />
-                  <div><h3>数据管理</h3><p>导出只包含时间板内容，不包含 API key、Provider 或 Prompt。</p></div>
+                  <div><h3>数据管理</h3><p>数据文件夹里的 md 可以直接用 Obsidian 打开；导出只包含时间板内容，不包含 API key、Provider 或 Prompt。</p></div>
                 </div>
+                {dataFolder && (
+                  <div className="data-folder">
+                    <strong>数据文件夹{dataFolder.isDefault ? "（默认位置）" : ""}</strong>
+                    <div className="data-folder-row">
+                      <code title={dataFolder.path}>{dataFolder.path}</code>
+                      <button className="secondary-button" onClick={() => void changeDataFolder()} disabled={changingFolder}>
+                        {changingFolder ? "正在选择…" : "更改…"}
+                      </button>
+                    </div>
+                    <p>所有 tab 的 md、.beta-life 里的机器数据和设置都在这里，可以整体交给坚果云同步；窗口位置和 API key 留在本机。选空文件夹会把数据移过去，选已有的 beta-life 数据文件夹会直接改用里面的数据，之后 beta-life 自动重启。</p>
+                  </div>
+                )}
                 <div className="data-actions">
                   <button className="secondary-button" onClick={() => void exportBoard()}>导出 Board JSON</button>
                   <input
@@ -642,7 +676,7 @@ export function SettingsPanel({
                   />
                   <button className="secondary-button" onClick={openImportPicker}>{importArmed ? "再次点击选择文件" : "导入 Board JSON"}</button>
                 </div>
-                <div className="settings-note">所有修改都保存在系统应用数据目录。导入前建议先导出一份备份。</div>
+                <div className="settings-note">所有修改都保存在上面的数据文件夹。导入前建议先导出一份备份。</div>
               </div>
             )}
           </main>

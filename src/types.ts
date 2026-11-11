@@ -267,3 +267,10 @@ export interface LifeStage {
   end: string;   // YYYY-MM
   color?: string;
 }
+
+/** An md file in the data folder that could not be read; Rust skips it and leaves it untouched. */
+export interface VaultIssue {
+  panel: string;
+  path: string;
+  message: string;
+}

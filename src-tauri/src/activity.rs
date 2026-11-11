@@ -10,7 +10,7 @@
 //! midnight); the open one is mirrored to `pet/sessions/open.json` so a crash loses one sample.
 //! Reading merges segments of the same activity separated by less than `MERGE_GAP_MS`.
 
-use super::app_data_dir;
+use super::vault;
 use chrono::{Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -178,7 +178,7 @@ fn merge_sessions(mut sessions: Vec<Session>) -> Vec<Session> {
 }
 
 fn sessions_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app_data_dir(app)?.join("pet").join("sessions");
+    let directory = vault::location::root(app)?.join(vault::TIMELINE).join(vault::META).join("sessions");
     fs::create_dir_all(&directory).map_err(|error| format!("无法创建活动记录目录：{error}"))?;
     Ok(directory)
 }

@@ -75,7 +75,7 @@ export function applyForestChange(forests: Forests, change: ChangeInput): Forest
       const parentId = typeof args.parentId === "string" && args.parentId ? args.parentId : null;
       const created = createAbilityNode(forest, parentId);
       const name = String(args.name).trim();
-      const markdown = typeof args.markdown === "string" ? args.markdown : `# ${name}\n\n写下这个节点的说明。`;
+      const markdown = typeof args.markdown === "string" ? args.markdown : "写下这个节点的说明。";
       const nodes = created.nodes.map((node, index) => (index === created.nodes.length - 1 ? { ...node, id: change.createdId!, name, markdown } : node));
       next = { ...created, nodes, mapPositions: {} };
       break;

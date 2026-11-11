@@ -89,6 +89,11 @@ export function usePanelHistory() {
     }
   }, [update]);
 
+  /** Drops a panel's steps, e.g. after its files changed outside beta-life. */
+  const clear = useCallback((panel: HistoryPanel) => {
+    update((current) => ({ ...current, [panel]: { undo: [], redo: [] } }));
+  }, [update]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), notice.error ? 4000 : 1600);
@@ -99,6 +104,7 @@ export function usePanelHistory() {
     record,
     undo: useCallback((panel: HistoryPanel) => step(panel, "undo"), [step]),
     redo: useCallback((panel: HistoryPanel) => step(panel, "redo"), [step]),
+    clear,
     canUndo: (panel: HistoryPanel) => stacks[panel].undo.length > 0,
     canRedo: (panel: HistoryPanel) => stacks[panel].redo.length > 0,
     notice,

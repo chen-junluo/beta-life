@@ -17,6 +17,7 @@ use std::process::Command;
 mod activity;
 mod ai;
 mod pet;
+mod vault;
 #[allow(dead_code)]
 mod windows_secure_storage;
 
@@ -522,13 +523,6 @@ struct Memory {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MemoryIndex {
-    schema_version: u8,
-    memories: Vec<MemoryMetadata>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct MemoryMetadata {
     id: String,
     song: String,
@@ -850,21 +844,9 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn board_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("board.json"))
-}
-
+/// In the vault (synced with the data), not in `app_data_dir`.
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("settings.json"))
-}
-
-fn knowledge_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let root = app_data_dir(app)?.join("knowledge");
-    for directory in ["notes", "points", "reviews", "scheduler"] {
-        fs::create_dir_all(root.join(directory))
-            .map_err(|error| format!("无法创建知识目录：{error}"))?;
-    }
-    Ok(root)
+    Ok(vault::location::settings_path(&vault::location::root(app)?))
 }
 
 fn valid_knowledge_id(value: &str) -> bool {
@@ -875,53 +857,6 @@ fn valid_knowledge_id(value: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
 }
 
-fn knowledge_note_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(knowledge_root(app)?.join("notes").join(format!("{id}.md")))
-}
-
-fn knowledge_points_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(knowledge_root(app)?
-        .join("points")
-        .join(format!("{id}.json")))
-}
-
-fn knowledge_reviews_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(knowledge_root(app)?
-        .join("reviews")
-        .join(format!("{id}.jsonl")))
-}
-
-fn knowledge_scheduler_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(knowledge_root(app)?
-        .join("scheduler")
-        .join(format!("{id}.json")))
-}
-
-fn knowledge_index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(knowledge_root(app)?.join("index.json"))
-}
-
-fn ability_forest_root(app: &AppHandle, map: AbilityMapKind) -> Result<PathBuf, String> {
-    let root = app_data_dir(app)?.join(map.dir_name());
-    fs::create_dir_all(root.join("nodes"))
-        .map_err(|error| format!("无法创建能力森林目录：{error}"))?;
-    Ok(root)
-}
-
-fn memories_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let root = app_data_dir(app)?.join("memories");
-    fs::create_dir_all(root.join("nodes")).map_err(|error| format!("无法创建记忆目录：{error}"))?;
-    Ok(root)
-}
-
-fn life_stages_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(memories_root(app)?.join("life-stages.json"))
-}
-
-fn memories_index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(memories_root(app)?.join("index.json"))
-}
-
 fn valid_memory_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 120
@@ -930,48 +865,12 @@ fn valid_memory_id(value: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
 }
 
-fn memory_markdown_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    if !valid_memory_id(id) {
-        return Err("记忆 ID 格式无效".into());
-    }
-    Ok(memories_root(app)?.join("nodes").join(format!("{id}.md")))
-}
-
-fn ability_forest_path(app: &AppHandle, map: AbilityMapKind) -> Result<PathBuf, String> {
-    Ok(ability_forest_root(app, map)?.join("forest.json"))
-}
-
 fn valid_ability_node_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 120
         && value
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-}
-
-fn ability_node_markdown_path(
-    app: &AppHandle,
-    map: AbilityMapKind,
-    id: &str,
-) -> Result<PathBuf, String> {
-    if !valid_ability_node_id(id) {
-        return Err("能力节点 ID 格式无效".into());
-    }
-    Ok(ability_forest_root(app, map)?
-        .join("nodes")
-        .join(format!("{id}.md")))
-}
-
-fn read_knowledge_index(app: &AppHandle) -> Result<Vec<KnowledgeIndexEntry>, String> {
-    let path = knowledge_index_path(app)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    read_json(&path)
-}
-
-fn write_knowledge_index(app: &AppHandle, entries: &[KnowledgeIndexEntry]) -> Result<(), String> {
-    atomic_write(&knowledge_index_path(app)?, &entries.to_vec())
 }
 
 fn atomic_write_text(path: &Path, value: &str) -> Result<(), String> {
@@ -1015,29 +914,6 @@ fn frontmatter_value(lines: &[&str], key: &str) -> Option<String> {
     lines
         .iter()
         .find_map(|line| line.strip_prefix(&format!("{key}: ")).map(str::to_string))
-}
-
-fn serialize_knowledge(record: &KnowledgeRecord) -> String {
-    let mut output = format!(
-        "---\nid: {}\ntitle: {}\ncreatedAt: {}\nupdatedAt: {}\ntags: {}\n",
-        record.id,
-        record.title.replace('\n', " "),
-        record.created_at,
-        record.updated_at,
-        record.tags.replace('\n', " "),
-    );
-    if let Some(url) = &record.source_url {
-        output.push_str(&format!("sourceUrl: {}\n", url.replace('\n', " ")));
-    }
-    if let Some(note) = &record.source_note {
-        output.push_str(&format!("sourceNote: {}\n", note.replace('\n', " ")));
-    }
-    output.push_str("---\n\n");
-    output.push_str(&record.markdown);
-    if !record.markdown.ends_with('\n') {
-        output.push('\n');
-    }
-    output
 }
 
 fn parse_knowledge(path: &Path) -> Result<KnowledgeRecord, String> {
@@ -1291,105 +1167,6 @@ fn validate_ability_forest(forest: &AbilityForest) -> Result<(), String> {
     Ok(())
 }
 
-fn ability_forest_metadata(forest: &AbilityForest) -> AbilityForestMetadata {
-    AbilityForestMetadata {
-        schema_version: forest.schema_version,
-        name: forest.name.clone(),
-        nodes: forest
-            .nodes
-            .iter()
-            .map(|node| AbilityNodeMetadata {
-                id: node.id.clone(),
-                name: node.name.clone(),
-                level: node.level,
-                parent_id: node.parent_id.clone(),
-                order: node.order,
-                color: node.color.clone(),
-            })
-            .collect(),
-        map_positions: forest.map_positions.clone(),
-        map_state: forest.map_state.clone(),
-    }
-}
-
-fn save_ability_forest_data(
-    app: &AppHandle,
-    map: AbilityMapKind,
-    forest: &AbilityForest,
-) -> Result<(), String> {
-    validate_ability_forest(forest)?;
-    let mut retained_ids = HashSet::new();
-    for node in &forest.nodes {
-        retained_ids.insert(node.id.as_str());
-        atomic_write_text(&ability_node_markdown_path(app, map, &node.id)?, &node.markdown)?;
-    }
-    atomic_write(&ability_forest_path(app, map)?, &ability_forest_metadata(forest))?;
-
-    let nodes_dir = ability_forest_root(app, map)?.join("nodes");
-    let entries =
-        fs::read_dir(&nodes_dir).map_err(|error| format!("无法读取能力节点目录：{error}"))?;
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("无法读取能力节点目录：{error}"))?;
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("md") {
-            continue;
-        }
-        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            continue;
-        };
-        if !retained_ids.contains(id) {
-            fs::remove_file(&path)
-                .map_err(|error| format!("无法删除旧节点说明 {}：{error}", path.display()))?;
-        }
-    }
-    Ok(())
-}
-
-fn load_ability_forest(app: &AppHandle, map: AbilityMapKind) -> Result<AbilityForest, String> {
-    let path = ability_forest_path(app, map)?;
-    let is_new = !path.exists();
-    let mut forest = if is_new {
-        serde_json::from_str::<AbilityForest>(map.default_json())
-            .map_err(|error| format!("内置能力森林数据无效：{error}"))?
-    } else {
-        let stored: AbilityForestMetadata = read_json(&path)?;
-        AbilityForest {
-            schema_version: stored.schema_version,
-            name: stored.name,
-            map_positions: stored.map_positions,
-            map_state: stored.map_state,
-            nodes: stored
-                .nodes
-                .into_iter()
-                .map(|node| AbilityNode {
-                    id: node.id,
-                    name: node.name,
-                    level: node.level,
-                    parent_id: node.parent_id,
-                    order: node.order,
-                    color: node.color,
-                    markdown: String::new(),
-                })
-                .collect(),
-        }
-    };
-    validate_ability_forest(&forest)?;
-
-    let mut missing_markdown = false;
-    for node in &mut forest.nodes {
-        let markdown_path = ability_node_markdown_path(app, map, &node.id)?;
-        if markdown_path.exists() {
-            node.markdown = fs::read_to_string(&markdown_path)
-                .map_err(|error| format!("无法读取节点 {} 的说明：{error}", node.name))?;
-        } else {
-            missing_markdown = true;
-        }
-    }
-    if is_new || missing_markdown {
-        save_ability_forest_data(app, map, &forest)?;
-    }
-    Ok(forest)
-}
 
 fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.schema_version != SCHEMA_VERSION {
@@ -1516,23 +1293,25 @@ fn read_api_key(_app: &AppHandle) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
-    let board = load_or_create(&board_path(&app)?, default_board, validate_board)?;
     let settings = load_settings(&app)?;
-    let ability_forest = load_ability_forest(&app, AbilityMapKind::Vision)?;
-    let research_agenda = load_ability_forest(&app, AbilityMapKind::Research)?;
+    let has_api_key = read_api_key(&app)?.is_some();
+    let (_guard, root) = vault::open(&app)?;
+    let board = vault::board::load(&root);
+    validate_board(&board)?;
     Ok(LoadedAppState {
         board,
         settings,
-        ability_forest,
-        research_agenda,
-        has_api_key: read_api_key(&app)?.is_some(),
+        ability_forest: vault::forest::load(&root, AbilityMapKind::Vision)?,
+        research_agenda: vault::forest::load(&root, AbilityMapKind::Research)?,
+        has_api_key,
     })
 }
 
 #[tauri::command]
 fn save_board(app: AppHandle, board: BoardFile) -> Result<(), String> {
     validate_board(&board)?;
-    atomic_write(&board_path(&app)?, &board)
+    let (_guard, root) = vault::open(&app)?;
+    vault::board::save(&root, &board)
 }
 
 #[tauri::command]
@@ -1541,7 +1320,9 @@ fn save_ability_forest(
     map: AbilityMapKind,
     ability_forest: AbilityForest,
 ) -> Result<(), String> {
-    save_ability_forest_data(&app, map, &ability_forest)
+    validate_ability_forest(&ability_forest)?;
+    let (_guard, root) = vault::open(&app)?;
+    vault::forest::save(&root, map, &ability_forest)
 }
 
 #[tauri::command]
@@ -1624,25 +1405,40 @@ fn delete_api_key(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn list_knowledge(app: AppHandle) -> Result<Vec<KnowledgeRecord>, String> {
-    let root = knowledge_root(&app)?;
-    let index = read_knowledge_index(&app)?;
-    let mut records = Vec::new();
-    let directory =
-        fs::read_dir(root.join("notes")).map_err(|error| format!("无法列出知识文件：{error}"))?;
-    for entry in directory {
-        let path = entry
-            .map_err(|error| format!("无法读取知识文件：{error}"))?
-            .path();
-        if path.extension().and_then(|value| value.to_str()) != Some("md") {
-            continue;
+    let (_guard, root) = vault::open(&app)?;
+    let (notes, issues) = vault::recall::scan(&root);
+    let mut index = vault::recall::read_index(&root)?;
+    // A note deleted outside beta-life takes its review history to the trash. Skipped while some file
+    // cannot be read, because that file may be the note.
+    if issues.is_empty() {
+        let ids: HashSet<&str> = notes.iter().map(|note| note.record.id.as_str()).collect();
+        let (kept, gone): (Vec<_>, Vec<_>) = index
+            .into_iter()
+            .partition(|entry| ids.contains(entry.id.as_str()));
+        if !gone.is_empty() {
+            let meta = vault::recall::meta(&root);
+            for entry in &gone {
+                let reviews = vault::recall::reviews_path(&root, &entry.id);
+                vault::trash(&meta, &reviews.with_extension("jsonl.fsrs-backup"))?;
+                vault::trash(&meta, &reviews)?;
+                vault::trash(&meta, &vault::recall::scheduler_path(&root, &entry.id))?;
+            }
+            vault::recall::write_index(&root, &kept)?;
         }
-        let mut record = parse_knowledge(&path)?;
-        record.next_review_at = index
-            .iter()
-            .find(|item| item.id == record.id)
-            .and_then(|item| item.next_review_at.clone());
-        records.push(record);
+        index = kept;
     }
+    vault::set_issues("recall", issues);
+    let mut records: Vec<KnowledgeRecord> = notes
+        .into_iter()
+        .map(|note| {
+            let mut record = note.record;
+            record.next_review_at = index
+                .iter()
+                .find(|item| item.id == record.id)
+                .and_then(|item| item.next_review_at.clone());
+            record
+        })
+        .collect();
     records.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(records)
 }
@@ -1658,18 +1454,24 @@ fn save_knowledge(app: AppHandle, knowledge: KnowledgeRecord) -> Result<(), Stri
     if knowledge.created_at.trim().is_empty() {
         return Err("知识加入时间不能为空".into());
     }
-    atomic_write_text(
-        &knowledge_note_path(&app, &knowledge.id)?,
-        &serialize_knowledge(&knowledge),
+    let (_guard, root) = vault::open(&app)?;
+    // Points live in the same file: saving the note keeps them.
+    let current = vault::recall::find(&root, &knowledge.id);
+    let points = current.as_ref().map(|note| note.points.clone()).unwrap_or_default();
+    vault::recall::write(
+        &root,
+        current.as_ref().map(|note| note.path.as_path()),
+        &knowledge,
+        &points,
     )?;
-    let mut index = read_knowledge_index(&app)?;
+    let mut index = vault::recall::read_index(&root)?;
     if !index.iter().any(|item| item.id == knowledge.id) {
         index.push(KnowledgeIndexEntry {
             id: knowledge.id,
             next_review_at: knowledge.next_review_at,
         });
     }
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 #[tauri::command]
@@ -1677,21 +1479,23 @@ fn delete_knowledge(app: AppHandle, knowledge_id: String) -> Result<(), String> 
     if !valid_knowledge_id(&knowledge_id) {
         return Err("知识 ID 无效".into());
     }
+    let (_guard, root) = vault::open(&app)?;
+    if let Some(note) = vault::recall::find(&root, &knowledge_id) {
+        vault::remove(&note.path)?;
+    }
     for path in [
-        knowledge_note_path(&app, &knowledge_id)?,
-        knowledge_points_path(&app, &knowledge_id)?,
-        knowledge_reviews_path(&app, &knowledge_id)?,
-        knowledge_scheduler_path(&app, &knowledge_id)?,
+        vault::recall::reviews_path(&root, &knowledge_id),
+        vault::recall::scheduler_path(&root, &knowledge_id),
     ] {
         if path.exists() {
             fs::remove_file(path).map_err(|error| format!("无法删除知识文件：{error}"))?;
         }
     }
-    let index = read_knowledge_index(&app)?
+    let index = vault::recall::read_index(&root)?
         .into_iter()
         .filter(|item| item.id != knowledge_id)
         .collect::<Vec<_>>();
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 #[tauri::command]
@@ -1699,11 +1503,10 @@ fn load_recall_points(app: AppHandle, knowledge_id: String) -> Result<Vec<Recall
     if !valid_knowledge_id(&knowledge_id) {
         return Err("知识 ID 无效".into());
     }
-    let path = knowledge_points_path(&app, &knowledge_id)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    read_json(&path)
+    let (_guard, root) = vault::open(&app)?;
+    Ok(vault::recall::find(&root, &knowledge_id)
+        .map(|note| note.points)
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -1721,7 +1524,10 @@ fn save_recall_points(
     {
         return Err("抽查点的 knowledgeId 或 pointId 无效".into());
     }
-    atomic_write(&knowledge_points_path(&app, &knowledge_id)?, &points)
+    let (_guard, root) = vault::open(&app)?;
+    let note = vault::recall::find(&root, &knowledge_id)
+        .ok_or_else(|| "找不到这条知识，无法保存抽查点".to_string())?;
+    vault::recall::write(&root, Some(&note.path), &note.record, &points)
 }
 
 #[tauri::command]
@@ -1729,7 +1535,8 @@ fn load_recall_reviews(app: AppHandle, knowledge_id: String) -> Result<Vec<Revie
     if !valid_knowledge_id(&knowledge_id) {
         return Err("知识 ID 无效".into());
     }
-    let path = knowledge_reviews_path(&app, &knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    let path = vault::recall::reviews_path(&root, &knowledge_id);
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -1761,7 +1568,12 @@ fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), Stri
     if review.grade.as_deref() != Some(review.status.as_str()) {
         return Err("评价状态必须与 FSRS Grade 一致".into());
     }
-    let path = knowledge_reviews_path(&app, &review.knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    vault::recall::persist_id(&root, &review.knowledge_id)?;
+    let path = vault::recall::reviews_path(&root, &review.knowledge_id);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("无法创建评价记录目录：{error}"))?;
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -1772,7 +1584,7 @@ fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), Stri
     writeln!(file, "{line}").map_err(|error| format!("无法追加评价记录：{error}"))?;
     file.sync_all()
         .map_err(|error| format!("无法同步评价记录：{error}"))?;
-    let mut index = read_knowledge_index(&app)?;
+    let mut index = vault::recall::read_index(&root)?;
     if let Some(entry) = index.iter_mut().find(|item| item.id == review.knowledge_id) {
         entry.next_review_at = Some(review.next_review_at);
     } else {
@@ -1781,7 +1593,7 @@ fn append_recall_review(app: AppHandle, review: ReviewRecord) -> Result<(), Stri
             next_review_at: Some(review.next_review_at),
         });
     }
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 #[tauri::command]
@@ -1793,7 +1605,8 @@ fn delete_recall_review(
     if !valid_knowledge_id(&knowledge_id) || !valid_knowledge_id(&review_id) {
         return Err("评价记录 ID 无效".into());
     }
-    let path = knowledge_reviews_path(&app, &knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    let path = vault::recall::reviews_path(&root, &knowledge_id);
     if !path.exists() {
         return Err("找不到评价记录文件".into());
     }
@@ -1813,13 +1626,13 @@ fn delete_recall_review(
             atomic_write_text(&backup_path, &backup_remaining)?;
         }
     }
-    let scheduler_path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    let scheduler_path = vault::recall::scheduler_path(&root, &knowledge_id);
     if scheduler_path.exists() {
         fs::remove_file(&scheduler_path)
             .map_err(|error| format!("无法清除旧的 FSRS 调度快照：{error}"))?;
     }
     atomic_write_text(&path, &remaining)?;
-    let mut index = read_knowledge_index(&app)?;
+    let mut index = vault::recall::read_index(&root)?;
     if let Some(entry) = index.iter_mut().find(|item| item.id == knowledge_id) {
         entry.next_review_at = remaining
             .lines()
@@ -1830,7 +1643,7 @@ fn delete_recall_review(
             })
             .min();
     }
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 /// Serializes the full review log of one knowledge record, rejecting records of other records.
@@ -1862,17 +1675,18 @@ fn replace_recall_reviews(
         return Err("知识 ID 无效".into());
     }
     let content = reviews_jsonl(&knowledge_id, &reviews)?;
-    let scheduler_path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    let scheduler_path = vault::recall::scheduler_path(&root, &knowledge_id);
     if scheduler_path.exists() {
         fs::remove_file(&scheduler_path)
             .map_err(|error| format!("无法清除旧的 FSRS 调度快照：{error}"))?;
     }
-    atomic_write_text(&knowledge_reviews_path(&app, &knowledge_id)?, &content)?;
-    let mut index = read_knowledge_index(&app)?;
+    atomic_write_text(&vault::recall::reviews_path(&root, &knowledge_id), &content)?;
+    let mut index = vault::recall::read_index(&root)?;
     if let Some(entry) = index.iter_mut().find(|item| item.id == knowledge_id) {
         entry.next_review_at = reviews.iter().map(|review| review.next_review_at.clone()).min();
     }
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 fn remove_review_from_jsonl(
@@ -1915,7 +1729,8 @@ fn load_recall_scheduler(
     if !valid_knowledge_id(&knowledge_id) {
         return Err("知识 ID 无效".into());
     }
-    let path = knowledge_scheduler_path(&app, &knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    let path = vault::recall::scheduler_path(&root, &knowledge_id);
     if !path.exists() {
         return Ok(None);
     }
@@ -1937,16 +1752,18 @@ fn save_recall_scheduler(app: AppHandle, snapshot: FsrsSchedulerSnapshot) -> Res
     {
         return Err("FSRS 调度快照版本无效".into());
     }
-    let reviews = knowledge_reviews_path(&app, &snapshot.knowledge_id)?;
+    let (_guard, root) = vault::open(&app)?;
+    vault::recall::persist_id(&root, &snapshot.knowledge_id)?;
+    let reviews = vault::recall::reviews_path(&root, &snapshot.knowledge_id);
     let backup = reviews.with_extension("jsonl.fsrs-backup");
     if reviews.exists() && !backup.exists() {
         fs::copy(&reviews, &backup).map_err(|error| format!("无法创建 FSRS 迁移备份：{error}"))?;
     }
     atomic_write(
-        &knowledge_scheduler_path(&app, &snapshot.knowledge_id)?,
+        &vault::recall::scheduler_path(&root, &snapshot.knowledge_id),
         &snapshot,
     )?;
-    let mut index = read_knowledge_index(&app)?;
+    let mut index = vault::recall::read_index(&root)?;
     let next_review_at = if snapshot.cards.is_empty() {
         index
             .iter()
@@ -1966,12 +1783,15 @@ fn save_recall_scheduler(app: AppHandle, snapshot: FsrsSchedulerSnapshot) -> Res
             next_review_at,
         });
     }
-    write_knowledge_index(&app, &index)
+    vault::recall::write_index(&root, &index)
 }
 
 #[tauri::command]
 fn export_board(app: AppHandle) -> Result<Option<String>, String> {
-    let board = load_or_create(&board_path(&app)?, default_board, validate_board)?;
+    let board = {
+        let (_guard, root) = vault::open(&app)?;
+        vault::board::load(&root)
+    };
     let directory = app
         .path()
         .download_dir()
@@ -1991,12 +1811,13 @@ fn import_board(app: AppHandle, json_contents: String) -> Result<BoardFile, Stri
     let board: BoardFile = serde_json::from_str(&json_contents)
         .map_err(|error| format!("选择的文件不是有效的 Beta Life JSON：{error}"))?;
     validate_board(&board)?;
-    let destination = board_path(&app)?;
-    if destination.exists() {
-        let backup = destination.with_file_name("board.before-import.backup.json");
-        fs::copy(&destination, &backup).map_err(|error| format!("无法创建导入前备份：{error}"))?;
-    }
-    atomic_write(&destination, &board)?;
+    let (_guard, root) = vault::open(&app)?;
+    let backup = root
+        .join(vault::BOARD)
+        .join(vault::META)
+        .join("board.before-import.backup.json");
+    atomic_write(&backup, &vault::board::load(&root))?;
+    vault::board::save(&root, &board)?;
     Ok(board)
 }
 
@@ -2296,7 +2117,8 @@ fn provider_request_body(settings: &AiSettings, messages: Vec<Value>) -> Value {
 
 #[tauri::command]
 fn load_life_stages(app: AppHandle) -> Result<Vec<LifeStage>, String> {
-    let path = life_stages_path(&app)?;
+    let (_guard, root) = vault::open(&app)?;
+    let path = vault::memories::stages_path(&root);
     if !path.exists() {
         // 返回默认阶段
         return Ok(vec![
@@ -2339,57 +2161,57 @@ fn load_life_stages(app: AppHandle) -> Result<Vec<LifeStage>, String> {
 
 #[tauri::command]
 fn save_life_stages(app: AppHandle, stages: Vec<LifeStage>) -> Result<(), String> {
-    let path = life_stages_path(&app)?;
-    let content = serde_json::to_string_pretty(&stages)
-        .map_err(|error| format!("无法序列化阶段配置：{error}"))?;
-    fs::write(&path, content).map_err(|error| format!("无法保存阶段配置：{error}"))
+    let (_guard, root) = vault::open(&app)?;
+    atomic_write(&vault::memories::stages_path(&root), &stages)
 }
 
 #[tauri::command]
 fn list_memories(app: AppHandle) -> Result<Vec<MemoryMetadata>, String> {
-    let index_path = memories_index_path(&app)?;
-    if !index_path.exists() {
-        return Ok(Vec::new());
-    }
-    let content =
-        fs::read_to_string(&index_path).map_err(|error| format!("无法读取记忆索引：{error}"))?;
-    let index: MemoryIndex =
-        serde_json::from_str(&content).map_err(|error| format!("记忆索引格式无效：{error}"))?;
-    Ok(index.memories)
+    let (_guard, root) = vault::open(&app)?;
+    let (memories, issues) = vault::memories::scan(&root);
+    vault::set_issues("memories", issues);
+    let mut list: Vec<MemoryMetadata> = memories
+        .into_iter()
+        .map(|(_, memory)| MemoryMetadata {
+            id: memory.id,
+            song: memory.song,
+            date: memory.date,
+            stage: memory.stage,
+            location: memory.location,
+            emotion: memory.emotion,
+            created_at: memory.created_at,
+            updated_at: memory.updated_at,
+        })
+        .collect();
+    list.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+    Ok(list)
 }
 
 #[tauri::command]
 fn read_memory(app: AppHandle, id: String) -> Result<Memory, String> {
-    let path = memory_markdown_path(&app, &id)?;
-    if !path.exists() {
-        return Err("记忆不存在".into());
-    }
-    let content =
-        fs::read_to_string(&path).map_err(|error| format!("无法读取记忆文件：{error}"))?;
-    parse_memory_markdown(&id, &content)
+    let (_guard, root) = vault::open(&app)?;
+    vault::memories::find(&root, &id)
+        .map(|(_, memory)| memory)
+        .ok_or_else(|| "记忆不存在".into())
 }
 
 #[tauri::command]
 fn save_memory(app: AppHandle, memory: Memory) -> Result<(), String> {
-    let path = memory_markdown_path(&app, &memory.id)?;
-    let markdown = format_memory_markdown(&memory);
-    fs::write(&path, markdown).map_err(|error| format!("无法保存记忆文件：{error}"))?;
-
-    // 更新索引
-    update_memory_index(&app, &memory)?;
-    Ok(())
+    if !valid_memory_id(&memory.id) {
+        return Err("记忆 ID 格式无效".into());
+    }
+    let (_guard, root) = vault::open(&app)?;
+    let current = vault::memories::find(&root, &memory.id).map(|(path, _)| path);
+    vault::memories::write(&root, current.as_deref(), &memory)
 }
 
 #[tauri::command]
 fn delete_memory(app: AppHandle, id: String) -> Result<(), String> {
-    let path = memory_markdown_path(&app, &id)?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|error| format!("无法删除记忆文件：{error}"))?;
+    let (_guard, root) = vault::open(&app)?;
+    match vault::memories::find(&root, &id) {
+        Some((path, _)) => vault::remove(&path),
+        None => Ok(()),
     }
-
-    // 从索引中移除
-    remove_from_memory_index(&app, &id)?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -2407,10 +2229,10 @@ async fn parse_memory_with_ai(
         &settings.ai.memory_analysis_prompt
     };
     // The full notes collection gives the model enough life context to infer relative dates.
-    let memories = list_memories(app.clone())?
-        .into_iter()
-        .filter_map(|metadata| read_memory(app.clone(), metadata.id).ok())
-        .collect::<Vec<_>>();
+    let memories = {
+        let (_guard, root) = vault::open(&app)?;
+        vault::memories::scan(&root).0.into_iter().map(|(_, memory)| memory).collect::<Vec<_>>()
+    };
     let system_prompt =
         memory_analysis_system_prompt(configured_prompt, &stages, &today, &memories);
 
@@ -2643,97 +2465,34 @@ fn parse_memory_markdown(id: &str, content: &str) -> Result<Memory, String> {
     })
 }
 
-fn format_memory_markdown(memory: &Memory) -> String {
-    format!(
-        r#"---
-song: {}
-date: {}
-{}location: {}
-emotion:
-  type: {}
-  intensity: {}
-createdAt: {}
-updatedAt: {}
----
-
-{}
-"#,
-        memory.song,
-        memory.date,
-        memory
-            .stage
-            .as_ref()
-            .map(|s| format!("stage: {}\n", s))
-            .unwrap_or_default(),
-        memory.location,
-        memory.emotion.emotion_type,
-        memory.emotion.intensity,
-        memory.created_at,
-        memory.updated_at,
-        memory.content
-    )
-}
-
-fn update_memory_index(app: &AppHandle, memory: &Memory) -> Result<(), String> {
-    let index_path = memories_index_path(app)?;
-    let mut index = if index_path.exists() {
-        let content = fs::read_to_string(&index_path)
-            .map_err(|error| format!("无法读取记忆索引：{error}"))?;
-        serde_json::from_str::<MemoryIndex>(&content)
-            .map_err(|error| format!("记忆索引格式无效：{error}"))?
-    } else {
-        MemoryIndex {
-            schema_version: SCHEMA_VERSION,
-            memories: Vec::new(),
-        }
-    };
-
-    // 移除旧的元数据（如果存在）
-    index.memories.retain(|m| m.id != memory.id);
-
-    // 添加新的元数据
-    index.memories.push(MemoryMetadata {
-        id: memory.id.clone(),
-        song: memory.song.clone(),
-        date: memory.date.clone(),
-        stage: memory.stage.clone(),
-        location: memory.location.clone(),
-        emotion: memory.emotion.clone(),
-        created_at: memory.created_at.clone(),
-        updated_at: memory.updated_at.clone(),
-    });
-
-    let content = serde_json::to_string_pretty(&index)
-        .map_err(|error| format!("无法序列化记忆索引：{error}"))?;
-    fs::write(&index_path, content).map_err(|error| format!("无法保存记忆索引：{error}"))
-}
-
-fn remove_from_memory_index(app: &AppHandle, id: &str) -> Result<(), String> {
-    let index_path = memories_index_path(app)?;
-    if !index_path.exists() {
-        return Ok(());
-    }
-
-    let content =
-        fs::read_to_string(&index_path).map_err(|error| format!("无法读取记忆索引：{error}"))?;
-    let mut index: MemoryIndex =
-        serde_json::from_str(&content).map_err(|error| format!("记忆索引格式无效：{error}"))?;
-
-    index.memories.retain(|m| m.id != id);
-
-    let content = serde_json::to_string_pretty(&index)
-        .map_err(|error| format!("无法序列化记忆索引：{error}"))?;
-    fs::write(&index_path, content).map_err(|error| format!("无法保存记忆索引：{error}"))
-}
 
 // ========== End Memory Constellation Commands ==========
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            activity::setup(app.handle());
-            Ok(pet::setup(app.handle())?)
+            let handle = app.handle();
+            vault::set_app(handle);
+            let local = app_data_dir(handle)?;
+            // Nothing reads or writes the tabs (activity tracking included) until the old layout moved.
+            let ready = vault::location::root(handle).and_then(|root| {
+                vault::location::adopt_local_settings(&local, &root)?;
+                vault::migrate::run(&root)?;
+                Ok(root)
+            });
+            match ready {
+                Ok(root) => {
+                    activity::setup(handle);
+                    vault::watch::start(handle.clone(), root);
+                }
+                Err(error) => {
+                    eprintln!("vault: {error}");
+                    vault::set_migration_error(error);
+                }
+            }
+            Ok(pet::setup(handle)?)
         })
         .on_window_event(|window, event| {
             // The pet window must not keep the app alive: closing the main window quits everything.
@@ -2746,6 +2505,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_app_state,
+            vault::vault_issues,
+            vault::location::data_folder,
+            vault::location::change_data_folder,
             save_board,
             save_ability_forest,
             save_settings,
@@ -2808,22 +2570,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seeds_the_v43_forest_and_persists_relationships_without_markdown() {
+    fn seeds_the_v43_forest() {
         let forest: AbilityForest =
             serde_json::from_str(include_str!("../../src/ability-forest-default.json"))
                 .expect("prototype forest defaults should deserialize");
         validate_ability_forest(&forest).expect("prototype forest should validate");
         assert_eq!(forest.nodes.len(), 27);
-
-        let stored = serde_json::to_value(ability_forest_metadata(&forest))
-            .expect("forest metadata should serialize");
-        assert_eq!(stored["nodes"][1]["parentId"], "technology");
-        assert_eq!(stored["nodes"][1]["order"], 0);
-        assert!(stored["nodes"][1].get("markdown").is_none());
     }
 
     #[test]
-    fn ability_forest_metadata_keeps_dragged_map_positions() {
+    fn ability_forest_keeps_dragged_map_positions_and_state() {
         let mut forest: AbilityForest =
             serde_json::from_str(include_str!("../../src/ability-forest-default.json"))
                 .expect("prototype forest defaults should deserialize");
@@ -2832,12 +2588,6 @@ mod tests {
             ("expression".to_string(), AbilityMapPosition { x: 15, y: 5 }),
         ]));
         validate_ability_forest(&forest).expect("non-overlapping map positions should validate");
-
-        let stored = serde_json::to_value(ability_forest_metadata(&forest))
-            .expect("forest metadata should serialize");
-        assert_eq!(stored["mapPositions"]["technology"]["x"], 5);
-        assert_eq!(stored["mapPositions"]["expression"]["y"], 5);
-
         forest.map_state = Some(AbilityMapState {
             seed: 77,
             zoom: 1.2,
@@ -2851,11 +2601,20 @@ mod tests {
             },
             selected_id: Some("technology".into()),
         });
-        let stored = serde_json::to_value(ability_forest_metadata(&forest))
-            .expect("forest metadata should serialize map state");
-        assert_eq!(stored["mapState"]["seed"], 77);
-        assert_eq!(stored["mapState"]["pan"]["x"], 24.0);
-        assert_eq!(stored["mapState"]["selectedId"], "technology");
+
+        let root = vault::test_root("positions");
+        vault::forest::save(&root, AbilityMapKind::Vision, &forest).expect("forest should save");
+        let loaded = vault::forest::load(&root, AbilityMapKind::Vision).expect("forest should load");
+        let name_of = |id: &str| forest.nodes.iter().find(|node| node.id == id).unwrap().name.clone();
+        let id_of = |name: String| loaded.nodes.iter().find(|node| node.name == name).unwrap().id.clone();
+        let positions = loaded.map_positions.as_ref().expect("positions should load");
+        assert_eq!(positions[&id_of(name_of("technology"))].x, 5);
+        assert_eq!(positions[&id_of(name_of("expression"))].y, 5);
+        let state = loaded.map_state.as_ref().expect("map state should load");
+        assert_eq!(state.seed, 77);
+        assert_eq!(state.pan.x, 24.0);
+        assert_eq!(state.selected_id, Some(id_of(name_of("technology"))));
+        fs::remove_dir_all(root).unwrap();
 
         forest
             .map_positions
@@ -2880,9 +2639,12 @@ mod tests {
         );
 
         forest.name = Some("短期研究议程".into());
-        let stored = serde_json::to_value(ability_forest_metadata(&forest))
-            .expect("forest metadata should serialize the map name");
-        assert_eq!(stored["name"], "短期研究议程");
+        let root = vault::test_root("map-name");
+        vault::forest::save(&root, AbilityMapKind::Research, &forest).expect("forest should save");
+        let loaded = vault::forest::load(&root, AbilityMapKind::Research).expect("forest should load");
+        assert_eq!(loaded.name.as_deref(), Some("短期研究议程"));
+        assert!(root.join("能力森林/短期研究议程").is_dir());
+        fs::remove_dir_all(root).unwrap();
 
         forest.name = Some("   ".into());
         assert!(validate_ability_forest(&forest)

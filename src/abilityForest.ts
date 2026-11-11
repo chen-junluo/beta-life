@@ -123,7 +123,7 @@ export function createAbilityNode(forest: AbilityForest, parentId: string | null
     parentId,
     order: siblings.reduce((maximum, sibling) => Math.max(maximum, sibling.order), -1) + 1,
     color: level === 0 ? ABILITY_FOREST_COLORS[0] : null,
-    markdown: `# ${name}\n\n写下这个节点的说明。`,
+    markdown: "写下这个节点的说明。",
   };
   return { ...forest, nodes: [...forest.nodes, node] };
 }

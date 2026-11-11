@@ -187,6 +187,14 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     setStopped(false);
   }
 
+  /** Re-reads the list after the AI folder changed outside beta-life (an exported md was deleted). */
+  async function refreshSummaries() {
+    if (!window.__TAURI_INTERNALS__) return;
+    const list = await invoke<ConversationSummary[]>("list_ai_conversations");
+    setSummaries(list);
+    if (current.current && !busy && !list.some((entry) => entry.id === current.current?.id)) startNew(activePanel);
+  }
+
   /** Switches the shared conversation (dock and workbench) to a saved one. */
   async function open(id: string) {
     if (busy || current.current?.id === id) return;
@@ -215,5 +223,5 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     if (current.current?.id === id) startNew(activePanel);
   }
 
-  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, startNew, rename, open, remove };
+  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, startNew, rename, open, remove, refreshSummaries };
 }

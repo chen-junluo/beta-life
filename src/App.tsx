@@ -51,6 +51,7 @@ import type {
   Habit,
   LoadedAppState,
   PeriodId,
+  VaultIssue,
 } from "./types";
 
 type SaveState = "saved" | "saving" | "error";
@@ -334,6 +335,61 @@ export default function App() {
 
   const assistantRef = useRef(assistant);
   assistantRef.current = assistant;
+
+  /** md files beta-life could not read; they are skipped and left untouched. */
+  const [vaultIssues, setVaultIssues] = useState<VaultIssue[]>([]);
+  const clearHistory = history.clear;
+  // Files edited in Obsidian: reload the panels they belong to; their undo steps no longer apply.
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    void invoke<VaultIssue[] | undefined>("vault_issues").then((list) => setVaultIssues(list ?? [])).catch(console.error);
+    const unlisteners = [
+      listen<VaultIssue[]>("vault-issues", ({ payload }) => setVaultIssues(payload)),
+      listen<{ panels: string[] }>("vault-changed", ({ payload }) => {
+        const panels = new Set(payload.panels);
+        if (panels.has("board") || panels.has("forest")) {
+          void invoke<LoadedAppState>("load_app_state").then((loaded) => {
+            const current = stateRef.current;
+            if (!current) return;
+            const next = { ...current };
+            if (panels.has("board")) {
+              next.board = loaded.board;
+              clearHistory("board");
+            }
+            if (panels.has("forest")) {
+              for (const map of ["vision", "research"] as const) {
+                // A queued save of the old forest would overwrite the edit.
+                const timer = abilityForestSaveTimers.current[map];
+                if (timer !== null) window.clearTimeout(timer);
+                abilityForestSaveTimers.current[map] = null;
+                pendingAbilityForests.current[map] = null;
+                const key = ABILITY_MAP_STATE_KEYS[map];
+                const view = current[key].mapState;
+                const selected = view?.selectedId;
+                // Keep zoom, pan and selection while the selected node still exists.
+                const keepView = view && (!selected || loaded[key].nodes.some((node) => node.id === selected));
+                next[key] = keepView ? { ...loaded[key], mapState: view } : loaded[key];
+              }
+              setForestSaveState("saved");
+              clearHistory("forest");
+            }
+            stateRef.current = next;
+            setState(next);
+          }).catch(console.error);
+        }
+        if (panels.has("recall")) {
+          clearHistory("recall");
+          setRecallRevision((revision) => revision + 1);
+        }
+        if (panels.has("memories")) {
+          clearHistory("memories");
+          setMemoriesRevision((revision) => revision + 1);
+        }
+        if (panels.has("ai")) void assistantRef.current.refreshSummaries().catch(console.error);
+      }),
+    ];
+    return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
+  }, [clearHistory]);
   const activeSectionRef = useRef(activeSection);
   activeSectionRef.current = activeSection;
   /** Minimized into bebe: the dock disappears until bebe is double-clicked or ⌘K. */
@@ -703,6 +759,11 @@ export default function App() {
               <Plus size={16} /> 新习惯 <kbd>N</kbd>
             </button>
           </>}
+          {vaultIssues.length > 0 && (
+            <span className="vault-issues" role="status" title={vaultIssues.map((issue) => `${issue.path}：${issue.message}`).join("\n")}>
+              {vaultIssues.length} 个文件无法读取
+            </span>
+          )}
           <div className="topbar-tab-actions" ref={setTopbarActions} />
           <button className="icon-button settings-button" onClick={() => setShowSettings(true)} aria-label="设置"><Settings size={19} /></button>
         </div>

@@ -98,6 +98,7 @@ button:disabled { cursor: not-allowed; opacity: 0.42; }
 .save-state.saving::before { background: #c59a46; }
 .save-state.error { color: var(--danger); }
 .save-state.error::before { background: var(--danger); }
+.vault-issues { color: var(--danger); font-size: 11px; font-weight: 600; white-space: nowrap; }
 
 .primary-button, .secondary-button, .danger-button, .icon-button {
   border: 0;
@@ -419,6 +420,12 @@ fieldset { padding: 0; margin: 0 0 19px; border: 0; }
 .prompt-settings :is(textarea, .md-editor) { font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .prompt-settings .secondary-button { margin-top: 10px; }
 .data-actions { display: flex; gap: 9px; }
+.data-folder { margin-bottom: var(--ui-section-gap); }
+.data-folder > strong { font-size: 12px; }
+.data-folder-row { margin-top: 8px; display: flex; gap: 9px; align-items: center; }
+.data-folder-row code { min-width: 0; flex: 1; padding: 7px 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); color: var(--ink); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.data-folder-row .secondary-button { flex: none; }
+.data-folder p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .range-setting { margin-bottom: 25px; }
 .range-setting-header { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
 .range-setting-header strong { font-size: 12px; }

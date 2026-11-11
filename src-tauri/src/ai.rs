@@ -5,13 +5,19 @@
 //! every tool call the model returns before the frontend sees it.
 
 use super::{
-    app_data_dir, atomic_write, load_settings, period_name, provider_error, read_api_key,
-    read_json, AppSettings,
+    atomic_write, load_settings, period_name, provider_error, read_api_key, read_json, vault,
+    AppSettings,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::OnceLock, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+    time::Duration,
+};
 use tauri::AppHandle;
 
 const TOOLS_JSON: &str = include_str!("../../src/ai/tools.json");
@@ -624,6 +630,8 @@ pub(crate) async fn ai_generate_title(
 }
 
 // ========== Conversation storage ==========
+// `AI/.beta-life/conversations/<id>.json` is the conversation; `AI/<标题>.md` is a read-only export
+// for Obsidian, rewritten on every save. Deleting the md deletes the conversation.
 
 /// Messages stay opaque JSON: their shape belongs to the frontend, which renders and replays them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -645,6 +653,9 @@ pub(crate) struct ConversationSummary {
     panel: Panel,
     created_at: String,
     updated_at: String,
+    /// Name of the exported md (without `.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
 }
 
 fn valid_conversation_id(id: &str) -> bool {
@@ -655,16 +666,20 @@ fn valid_conversation_id(id: &str) -> bool {
             .all(|char| char.is_ascii_alphanumeric() || char == '-')
 }
 
-fn conversations_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("ai").join("conversations"))
+fn ai_dir(root: &Path) -> PathBuf {
+    root.join(vault::AI)
 }
 
-fn conversation_index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("ai").join("index.json"))
+fn conversation_path(root: &Path, id: &str) -> PathBuf {
+    ai_dir(root).join(vault::META).join("conversations").join(format!("{id}.json"))
 }
 
-fn read_conversation_index(app: &AppHandle) -> Result<Vec<ConversationSummary>, String> {
-    let path = conversation_index_path(app)?;
+fn conversation_index_path(root: &Path) -> PathBuf {
+    ai_dir(root).join(vault::META).join("index.json")
+}
+
+fn read_conversation_index(root: &Path) -> Result<Vec<ConversationSummary>, String> {
+    let path = conversation_index_path(root);
     if path.exists() {
         read_json(&path)
     } else {
@@ -679,9 +694,125 @@ fn upsert_summary(index: &mut Vec<ConversationSummary>, summary: ConversationSum
     index.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
 }
 
+fn local_time(value: Option<&str>) -> String {
+    value
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|time| time.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// Readable transcript: user and bebe messages, and each batch of changes with its outcome.
+fn export_markdown(conversation: &Conversation) -> String {
+    use vault::fm::s;
+    let panel = match conversation.panel {
+        Panel::Board => "board",
+        Panel::Recall => "recall",
+        Panel::Forest => "forest",
+        Panel::Memories => "memories",
+    };
+    let fields = vec![
+        ("id", s(&conversation.id)),
+        ("title", s(&conversation.title)),
+        ("panel", s(panel)),
+        ("createdAt", s(&conversation.created_at)),
+        ("updatedAt", s(&conversation.updated_at)),
+    ];
+    let mut parts = vec!["> [!info] beta-life 自动导出的只读对话：在这里修改会被覆盖，删除这个文件会删除这段对话。".to_string()];
+    for message in &conversation.messages {
+        let text = |key: &str| message.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+        let time = local_time(message.get("createdAt").and_then(Value::as_str));
+        let heading = |who: &str| if time.is_empty() { format!("### {who}") } else { format!("### {who} · {time}") };
+        match message.get("role").and_then(Value::as_str) {
+            Some("user") => {
+                let mut part = format!("{}\n\n{}", heading("你"), text("content"));
+                let images = message.get("images").and_then(Value::as_array).map_or(0, Vec::len);
+                if images > 0 {
+                    part.push_str(&format!("\n\n（附图 {images} 张）"));
+                }
+                parts.push(part.trim_end().to_string());
+            }
+            Some("assistant") if !text("content").is_empty() => parts.push(format!("{}\n\n{}", heading("bebe"), text("content"))),
+            Some("batch") => {
+                let batch = &message["batch"];
+                let status = match batch.get("status").and_then(Value::as_str) {
+                    Some("confirmed") => "已确认",
+                    Some("cancelled") => "已取消",
+                    Some("superseded") => "已失效",
+                    _ => "待确认",
+                };
+                let mut part = format!("> 修改 · {status}");
+                for change in batch.get("changes").and_then(Value::as_array).into_iter().flatten() {
+                    let field = |key: &str| change.get(key).and_then(Value::as_str).unwrap_or_default().replace('\n', " ");
+                    let mark = if change.get("selected").and_then(Value::as_bool).unwrap_or(false) { "x" } else { " " };
+                    let detail = field("detail");
+                    part.push_str(&format!("\n> - [{mark}] {}{}", field("title"), if detail.is_empty() { String::new() } else { format!("：{detail}") }));
+                }
+                parts.push(part);
+            }
+            _ => {}
+        }
+    }
+    vault::fm::render(&fields, &parts.join("\n\n"))
+}
+
+fn write_conversation(root: &Path, conversation: &Conversation, index: &mut Vec<ConversationSummary>) -> Result<(), String> {
+    atomic_write(&conversation_path(root, &conversation.id), conversation)?;
+    let dir = ai_dir(root);
+    let current = index
+        .iter()
+        .find(|entry| entry.id == conversation.id)
+        .and_then(|entry| entry.file.as_ref())
+        .map(|file| dir.join(format!("{file}.md")));
+    let mut used = vault::used_names(&dir);
+    let (path, old) = vault::place(&dir, current.as_deref(), &vault::file_stem(&conversation.title, "新对话"), &mut used);
+    vault::write_md(&path, &export_markdown(conversation))?;
+    if let Some(old) = old {
+        vault::remove(&old)?;
+    }
+    upsert_summary(
+        index,
+        ConversationSummary {
+            id: conversation.id.clone(),
+            title: conversation.title.clone(),
+            panel: conversation.panel,
+            created_at: conversation.created_at.clone(),
+            updated_at: conversation.updated_at.clone(),
+            file: Some(vault::stem(&path)),
+        },
+    );
+    Ok(())
+}
+
+/// Migration: v1 `ai/conversations/<id>.json` into the vault at `root`.
+pub(crate) fn migrate_conversations(old: &Path, root: &Path) -> Result<(), String> {
+    let mut index = Vec::new();
+    let mut paths: Vec<PathBuf> = fs::read_dir(old.join("conversations"))
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    for path in paths.iter().filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("json")) {
+        let conversation: Conversation = read_json(path)?;
+        write_conversation(root, &conversation, &mut index)?;
+    }
+    atomic_write(&conversation_index_path(root), &index)
+}
+
+/// A conversation whose md was deleted outside beta-life moves to the trash.
 #[tauri::command]
 pub(crate) fn list_ai_conversations(app: AppHandle) -> Result<Vec<ConversationSummary>, String> {
-    read_conversation_index(&app)
+    let (_guard, root) = vault::open(&app)?;
+    let index = read_conversation_index(&root)?;
+    let dir = ai_dir(&root);
+    let (kept, gone): (Vec<_>, Vec<_>) = index
+        .into_iter()
+        .partition(|entry| entry.file.as_ref().is_none_or(|file| dir.join(format!("{file}.md")).exists()));
+    if !gone.is_empty() {
+        for entry in &gone {
+            vault::trash(&dir.join(vault::META), &conversation_path(&root, &entry.id))?;
+        }
+        atomic_write(&conversation_index_path(&root), &kept)?;
+    }
+    Ok(kept)
 }
 
 #[tauri::command]
@@ -689,7 +820,8 @@ pub(crate) fn load_ai_conversation(app: AppHandle, id: String) -> Result<Convers
     if !valid_conversation_id(&id) {
         return Err("对话 ID 无效".into());
     }
-    read_json(&conversations_dir(&app)?.join(format!("{id}.json")))
+    let (_guard, root) = vault::open(&app)?;
+    read_json(&conversation_path(&root, &id))
 }
 
 #[tauri::command]
@@ -700,40 +832,30 @@ pub(crate) fn save_ai_conversation(
     if !valid_conversation_id(&conversation.id) {
         return Err("对话 ID 无效".into());
     }
-    let dir = conversations_dir(&app)?;
-    fs::create_dir_all(&dir).map_err(|error| format!("无法创建对话目录：{error}"))?;
-    atomic_write(
-        &dir.join(format!("{}.json", conversation.id)),
-        &conversation,
-    )?;
-    let mut index = read_conversation_index(&app)?;
-    upsert_summary(
-        &mut index,
-        ConversationSummary {
-            id: conversation.id,
-            title: conversation.title,
-            panel: conversation.panel,
-            created_at: conversation.created_at,
-            updated_at: conversation.updated_at,
-        },
-    );
-    atomic_write(&conversation_index_path(&app)?, &index)
+    let (_guard, root) = vault::open(&app)?;
+    let mut index = read_conversation_index(&root)?;
+    write_conversation(&root, &conversation, &mut index)?;
+    atomic_write(&conversation_index_path(&root), &index)
 }
 
-/// Removes the conversation file and its index entry; a missing file still clears the entry.
+/// Removes the conversation, its export and its index entry; missing files still clear the entry.
 #[tauri::command]
 pub(crate) fn delete_ai_conversation(app: AppHandle, id: String) -> Result<(), String> {
     if !valid_conversation_id(&id) {
         return Err("对话 ID 无效".into());
     }
-    match fs::remove_file(conversations_dir(&app)?.join(format!("{id}.json"))) {
+    let (_guard, root) = vault::open(&app)?;
+    match fs::remove_file(conversation_path(&root, &id)) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(format!("无法删除对话：{error}")),
     }
-    let mut index = read_conversation_index(&app)?;
+    let mut index = read_conversation_index(&root)?;
+    if let Some(file) = index.iter().find(|entry| entry.id == id).and_then(|entry| entry.file.as_ref()) {
+        vault::remove(&ai_dir(&root).join(format!("{file}.md")))?;
+    }
     index.retain(|entry| entry.id != id);
-    atomic_write(&conversation_index_path(&app)?, &index)
+    atomic_write(&conversation_index_path(&root), &index)
 }
 
 #[cfg(test)]
@@ -964,6 +1086,7 @@ mod tests {
             panel: Panel::Board,
             created_at: "2026-11-10T00:00:00Z".into(),
             updated_at: updated.into(),
+            file: None,
         };
         let mut index = vec![
             summary("a", "2026-11-10T01:00:00Z"),
