@@ -78,7 +78,34 @@ export interface TabSlogans {
   recall: string;
   forest: string;
   memories: string;
+  diary: string;
 }
+
+export interface DiarySettings {
+  /** The body of a new day under its `## YYMMDD周X` heading; `{{date}}` becomes `YYMMDD周X`. */
+  template: string;
+}
+
+/** One day of a month file: `id` is `YYMMDD`, `YYMMDD-2` for a repeated date, or `preamble`. */
+export interface DiaryDay {
+  id: string;
+  date: string | null;
+  /** The `## ` heading without its marks, e.g. `261111周三`. */
+  title: string;
+  /** Everything under the heading. */
+  body: string;
+}
+
+export interface DiaryMonth {
+  /** `YYMM`. */
+  month: string;
+  days: DiaryDay[];
+}
+
+export type DiarySaveOutcome =
+  | { status: "saved"; id: string | null; month: DiaryMonth }
+  /** The day's body changed on disk since it was read; `current` is null when the day is gone. */
+  | { status: "conflict"; current: string | null };
 
 export interface AppSettings {
   schemaVersion: 1;
@@ -89,6 +116,7 @@ export interface AppSettings {
   slogans: TabSlogans;
   /** Tag name -> emoji shown before the tag; "" means no icon (show #). */
   tagIcons: Record<string, string>;
+  diary: DiarySettings;
 }
 
 export interface LoadedAppState {

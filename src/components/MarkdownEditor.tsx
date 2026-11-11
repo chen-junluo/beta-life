@@ -4,11 +4,11 @@ import { InputRule, inputRules, textblockTypeInputRule, undoInputRule, wrappingI
 import { keymap } from "prosemirror-keymap";
 import type { MarkType } from "prosemirror-model";
 import { liftListItem, sinkListItem, splitListItem } from "prosemirror-schema-list";
-import { EditorState, type Command } from "prosemirror-state";
+import { EditorState, Selection, type Command } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import "prosemirror-view/style/prosemirror.css";
 import { useEffect, useRef, type MouseEvent } from "react";
-import { markdownSchema, markdownSlice, parseMarkdown, renderMarkdown, serializeMarkdown } from "../markdown";
+import { markdownSchema, markdownSlice, parseMarkdown, renderMarkdown, serializeMarkdown, type MarkdownFlavor } from "../markdown";
 
 const { nodes, marks } = markdownSchema;
 
@@ -19,13 +19,16 @@ interface MarkdownEditorProps {
   placeholder?: string;
   /** Minimum height in text lines, like a textarea's `rows`. */
   rows?: number;
-  autoFocus?: boolean;
+  /** `"end"` puts the cursor at the end, e.g. under a pre-filled template. */
+  autoFocus?: boolean | "end";
   disabled?: boolean;
   id?: string;
   "aria-label"?: string;
   onBlur?: () => void;
   /** Cmd/Ctrl+Enter, e.g. to submit a composer. */
   onModEnter?: () => void;
+  /** `diary`: tab-indented lists, no setext headings, empty bullets not saved. */
+  flavor?: MarkdownFlavor;
 }
 
 /** `**a**` → bold, `*a*` → italic, `` `a` `` → code, while typing. */
@@ -44,9 +47,9 @@ const insertHardBreak: Command = (state, dispatch) => {
   return true;
 };
 
-function createState(value: string, onModEnter: () => boolean) {
+function createState(value: string, onModEnter: () => boolean, flavor?: MarkdownFlavor) {
   return EditorState.create({
-    doc: parseMarkdown(value),
+    doc: parseMarkdown(value, flavor),
     plugins: [
       inputRules({
         rules: [
@@ -113,7 +116,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     const editor: EditorView = new EditorView(
       { mount: host.current! },
       {
-        state: createState(latest.current.value, onModEnter),
+        state: createState(latest.current.value, onModEnter, latest.current.flavor),
         editable: () => !latest.current.disabled,
         attributes: (state) => {
           const { className, placeholder, id, disabled } = latest.current;
@@ -131,17 +134,17 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         dispatchTransaction(tr) {
           editor.updateState(editor.state.apply(tr));
           if (!tr.docChanged) return;
-          emitted.current = serializeMarkdown(editor.state.doc);
+          emitted.current = serializeMarkdown(editor.state.doc, latest.current.flavor);
           latest.current.onChange(emitted.current);
         },
         // Prefer the plain-text flavour so Markdown copied from editors, chats or files renders as Markdown.
         handlePaste(current, event) {
           const text = event.clipboardData?.getData("text/plain");
           if (!text || current.state.selection.$from.parent.type.spec.code) return false;
-          current.dispatch(current.state.tr.replaceSelection(markdownSlice(text)).scrollIntoView().setMeta("paste", true));
+          current.dispatch(current.state.tr.replaceSelection(markdownSlice(text, latest.current.flavor)).scrollIntoView().setMeta("paste", true));
           return true;
         },
-        clipboardTextSerializer: (slice) => serializeMarkdown(markdownSchema.topNodeType.create(null, slice.content)),
+        clipboardTextSerializer: (slice) => serializeMarkdown(markdownSchema.topNodeType.create(null, slice.content), latest.current.flavor),
         handleDOMEvents: {
           blur: () => {
             latest.current.onBlur?.();
@@ -151,6 +154,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       },
     );
     view.current = editor;
+    if (latest.current.autoFocus === "end") editor.dispatch(editor.state.tr.setSelection(Selection.atEnd(editor.state.doc)));
     if (latest.current.autoFocus) editor.focus();
     return () => {
       editor.destroy();
@@ -163,7 +167,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     const editor = view.current;
     if (!editor || props.value === emitted.current) return;
     emitted.current = props.value;
-    editor.updateState(EditorState.create({ doc: parseMarkdown(props.value), plugins: editor.state.plugins }));
+    editor.updateState(EditorState.create({ doc: parseMarkdown(props.value, latest.current.flavor), plugins: editor.state.plugins }));
   }, [props.value]);
 
   useEffect(() => {

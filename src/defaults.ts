@@ -83,7 +83,10 @@ export const DEFAULT_TAB_SLOGANS: TabSlogans = {
   recall: "写下的会忘，复述出来的才真正属于自己。",
   forest: "每一项能力都是一棵树，慢慢长，终会成林。",
   memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。",
+  diary: "日子会过去，写下来的会留下。",
 };
+
+export const DEFAULT_DIARY_TEMPLATE = "- ";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
@@ -121,6 +124,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},
+  diary: { template: DEFAULT_DIARY_TEMPLATE },
 };
 
 export const DEFAULT_BOARD: BoardFile = {

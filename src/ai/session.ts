@@ -1,7 +1,9 @@
 import type { KnowledgeBundle } from "../recallStorage";
 import type { MemorySnapshot } from "../memoryStorage";
 import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata } from "../types";
+import { loadDiaryMonth, type DiarySnapshot } from "../diaryStorage";
 import { AI_TOOLS, applyBoardBatch, applyBoardChange, boardIndex, describeBoardChange } from "./boardTools";
+import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, diaryMonthIndex, findDay, loadDiaryData, monthOfDay, type DiaryData, type DiaryMonths } from "./diaryTools";
 import { applyForestChange, describeForestChange, forestIndex, forestMapIndex, readNode, type Forests } from "./forestTools";
 import { applyMemoryChange, asMemories, commitMemoryChanges, describeMemoryChange, loadMemoryData, memoryIndex, newMemoryId, readMemory } from "./memoryTools";
 import { applyRecallChange, commitRecallChanges, describeRecallChange, dueRecords, loadKnowledge, loadPoints, recallIndex } from "./recallTools";
@@ -15,6 +17,8 @@ export interface AssistantData {
   knowledge: KnowledgeRecord[];
   memories: MemoryMetadata[];
   lifeStages: LifeStage[];
+  /** Loaded only when the scope can read the diary. */
+  diary: DiaryData | null;
 }
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -29,13 +33,14 @@ export function forestsOf(state: LoadedAppState): Forests {
   return { vision: state.abilityForest, research: state.researchAgenda };
 }
 
-/** Loads the panels that live on disk (recall, memories) only when the scope can read them. */
+/** Loads the panels that live on disk (recall, memories, diary) only when the scope can read them. */
 export async function loadAssistantData(scope: AiScope, state: LoadedAppState): Promise<AssistantData> {
-  const [knowledge, memoryData] = await Promise.all([
+  const [knowledge, memoryData, diary] = await Promise.all([
     scope.recall ? loadKnowledge() : Promise.resolve([]),
     scope.memories ? loadMemoryData() : Promise.resolve({ memories: [], lifeStages: [] }),
+    scope.diary ? loadDiaryData() : Promise.resolve(null),
   ]);
-  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData };
+  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary };
 }
 
 /** Everything the model sees without calling a tool: the index of each panel the scope can read. */
@@ -46,6 +51,7 @@ export function assistantContext(scope: AiScope, data: AssistantData): string {
     ...(scope.forest && { forest: forestIndex(data.forests) }),
     ...(scope.recall && { recall: recallIndex(data.knowledge) }),
     ...(scope.memories && { memories: memoryIndex(data.memories, data.lifeStages) }),
+    ...(scope.diary && data.diary && { diary: diaryIndex(data.diary) }),
   });
 }
 
@@ -74,6 +80,15 @@ export function createToolSession(data: AssistantData) {
   let forests = data.forests;
   let knowledge = data.knowledge;
   let memories = asMemories(data.memories);
+  // Reads see the months as loaded during the turn; staged writes build on `diaryDraft`.
+  const diaryLoaded: DiaryMonths = { ...data.diary?.months };
+  let diaryDraft: DiaryMonths = { ...diaryLoaded };
+
+  async function ensureMonth(month: string) {
+    if (!/^\d{4}$/.test(month)) throw new Error(`month must be YYMM, got "${month}"`);
+    diaryLoaded[month] ??= (await loadDiaryMonth(month)).days;
+    diaryDraft[month] ??= diaryLoaded[month];
+  }
 
   async function read(call: AiToolCall): Promise<unknown> {
     const args = call.arguments;
@@ -115,6 +130,25 @@ export function createToolSession(data: AssistantData) {
         });
       case "list_life_stages":
         return memoryIndex([], data.lifeStages).lifeStages;
+      case "list_diary": {
+        const month = String(args.month);
+        await ensureMonth(month);
+        return diaryMonthIndex(month, diaryLoaded[month]);
+      }
+      case "read_diary": {
+        const days = Array.isArray(args.days) ? args.days.map(String) : [];
+        return {
+          items: await Promise.all(days.map(async (id) => {
+            try {
+              await ensureMonth(monthOfDay(id));
+              const day = findDay(diaryLoaded, id);
+              return { id, title: day.title, body: day.body };
+            } catch (error) {
+              return { id, error: error instanceof Error ? error.message : String(error) };
+            }
+          })),
+        };
+      }
       default:
         throw new Error(`Unknown tool ${call.name}`);
     }
@@ -142,6 +176,11 @@ export function createToolSession(data: AssistantData) {
         memories = applyMemoryChange(memories, input, data.lifeStages);
         return display;
       }
+      case "diary": {
+        const display = describeDiaryChange(diaryDraft, input);
+        diaryDraft = applyDiaryChange(diaryDraft, input);
+        return display;
+      }
     }
   }
 
@@ -152,6 +191,7 @@ export function createToolSession(data: AssistantData) {
         if (!spec) throw new Error(`Unknown tool ${call.name}`);
         if (spec.access === "read") return { content: json(await read(call)) };
         const input = { name: call.name, arguments: call.arguments, createdId: createdIdFor(call.name) };
+        if (spec.panel === "diary") await ensureMonth(monthOfDay(call.arguments.day));
         const display = stage(spec.panel, input);
         const change: AiChange = { id: crypto.randomUUID(), panel: spec.panel, toolCallId: call.id, ...input, ...display, selected: true };
         return {
@@ -174,6 +214,7 @@ export interface CommitTargets {
   commitForest: (map: AbilityMapKind, forest: AbilityForest) => void;
   recordRecall: (before: KnowledgeBundle[], after: KnowledgeBundle[]) => void;
   recordMemories: (before: MemorySnapshot[], after: MemorySnapshot[]) => void;
+  recordDiary: (before: DiarySnapshot[], after: DiarySnapshot[]) => void;
 }
 
 /** Writes the confirmed changes panel by panel: one undo step per touched panel (and forest map). */
@@ -226,6 +267,13 @@ export async function commitChanges(changes: AiChange[], targets: CommitTargets)
     } catch (error) {
       failed.push(...memoryChanges.map((change) => ({ changeId: change.id, reason: error instanceof Error ? error.message : String(error) })));
     }
+  }
+
+  const diaryChanges = of("diary");
+  if (diaryChanges.length > 0) {
+    const result = await commitDiaryChanges(diaryChanges);
+    if (result.after.length > 0) targets.recordDiary(result.before, result.after);
+    failed.push(...result.failed);
   }
   return failed;
 }

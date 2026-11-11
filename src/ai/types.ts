@@ -1,4 +1,4 @@
-export type AiPanelId = "board" | "recall" | "forest" | "memories";
+export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary";
 /** "write" includes "read". A panel missing from the scope is not accessible. */
 export type AiAccess = "read" | "write";
 export type AiScope = Partial<Record<AiPanelId, AiAccess>>;

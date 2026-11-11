@@ -33,7 +33,7 @@ const input = (name: string, args: Record<string, unknown>, createdId?: string) 
 
 function data(overrides: Partial<AssistantData> = {}): AssistantData {
   const { content: _content, ...metadata } = memory;
-  return { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests, knowledge: [knowledge], memories: [metadata as MemoryMetadata], lifeStages: stages, ...overrides };
+  return { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests, knowledge: [knowledge], memories: [metadata as MemoryMetadata], lifeStages: stages, diary: null, ...overrides };
 }
 
 describe("forest tools", () => {
@@ -138,7 +138,7 @@ describe("assistant session", () => {
       { ...(await session.run({ id: "4", name: "delete_memory", arguments: { id: "m1" } })).change!, selected: false },
     ] as AiChange[];
     const state = { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, abilityForest: DEFAULT_ABILITY_FOREST, researchAgenda: DEFAULT_RESEARCH_AGENDA, hasApiKey: true } as LoadedAppState;
-    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn() };
+    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn(), recordDiary: vi.fn() };
     const failed = await commitChanges(changes.filter((change) => change.selected), targets);
     expect(failed).toEqual([]);
     expect(targets.commitBoard).not.toHaveBeenCalled();

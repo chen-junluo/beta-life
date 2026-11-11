@@ -1,7 +1,7 @@
-import { Bot, BrainCircuit, CalendarDays, ChartNoAxesGantt, Sparkles, Sprout, X } from "lucide-react";
+import { Bot, BrainCircuit, CalendarDays, ChartNoAxesGantt, NotebookPen, Sparkles, Sprout, X } from "lucide-react";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-export type WorkspaceSection = "board" | "recall" | "forest" | "memories";
+export type WorkspaceSection = "board" | "recall" | "forest" | "memories" | "diary";
 /** Full pages at the bottom of the drawer; they replace the panel until the user returns. */
 export type WorkspacePage = "timeline" | "workbench";
 
@@ -143,6 +143,16 @@ export function WorkspaceDrawer({
             <Sparkles size={18} aria-hidden="true" />
             <span>记忆星云</span>
           </button>
+          <button
+            type="button"
+            className={`workspace-drawer-item ${current === "diary" ? "active" : ""}`}
+            data-section="diary"
+            aria-current={current === "diary" ? "page" : undefined}
+            onClick={() => selectSection("diary")}
+          >
+            <NotebookPen size={18} aria-hidden="true" />
+            <span>日记</span>
+          </button>
         </nav>
 
         {/* Full pages sit at the bottom and stack upward: the AI workbench last, the timeline above it. */}
@@ -177,7 +187,7 @@ export function WorkspaceDrawer({
 
         <footer className="workspace-drawer-footer">
           <span>当前面板</span>
-          <strong>{page === "workbench" ? "AI 工作台" : page === "timeline" ? "时间轴" : activeSection === "board" ? "时间板" : activeSection === "recall" ? "回想" : activeSection === "forest" ? "能力森林" : "记忆星云"}</strong>
+          <strong>{page === "workbench" ? "AI 工作台" : page === "timeline" ? "时间轴" : activeSection === "board" ? "时间板" : activeSection === "recall" ? "回想" : activeSection === "forest" ? "能力森林" : activeSection === "memories" ? "记忆星云" : "日记"}</strong>
         </footer>
       </aside>
     </>

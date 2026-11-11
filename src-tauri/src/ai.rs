@@ -29,6 +29,7 @@ pub(crate) enum Panel {
     Recall,
     Forest,
     Memories,
+    Diary,
 }
 
 impl Panel {
@@ -38,6 +39,7 @@ impl Panel {
             Panel::Recall => "回想 (recall)",
             Panel::Forest => "能力森林 (forest)",
             Panel::Memories => "记忆星云 (memories)",
+            Panel::Diary => "日记 (diary)",
         }
     }
 }
@@ -204,11 +206,12 @@ fn system_prompt(settings: &AppSettings, scope: &Scope, context: &str) -> String
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        r#"You are the assistant inside Beta Life, a local-first desktop app with four panels:
+        r#"You are the assistant inside Beta Life, a local-first desktop app with five panels:
 - 时间板 (board): daily habits and to-dos placed in a period or at an hour.
 - 回想 (recall): knowledge records (Markdown notes with hierarchical tags) reviewed with spaced repetition.
 - 能力森林 (forest): two three-level ability maps, vision (Long-term Vision) and research (Research Agenda); levels are 领域 → 能力组 → 能力.
 - 记忆星云 (memories): personal memories tied to songs, dates, life stages, places and emotions.
+- 日记 (diary): the user's daily journal, one Markdown file per month. Each day is a section under a `## YYMMDD周X` heading; diary tools read and write only the body under the heading, which is free-form Markdown (nested bullets indented with tabs, paragraphs). Keep the user's own words and tab indentation; only touch the days a request is about.
 
 User-editable assistant preferences:
 {prompt}
@@ -709,6 +712,7 @@ fn export_markdown(conversation: &Conversation) -> String {
         Panel::Recall => "recall",
         Panel::Forest => "forest",
         Panel::Memories => "memories",
+        Panel::Diary => "diary",
     };
     let fields = vec![
         ("id", s(&conversation.id)),

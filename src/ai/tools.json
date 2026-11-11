@@ -719,5 +719,128 @@
       ],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "list_diary",
+    "panel": "diary",
+    "access": "read",
+    "description": "List the days of one month of the diary (id, heading and first line of each). The index already lists the current month; use this for other months.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "month": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4,
+          "description": "YYMM, e.g. 2610."
+        }
+      },
+      "required": [
+        "month"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_diary",
+    "panel": "diary",
+    "access": "read",
+    "description": "Read the full body of one or more diary days in one call.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 62,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 10,
+            "description": "A day id from the diary index: YYMMDD, or YYMMDD-2 for a second block with the same date."
+          },
+          "description": "Day ids; read everything you need in one call."
+        }
+      },
+      "required": [
+        "days"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "append_diary",
+    "panel": "diary",
+    "access": "write",
+    "description": "Stage text added to the end of a day's body. If the day does not exist yet it is created at the end of its month under the heading `## YYMMDD周X`. text is free-form Markdown (bullets, nested bullets indented with tabs, or paragraphs); do not include the `## ` heading.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 6,
+          "description": "YYMMDD."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        }
+      },
+      "required": [
+        "day",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "rewrite_diary_day",
+    "panel": "diary",
+    "access": "write",
+    "description": "Stage a full replacement of one existing day's body. text is everything under the day's `## YYMMDD周X` heading, without the heading. Read the day first and keep everything the user did not ask to change.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 10,
+          "description": "A day id from the diary index: YYMMDD, or YYMMDD-2 for a second block with the same date."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        }
+      },
+      "required": [
+        "day",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_diary_day",
+    "panel": "diary",
+    "access": "write",
+    "description": "Stage deleting one whole day from the diary.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 10,
+          "description": "A day id from the diary index: YYMMDD, or YYMMDD-2 for a second block with the same date."
+        }
+      },
+      "required": [
+        "day"
+      ],
+      "additionalProperties": false
+    }
   }
 ]

@@ -103,7 +103,7 @@ describe("AiDock", () => {
     const { onScopeChange } = render({ conversation: null });
     const input = host.querySelector("textarea")!;
     type(input, "总结一下 @记忆");
-    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(4);
+    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(5);
     expect(host.querySelector(".ai-mention-row.is-active")?.textContent).toContain("记忆星云");
     key(input, "ArrowRight");
     key(input, "ArrowUp");

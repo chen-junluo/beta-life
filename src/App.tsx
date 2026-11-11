@@ -9,6 +9,8 @@ import { assignTagIcons } from "./tagIcons";
 import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
 import { TimelineView } from "./components/TimelineView";
+import { DiaryView } from "./components/DiaryView";
+import { restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
 import { useAssistant } from "./ai/useAssistant";
 import { usePanelHistory } from "./history";
 import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
@@ -71,10 +73,11 @@ const SECTION_LABELS: Record<WorkspaceSection, string> = {
   recall: "回想",
   forest: "能力森林",
   memories: "记忆星云",
+  diary: "日记",
 };
 
-function withDefaultSlogans(settings: AppSettings): AppSettings {
-  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans } };
+function withSettingDefaults(settings: AppSettings): AppSettings {
+  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary } };
 }
 
 function shortPeriodLabel(period: AppSettings["periods"][number]): string {
@@ -142,6 +145,7 @@ export default function App() {
   const [lifeStagesRevision, setLifeStagesRevision] = useState(0);
   const [recallRevision, setRecallRevision] = useState(0);
   const [memoriesRevision, setMemoriesRevision] = useState(0);
+  const [diaryRevision, setDiaryRevision] = useState(0);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
@@ -178,7 +182,7 @@ export default function App() {
       .then((loaded) => {
         if (active) {
           const settings = withPrototypePalette(loaded.settings);
-          const normalized = { ...loaded, settings: withDefaultSlogans(settings) };
+          const normalized = { ...loaded, settings: withSettingDefaults(settings) };
           setState(normalized);
           pendingAbilityForests.current = { vision: null, research: null };
           setForestSaveState("saved");
@@ -316,6 +320,17 @@ export default function App() {
     },
   }), [recordHistory]);
 
+  /** Days written back by undo or redo; the diary view re-reads the month. */
+  const recordDiary = useCallback((before: DiarySnapshot[], after: DiarySnapshot[], key?: string) => recordHistory("diary", {
+    before,
+    after,
+    key,
+    restore: async (snapshots) => {
+      for (const snapshot of snapshots) await restoreDiarySnapshot(snapshot);
+      setDiaryRevision((revision) => revision + 1);
+    },
+  }), [recordHistory]);
+
   const [dockFocus, setDockFocus] = useState(0);
   const assistant = useAssistant({
     activePanel: activeSection,
@@ -330,6 +345,10 @@ export default function App() {
     recordMemories: (before, after) => {
       recordMemories(before, after);
       setMemoriesRevision((revision) => revision + 1);
+    },
+    recordDiary: (before, after) => {
+      recordDiary(before, after);
+      setDiaryRevision((revision) => revision + 1);
     },
   });
 
@@ -384,6 +403,10 @@ export default function App() {
         if (panels.has("memories")) {
           clearHistory("memories");
           setMemoriesRevision((revision) => revision + 1);
+        }
+        if (panels.has("diary")) {
+          clearHistory("diary");
+          setDiaryRevision((revision) => revision + 1);
         }
         if (panels.has("ai")) void assistantRef.current.refreshSummaries().catch(console.error);
       }),
@@ -821,6 +844,10 @@ export default function App() {
         lifeStagesRevision={lifeStagesRevision}
         dataRevision={memoriesRevision}
         onHistory={(before, after) => recordMemories([before], [after])}
+      /> : activeSection === "diary" ? <DiaryView
+        template={state.settings.diary.template}
+        revision={diaryRevision}
+        onHistory={(before, after, key) => recordDiary([before], [after], key)}
       /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}

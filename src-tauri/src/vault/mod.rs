@@ -13,6 +13,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 pub(crate) mod board;
+pub(crate) mod diary;
 pub(crate) mod fm;
 pub(crate) mod forest;
 pub(crate) mod location;
@@ -25,16 +26,18 @@ pub(crate) const BOARD: &str = "时间板";
 pub(crate) const RECALL: &str = "回想";
 pub(crate) const FOREST: &str = "能力森林";
 pub(crate) const MEMORIES: &str = "记忆星云";
+pub(crate) const DIARY: &str = "日记";
 pub(crate) const AI: &str = "AI";
 pub(crate) const TIMELINE: &str = "时间轴";
 pub(crate) const META: &str = ".beta-life";
 
 /// Tab folders whose md files are watched, with the panel name sent to the frontend.
-pub(crate) const WATCHED: [(&str, &str); 5] = [
+pub(crate) const WATCHED: [(&str, &str); 6] = [
     (BOARD, "board"),
     (RECALL, "recall"),
     (FOREST, "forest"),
     (MEMORIES, "memories"),
+    (DIARY, "diary"),
     (AI, "ai"),
 ];
 

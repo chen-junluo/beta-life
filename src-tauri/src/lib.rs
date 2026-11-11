@@ -193,6 +193,25 @@ struct AppSettings {
     /// Tag name -> emoji shown before the tag. An empty string means "no icon".
     #[serde(default)]
     tag_icons: HashMap<String, String>,
+    #[serde(default)]
+    diary: DiarySettings,
+}
+
+const DEFAULT_DIARY_TEMPLATE: &str = "- ";
+/// The P4b test build's default, from when the date line was part of the day's text.
+const LEGACY_DEFAULT_DIARY_TEMPLATE: &str = "- {{date}}\n\t- ";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct DiarySettings {
+    /// The body of a new day (under its `## YYMMDD周X` heading); `{{date}}` becomes `YYMMDD周X`.
+    template: String,
+}
+
+impl Default for DiarySettings {
+    fn default() -> Self {
+        Self { template: DEFAULT_DIARY_TEMPLATE.into() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +221,7 @@ struct TabSlogans {
     recall: String,
     forest: String,
     memories: String,
+    diary: String,
 }
 
 impl Default for TabSlogans {
@@ -211,6 +231,7 @@ impl Default for TabSlogans {
             recall: "写下的会忘，复述出来的才真正属于自己。".into(),
             forest: "每一项能力都是一棵树，慢慢长，终会成林。".into(),
             memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。".into(),
+            diary: "日子会过去，写下来的会留下。".into(),
         }
     }
 }
@@ -728,6 +749,7 @@ fn default_settings() -> AppSettings {
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
+        diary: DiarySettings::default(),
     }
 }
 
@@ -773,6 +795,15 @@ fn migrate_memory_analysis_prompt(settings: &mut AppSettings) -> bool {
     }
 }
 
+fn migrate_diary_template(settings: &mut AppSettings) -> bool {
+    if settings.diary.template == LEGACY_DEFAULT_DIARY_TEMPLATE {
+        settings.diary.template = DEFAULT_DIARY_TEMPLATE.into();
+        true
+    } else {
+        false
+    }
+}
+
 fn migrate_assistant_prompt(settings: &mut AppSettings) -> bool {
     if settings.ai.assistant_prompt == LEGACY_DEFAULT_ASSISTANT_PROMPT {
         settings.ai.assistant_prompt = DEFAULT_ASSISTANT_PROMPT.into();
@@ -788,7 +819,8 @@ fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let migrated_recall = migrate_recall_evaluation_prompt(&mut settings);
     let migrated_memory = migrate_memory_analysis_prompt(&mut settings);
     let migrated_assistant = migrate_assistant_prompt(&mut settings);
-    if migrated_recall || migrated_memory || migrated_assistant {
+    let migrated_diary = migrate_diary_template(&mut settings);
+    if migrated_recall || migrated_memory || migrated_assistant || migrated_diary {
         atomic_write(&path, &settings)?;
     }
     Ok(settings)
@@ -2536,6 +2568,9 @@ pub fn run() {
             save_memory,
             delete_memory,
             parse_memory_with_ai,
+            vault::diary::list_diary_months,
+            vault::diary::load_diary_month,
+            vault::diary::save_diary_day,
             activity::activity_status,
             activity::request_accessibility,
             activity::open_automation_settings,

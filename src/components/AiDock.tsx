@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type
 import { isImageFile, MAX_IMAGES, readImage } from "../ai/images";
 import { pendingBatch } from "../ai/turn";
 import { AI_TASKS, changePanel, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
+import { monthTitle } from "../diaryLogic";
 import { MarkdownContent } from "./MarkdownEditor";
 
 export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
@@ -10,8 +11,9 @@ export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
   recall: { name: "回想", color: "#ea580c" },
   forest: { name: "能力森林", color: "#16a34a" },
   memories: { name: "记忆星云", color: "#6366f1" },
+  diary: { name: "日记", color: "#e11d48" },
 };
-export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories"];
+export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories", "diary"];
 export type PickerAccess = AiAccess | "off";
 export const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
 export const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", read: "只读", write: "可改" };
@@ -171,6 +173,8 @@ export function traceLabel(call: CheckedToolCall, result: Record<string, unknown
     case "list_memories": return "读取了全部记忆";
     case "read_memory": return `读了记忆${names((item) => item.song || item.content)}`;
     case "list_life_stages": return "查看了人生阶段";
+    case "list_diary": return `查看了 ${typeof result.month === "string" ? monthTitle(result.month) : ""}的日记列表`;
+    case "read_diary": return `读了日记${names((item) => item.id)}`;
     default: return null;
   }
 }

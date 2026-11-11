@@ -6,7 +6,7 @@ import { AI_TOOLS, applyBoardBatch, boardIndex } from "./boardTools";
 import { createToolSession } from "./session";
 
 const createBoardSession = (board: BoardFile, settings = DEFAULT_SETTINGS) =>
-  createToolSession({ board, settings, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [] });
+  createToolSession({ board, settings, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary: null });
 
 function habit(id: string, title: string, placement: Habit["placement"], order: number, extra: Partial<Habit> = {}): Habit {
   return { id, title, description: "", tags: "", placement, order, createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z", ...extra };

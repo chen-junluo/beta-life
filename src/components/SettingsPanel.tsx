@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, KeyRound, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, KeyRound, NotebookPen, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import { validateLifeStages } from "../memoryLogic";
 import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
@@ -17,13 +17,14 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
 ];
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "slogan" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "board", label: "时间板" },
   { id: "recall", label: "回想" },
   { id: "forest", label: "能力森林" },
   { id: "memories", label: "记忆星云" },
+  { id: "diary", label: "日记" },
 ];
 
 interface SettingsPanelProps {
@@ -222,6 +223,17 @@ export function SettingsPanel({
     }));
   }
 
+  /** Tab inserts a tab: diary bullets nest with tabs. */
+  function typeTab(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Tab" || event.shiftKey) return;
+    event.preventDefault();
+    const field = event.currentTarget;
+    const { selectionStart, selectionEnd, value } = field;
+    const template = `${value.slice(0, selectionStart)}\t${value.slice(selectionEnd)}`;
+    setDraft((current) => ({ ...current, diary: { ...current.diary, template } }));
+    requestAnimationFrame(() => field.setSelectionRange(selectionStart + 1, selectionStart + 1));
+  }
+
   function updateSlogan(id: keyof TabSlogans, value: string) {
     setDraft((current) => ({ ...current, slogans: { ...current.slogans, [id]: value } }));
   }
@@ -315,6 +327,7 @@ export function SettingsPanel({
     { id: "appearance", label: "布局与字号", icon: <SlidersHorizontal size={17} /> },
     { id: "recall", label: "回想与记忆", icon: <Target size={17} /> },
     { id: "stages", label: "记忆阶段", icon: <Orbit size={17} /> },
+    { id: "diary", label: "日记", icon: <NotebookPen size={17} /> },
     { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
@@ -606,6 +619,21 @@ export function SettingsPanel({
                   <div className="settings-note">{stagesError ?? "正在读取阶段…"}</div>
                 )}
                 <div className="settings-note">格式为 YYYY-MM，结束月份包含在阶段内。阶段名称被已有记忆引用，这里只调整时间范围。</div>
+              </div>
+            )}
+
+            {section === "diary" && (
+              <div className="settings-section form-grid diary-settings">
+                <div className="section-heading">
+                  <NotebookPen size={21} />
+                  <div><h3>日记</h3><p>每月一个 md（例如 <code>日记/2611 diary.md</code>）；每天以 <code>## 261111周三</code> 开头，下面的正文可以是任意格式；天与天之间用 <code>---</code> 分隔。</p></div>
+                </div>
+                <label className="prompt-field-card">
+                  <span>新一天的模板</span>
+                  <small>点「写今天」时预填在日期标题下面的正文；可以用 <code>{"{{date}}"}</code> 代表 <code>261111周三</code>。Tab 键输入缩进，嵌套 bullet 用 Tab 缩进。</small>
+                  <textarea className="diary-template" rows={6} value={draft.diary.template} onChange={(event) => setDraft((current) => ({ ...current, diary: { ...current.diary, template: event.target.value } }))} onKeyDown={typeTab} spellCheck={false} />
+                  <button className="secondary-button align-start" type="button" onClick={() => setDraft((current) => ({ ...current, diary: { ...current.diary, template: DEFAULT_DIARY_TEMPLATE } }))}><RotateCcw size={15} /> 恢复默认</button>
+                </label>
               </div>
             )}
 

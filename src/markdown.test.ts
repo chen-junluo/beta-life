@@ -28,6 +28,26 @@ describe("markdown round trip", () => {
     expect(roundTrip("第一行\n第二行")).toBe("第一行\n第二行");
   });
 
+  it("keeps tab-indented diary lists with tabs", () => {
+    const body = "- 早起\n\t- 跑步 **5km**\n\t\t- 配速 6'\n- 读书\n\n一段话";
+    expect(serializeMarkdown(parseMarkdown(body, "diary"), "diary")).toBe(body);
+  });
+
+  it("never reads an empty nested diary bullet as a heading, and does not save empty bullets", () => {
+    const doc = parseMarkdown("- 1222www\n\t- \n\n22222", "diary");
+    let headings = 0;
+    doc.descendants((node) => { if (node.type.name === "heading") headings += 1; });
+    expect(headings).toBe(0);
+    expect(parseMarkdown("一行\n-").firstChild?.type.name).toBe("heading");
+    expect(serializeMarkdown(parseMarkdown("- a\n- \n- b", "diary"), "diary")).toBe("- a\n- b");
+  });
+
+  it("keeps Obsidian links, embeds and strikethrough unescaped", () => {
+    for (const value of ["见 [[读书笔记]] 和 [[a_b|别名]]", "![[Pasted image 20260727124420.png]]", "~~划掉~~ 但 \\[普通\\] 括号仍转义"]) {
+      expect(roundTrip(value)).toBe(value);
+    }
+  });
+
   it("writes typed lists tight with dash bullets", () => {
     const { bullet_list, list_item, paragraph } = markdownSchema.nodes;
     const doc = markdownSchema.node("doc", null, [
