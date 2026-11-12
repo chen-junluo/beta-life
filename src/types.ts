@@ -2,7 +2,8 @@ import type { FSRSParameters } from "ts-fsrs";
 
 export type PeriodId = "morning" | "noon" | "evening" | "sleep";
 
-export type BoardViewMode = "global" | PeriodId;
+/** `bebe`: the board's tab for bebe's reminders, fixed times and quiet hours (P6c). */
+export type BoardViewMode = "global" | PeriodId | "bebe";
 
 export type Placement =
   | { kind: "period"; period: PeriodId }

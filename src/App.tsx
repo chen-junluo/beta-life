@@ -21,6 +21,8 @@ import { usePanelHistory } from "./history";
 import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
 import { restoreMemorySnapshot, type MemorySnapshot } from "./memoryStorage";
 import { BoardView } from "./components/BoardView";
+import { BebeScheduleView } from "./components/BebeScheduleView";
+import { EMPTY_PLAN, loadPetPlan, PET_PLAN, savePetPlan, type PetPlan } from "./pet/plan";
 import { HabitEditor } from "./components/HabitEditor";
 import { RecallView } from "./components/RecallView";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -70,6 +72,7 @@ import type {
   HabitRecord,
   LoadedAppState,
   PeriodId,
+  QuietHours,
   VaultIssue,
 } from "./types";
 
@@ -442,6 +445,35 @@ export default function App() {
     const latest = stateRef.current ?? current;
     commitBoard(withActiveItems(latest.board, addObstacles(activeItems(latest.board), date, reasons, new Date().toISOString())));
   }, [commitBoard]);
+
+  /** bebe's pause and one-off reminders (Rust keeps them on this Mac and tells every window). */
+  const [petPlan, setPetPlan] = useState<PetPlan>(EMPTY_PLAN);
+  const [quietError, setQuietError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    void loadPetPlan().then(setPetPlan).catch(console.error);
+    const unlisten = listen<PetPlan>(PET_PLAN, ({ payload }) => setPetPlan(payload));
+    return () => void unlisten.then((stop) => stop());
+  }, []);
+
+  function changePetPlan(plan: PetPlan) {
+    setPetPlan(plan);
+    if (window.__TAURI_INTERNALS__) void savePetPlan(plan).catch((error) => {
+      console.error(error);
+      void loadPetPlan().then(setPetPlan).catch(console.error);
+    });
+  }
+
+  /** Quiet hours edited on the bebe tab are saved at once; an unfinished range waits with its error. */
+  function changeQuietHours(quietHours: QuietHours[]) {
+    const current = stateRef.current;
+    if (!current) return;
+    const settings = { ...current.settings, pet: { ...current.settings.pet, quietHours } };
+    const nextState = { ...current, settings };
+    stateRef.current = nextState;
+    setState(nextState);
+    void queueSettingsSave(settings).then(() => setQuietError(null), (error) => setQuietError(errorMessage(error)));
+  }
 
   const [dockFocus, setDockFocus] = useState(0);
   /** The panel the dock starts new conversations from: the timeline page counts as its own (read only). */
@@ -855,6 +887,7 @@ export default function App() {
       title: `${period.label} · ${hourLabel(period.startHour)}–${hourLabel(periods[(index + 1) % periods.length].startHour)}`,
       color: period.color,
     })),
+    { id: "bebe", label: "bebe", title: "bebe 的提醒、固定日程和安静时段", color: "#0D9488" },
   ];
   const dock = (
     <AiDock
@@ -1019,6 +1052,12 @@ export default function App() {
         template={state.settings.diary.template}
         revision={diaryRevision}
         onHistory={(before, after, key) => recordDiary([before], [after], key)}
+      /> : viewMode === "bebe" ? <BebeScheduleView
+        settings={state.settings}
+        plan={petPlan}
+        onPlanChange={changePetPlan}
+        onQuietHoursChange={changeQuietHours}
+        quietError={quietError}
       /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}

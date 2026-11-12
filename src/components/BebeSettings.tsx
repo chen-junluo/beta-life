@@ -8,6 +8,51 @@ type BebeTab = "reminders" | "quiet" | ProfileSection;
 
 const NEW_QUIET: QuietHours = { days: ["mon", "tue", "wed", "thu", "fri"], start: "14:00", end: "16:00" };
 
+/** bebe's quiet hours: Settings → bebe, and the time board's bebe tab. */
+export function QuietHoursEditor({ quietHours, onChange, selected }: { quietHours: QuietHours[]; onChange: (quietHours: QuietHours[]) => void; selected?: number | null }) {
+  function setQuiet(index: number, patch: Partial<QuietHours>) {
+    onChange(quietHours.map((quiet, at) => (at === index ? { ...quiet, ...patch } : quiet)));
+  }
+
+  function toggleDay(index: number, day: Weekday) {
+    const days = quietHours[index].days;
+    setQuiet(index, { days: WEEKDAYS.map((item) => item.id).filter((id) => (id === day ? !days.includes(id) : days.includes(id))) });
+  }
+
+  return (
+    <>
+      {quietHours.length === 0 ? (
+        <div className="settings-note">还没有安静时段。</div>
+      ) : (
+        <ul className="rule-list quiet-list">
+          {quietHours.map((quiet, index) => (
+            <li key={index} className={selected === index ? "is-selected" : ""}>
+              <span className="quiet-days" role="group" aria-label="星期">
+                {WEEKDAYS.map((day) => (
+                  <button key={day.id} type="button" className={quiet.days.includes(day.id) ? "is-on" : ""} aria-pressed={quiet.days.includes(day.id)} onClick={() => toggleDay(index, day.id)}>
+                    {day.label.slice(1)}
+                  </button>
+                ))}
+              </span>
+              <span className="quiet-range">
+                <input type="time" value={quiet.start} onChange={(event) => setQuiet(index, { start: event.target.value })} aria-label="开始" />
+                <span aria-hidden="true">–</span>
+                <input type="time" value={quiet.end} onChange={(event) => setQuiet(index, { end: event.target.value })} aria-label="结束" />
+              </span>
+              <button type="button" className="icon-button" onClick={() => onChange(quietHours.filter((_, at) => at !== index))} aria-label="删除这段安静时段" title="删除">
+                <X size={15} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="secondary-button bebe-add" onClick={() => onChange([...quietHours, NEW_QUIET])} disabled={quietHours.length >= 20}>
+        <Plus size={15} /> 添加安静时段
+      </button>
+    </>
+  );
+}
+
 /** Settings → bebe: the numbers live in settings.json, the remembered words in `bebe/偏好.md`. */
 export function BebeSettings({ pet, onPetChange, profile, profileError, onProfileChange }: {
   pet: PetSettings;
@@ -23,15 +68,6 @@ export function BebeSettings({ pet, onPetChange, profile, profileError, onProfil
     { id: "quiet", label: `安静时段 · ${pet.quietHours.length}` },
     ...(["style", "about"] as const).map((id) => ({ id, label: `${PROFILE_SECTIONS[id].label} · ${profile?.[id].length ?? "…"}` })),
   ];
-
-  function setQuiet(index: number, patch: Partial<QuietHours>) {
-    onPetChange({ ...pet, quietHours: pet.quietHours.map((quiet, at) => (at === index ? { ...quiet, ...patch } : quiet)) });
-  }
-
-  function toggleDay(index: number, day: Weekday) {
-    const days = pet.quietHours[index].days;
-    setQuiet(index, { days: WEEKDAYS.map((item) => item.id).filter((id) => (id === day ? !days.includes(id) : days.includes(id))) });
-  }
 
   function setItems(section: ProfileSection, items: string[]) {
     if (profile) onProfileChange({ ...profile, [section]: items });
@@ -78,34 +114,7 @@ export function BebeSettings({ pet, onPetChange, profile, profileError, onProfil
       {tab === "quiet" && (
         <>
           <p className="rule-help">安静时段里不弹摸鱼提醒、分类询问和习惯提醒；你让 bebe 定的一次性提醒照样会弹。结束早于开始表示跨过午夜。</p>
-          {pet.quietHours.length === 0 ? (
-            <div className="settings-note">还没有安静时段。</div>
-          ) : (
-            <ul className="rule-list quiet-list">
-              {pet.quietHours.map((quiet, index) => (
-                <li key={index}>
-                  <span className="quiet-days" role="group" aria-label="星期">
-                    {WEEKDAYS.map((day) => (
-                      <button key={day.id} type="button" className={quiet.days.includes(day.id) ? "is-on" : ""} aria-pressed={quiet.days.includes(day.id)} onClick={() => toggleDay(index, day.id)}>
-                        {day.label.slice(1)}
-                      </button>
-                    ))}
-                  </span>
-                  <span className="quiet-range">
-                    <input type="time" value={quiet.start} onChange={(event) => setQuiet(index, { start: event.target.value })} aria-label="开始" />
-                    <span aria-hidden="true">–</span>
-                    <input type="time" value={quiet.end} onChange={(event) => setQuiet(index, { end: event.target.value })} aria-label="结束" />
-                  </span>
-                  <button type="button" className="icon-button" onClick={() => onPetChange({ ...pet, quietHours: pet.quietHours.filter((_, at) => at !== index) })} aria-label="删除这段安静时段" title="删除">
-                    <X size={15} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button type="button" className="secondary-button bebe-add" onClick={() => onPetChange({ ...pet, quietHours: [...pet.quietHours, NEW_QUIET] })} disabled={pet.quietHours.length >= 20}>
-            <Plus size={15} /> 添加安静时段
-          </button>
+          <QuietHoursEditor quietHours={pet.quietHours} onChange={(quietHours) => onPetChange({ ...pet, quietHours })} />
         </>
       )}
 

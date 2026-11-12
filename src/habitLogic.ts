@@ -40,7 +40,7 @@ export function isLowRate(rate: HabitRate | undefined, lowPercent: number): bool
 }
 
 /** The period's end: the start of the next period around the clock. */
-function periodEndHour(period: PeriodSetting, periods: PeriodSetting[]): number {
+export function periodEndHour(period: PeriodSetting, periods: PeriodSetting[]): number {
   const next = periods
     .filter((candidate) => candidate.id !== period.id)
     .sort((a, b) => cyclicDistance(period.startHour, a.startHour) - cyclicDistance(period.startHour, b.startHour))[0];
