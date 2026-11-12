@@ -772,7 +772,7 @@
     "name": "append_diary",
     "panel": "diary",
     "access": "write",
-    "description": "Stage text added to the end of a day's body. If the day does not exist yet it is created at the end of its month under the heading `## YYMMDD周X`. text is free-form Markdown (bullets, nested bullets indented with tabs, or paragraphs); do not include the `## ` heading.",
+    "description": "Stage text added to a day's body: after the user's own writing, above the `=============================================【AI总结】=============================================` line when the day has one (in the 写日记总结 and 助推建议 tasks it goes under that line instead, which Beta Life handles). If the day does not exist yet it is created at the end of its month under the heading `## YYMMDD周X`. text is free-form Markdown (bullets, nested bullets indented with tabs, or paragraphs); do not include the `## ` heading.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1073,6 +1073,12 @@
           "minimum": 1,
           "maximum": 240,
           "description": "How long 「稍后提醒」 on a habit reminder waits."
+        },
+        "habitLowPercent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "A habit done on fewer than this percent of its recorded days in the last 7 gets a nudge suggestion at 0:00."
         },
         "quietHours": {
           "type": "array",

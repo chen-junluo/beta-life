@@ -10,7 +10,10 @@ import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
 import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
-import { restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
+import { appendDiarySummary, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
+import { dayCode } from "./diaryLogic";
+import { addObstacles, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
+import { localDateKey } from "./pet/reminders";
 import { useAssistant } from "./ai/useAssistant";
 import type { AiPanelId } from "./ai/types";
 import { summaryDiaryEntry } from "./activity";
@@ -36,6 +39,9 @@ import {
   PET_CHAT_STOP,
   PET_CHAT_UNDO,
   PET_DIARY_SCOPE,
+  PET_HABIT_REASONS,
+  PET_HABIT_SUGGEST,
+  PET_SUGGEST_SCOPE,
   PET_OPEN_TIMELINE,
   PET_SUMMARY_DIARY,
   PET_DOCK_ARRIVED,
@@ -44,8 +50,10 @@ import {
   PET_SUMMON_DOCK,
   PET_USER_HIDDEN,
   petChatSnapshot,
+  type HabitSuggestOffer,
   type PetBoardSnapshot,
   type PetChatResolve,
+  type PetHabitReasons,
   type PetChatUndo,
   type PetChatSend,
   type PetMarkDone,
@@ -59,6 +67,7 @@ import type {
   BoardFile,
   ContainerId,
   Habit,
+  HabitRecord,
   LoadedAppState,
   PeriodId,
   VaultIssue,
@@ -126,6 +135,23 @@ function forestEditKey(map: AbilityMapKind, previous: AbilityForest, next: Abili
   if (!before) return undefined;
   const fields = (["name", "markdown", "level", "parentId", "order", "color"] as const).filter((field) => before[field] !== changed[0][field]);
   return fields.length === 1 && (fields[0] === "name" || fields[0] === "markdown") ? `${map}:${before.id}:${fields[0]}` : undefined;
+}
+
+/** Habits with a low rate on the last archived day, until bebe has offered suggestions for them. */
+const SUGGEST_STORAGE_KEY = "beta-life:habit-suggest";
+
+function readSuggestOffer(): HabitSuggestOffer | null {
+  try {
+    return JSON.parse(localStorage.getItem(SUGGEST_STORAGE_KEY) ?? "null") as HabitSuggestOffer | null;
+  } catch {
+    return null;
+  }
+}
+
+/** Local `YYYY-MM-DD` a habit was created; a habit without a readable time counts as old. */
+function createdDay(habit: Habit): string {
+  const created = new Date(habit.createdAt);
+  return Number.isNaN(created.getTime()) ? "0000-00-00" : localDateKey(created);
 }
 
 function errorMessage(error: unknown): string {
@@ -339,6 +365,84 @@ export default function App() {
     },
   }), [recordHistory]);
 
+  /** Last 7 archived days per habit, shown on the cards. */
+  const [habitRateMap, setHabitRateMap] = useState<Record<string, HabitRate>>({});
+  const [suggestOffer, setSuggestOffer] = useState<HabitSuggestOffer | null>(readSuggestOffer);
+
+  const refreshHabitRates = useCallback(async (today: string) => {
+    const from = shiftDate(today, -RATE_DAYS);
+    const to = shiftDate(today, -1);
+    const records = await invoke<HabitRecord[]>("load_habit_history", { from, to });
+    setHabitRateMap(habitRates(records, from, to));
+  }, []);
+
+  /**
+   * 0:00 (or the first launch on a later day): Rust archives the day the checks belong to, the checks
+   * are cleared (not an undo step), Beta Life writes the day's statistics under the diary's
+   * 【AI总结】 line, and habits with a low rate wait for bebe to offer suggestions.
+   */
+  const rolledDay = useRef<string | null>(null);
+  const rollHabitDay = useCallback(async () => {
+    const current = stateRef.current;
+    const today = localDateKey(new Date());
+    if (!current || !window.__TAURI_INTERNALS__ || rolledDay.current === today) return;
+    rolledDay.current = today;
+    const items = activeItems(current.board);
+    try {
+      const habits = items.map((item) => ({ habitId: item.id, title: item.title, done: Boolean(item.done), created: createdDay(item) }));
+      const rolled = await invoke<string | null>("roll_habit_day", { request: { today, boardId: current.board.activeBoardId, habits } });
+      if (rolled) {
+        const latest = stateRef.current ?? current;
+        const latestItems = activeItems(latest.board);
+        if (latestItems.some((item) => item.done)) applyBoard(withActiveItems(latest.board, latestItems.map((item) => (item.done ? { ...item, done: false } : item))));
+        const from = shiftDate(rolled, -(RATE_DAYS - 1));
+        const rates = habitRates(await invoke<HabitRecord[]>("load_habit_history", { from, to: rolled }), from, rolled);
+        const dayHabits = items.filter((item) => createdDay(item) <= rolled);
+        const { pet, periods, diary } = latest.settings;
+        const text = habitStatsText(dayHabits, rates, pet.habitLowPercent, periods);
+        const [year, month, date] = rolled.split("-").map(Number);
+        const code = dayCode(new Date(year, month - 1, date));
+        if (text && await appendDiarySummary(code, text, "- 习惯：", diary.template)) setDiaryRevision((revision) => revision + 1);
+        const low = dayHabits.filter((item) => isLowRate(rates[item.id], pet.habitLowPercent));
+        const offer = low.length > 0 ? { date: rolled, day: code, habits: low.map((item) => ({ id: item.id, title: item.title, ...rates[item.id] })) } : null;
+        localStorage.setItem(SUGGEST_STORAGE_KEY, JSON.stringify(offer));
+        setSuggestOffer(offer);
+      }
+      await refreshHabitRates(today);
+    } catch (error) {
+      console.error(error);
+      rolledDay.current = null;
+    }
+  }, [applyBoard, refreshHabitRates]);
+
+  const loaded = state !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    void rollHabitDay();
+    const interval = window.setInterval(() => void rollHabitDay(), 60_000);
+    return () => window.clearInterval(interval);
+  }, [loaded, rollHabitDay]);
+
+  /** bebe's 「为什么没完成呢？」: the AI files the answer under each habit, written at once (one undo step). */
+  const recordHabitReasons = useCallback(async ({ date, habitIds, text }: PetHabitReasons) => {
+    const current = stateRef.current;
+    if (!current || !text.trim()) return;
+    const habits = activeItems(current.board).filter((item) => habitIds.includes(item.id));
+    if (habits.length === 0) return;
+    let reasons: Array<{ habitId: string; text: string }> | null = null;
+    if (current.hasApiKey) {
+      reasons = await invoke<Array<{ habitId: string; text: string }>>("ai_habit_reasons", { request: { text, habits: habits.map((item) => ({ id: item.id, title: item.title })) } })
+        .catch((error) => {
+          console.error(error);
+          return null;
+        });
+    }
+    // Without the AI the answer is kept as typed, under every habit asked about.
+    reasons ??= habits.map((item) => ({ habitId: item.id, text }));
+    const latest = stateRef.current ?? current;
+    commitBoard(withActiveItems(latest.board, addObstacles(activeItems(latest.board), date, reasons, new Date().toISOString())));
+  }, [commitBoard]);
+
   const [dockFocus, setDockFocus] = useState(0);
   /** The panel the dock starts new conversations from: the timeline page counts as its own (read only). */
   const dockPanel: AiPanelId = page === "timeline" ? "timeline" : activeSection;
@@ -481,6 +585,7 @@ export default function App() {
       listen<PetChatUndo>(PET_CHAT_UNDO, ({ payload }) => void assistantRef.current.undoAction(payload.messageId)),
       // 写进日记 from bebe's evening summary: no model call, just the diff card to confirm.
       listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
+      listen<HabitSuggestOffer>(PET_HABIT_SUGGEST, ({ payload }) => void stageHabitSuggestions(payload)),
       listen(PET_OPEN_TIMELINE, () => {
         setPage("timeline");
         void invoke("show_main_window").catch(console.error);
@@ -525,6 +630,12 @@ export default function App() {
     return assistantRef.current.startTask("summarize_day", PET_DIARY_SCOPE, `把 ${date}（日记 ${day}）的活动总结写进日记。\n\nBeta Life 统计（原样放在最前面）：\n${text}`, `${day} 日记总结`);
   }
 
+  /** 写建议 on bebe's offer after 0:00: the AI reads the reasons and the week's diary; the diff card waits for the user. */
+  function stageHabitSuggestions({ date, day, habits }: HabitSuggestOffer) {
+    const list = habits.map((habit) => `- ${habit.title}（id ${habit.id}）：近 ${RATE_DAYS} 天完成 ${habit.done}/${habit.total}`).join("\n");
+    return assistantRef.current.startTask("suggest_habits", PET_SUGGEST_SCOPE, `给 ${date}（日记 ${day}）这几个完成率偏低的习惯写助推建议：\n${list}`, `${day} 助推建议`);
+  }
+
   /** The timeline's 写进日记: the round runs in the dock. */
   function writeSummaryToDiary(entry: PetSummaryDiary) {
     setDockHidden(false);
@@ -555,17 +666,19 @@ export default function App() {
   const petItems = state ? activeItems(state.board) : null;
   const petPeriods = state?.settings.periods;
   const petSettings = state?.settings.pet;
+  const suggestRef = useRef(suggestOffer);
+  suggestRef.current = suggestOffer;
   useEffect(() => {
     if (!window.__TAURI_INTERNALS__ || !petItems || !petPeriods || !petSettings) return;
-    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods, pet: petSettings }).catch(console.error);
-  }, [petItems, petPeriods, petSettings]);
+    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods, pet: petSettings, suggest: suggestOffer }).catch(console.error);
+  }, [petItems, petPeriods, petSettings, suggestOffer]);
 
   useEffect(() => {
     if (!window.__TAURI_INTERNALS__) return;
     const sendSnapshot = () => {
       const current = stateRef.current;
       if (!current) return;
-      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods, pet: current.settings.pet });
+      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods, pet: current.settings.pet, suggest: suggestRef.current });
     };
     const unlisteners = [
       listen(PET_READY, sendSnapshot),
@@ -576,9 +689,10 @@ export default function App() {
         if (!items.some((item) => item.id === payload.habitId && !item.done)) return;
         commitBoard(withActiveItems(current.board, items.map((item) => (item.id === payload.habitId ? { ...item, done: true } : item))));
       }),
+      listen<PetHabitReasons>(PET_HABIT_REASONS, ({ payload }) => void recordHabitReasons(payload)),
     ];
     return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
-  }, [commitBoard]);
+  }, [commitBoard, recordHabitReasons]);
 
   function updateItems(items: Habit[]) {
     if (!state) return;
@@ -910,6 +1024,7 @@ export default function App() {
           items={board?.items ?? []}
           settings={state.settings}
           viewMode={viewMode}
+          rates={habitRateMap}
           onItemsChange={updateItems}
           onCreate={openCreate}
           onEdit={openEdit}

@@ -50,6 +50,7 @@ export const PET_NUMBER_FIELDS: Array<{ key: NumberKey; label: string; unit: str
   { key: "slackSnoozeMinutes", label: "摸鱼提醒「再说」", unit: "分钟", min: 1, max: 240 },
   { key: "summaryLeadMinutes", label: "晚间总结提前", unit: "分钟", min: 5, max: 180 },
   { key: "habitSnoozeMinutes", label: "习惯「稍后提醒」", unit: "分钟", min: 1, max: 240 },
+  { key: "habitLowPercent", label: "习惯完成率低于", unit: "%", min: 1, max: 100 },
 ];
 const withUnit = (value: number, unit: string) => (unit === "%" ? `${value}%` : `${value} ${unit}`);
 

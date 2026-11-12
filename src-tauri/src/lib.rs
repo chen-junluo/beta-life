@@ -19,6 +19,7 @@ mod ai;
 mod bebe;
 mod categories;
 mod digest;
+mod habits;
 mod pet;
 mod vault;
 #[allow(dead_code)]
@@ -166,9 +167,21 @@ struct Habit {
     source_excerpt: Option<String>,
     created_at: String,
     updated_at: String,
-    /// Daily to-do check; cleared by the board's "reset today" action.
+    /// Daily to-do check; cleared at 0:00 (after the day is archived) or by "reset today".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     done: bool,
+    /// 【阻挠习惯的原因】: why it was not done, one line each, written by the AI from bebe's question.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    obstacles: Vec<Obstacle>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Obstacle {
+    /// `YYYY-MM-DD`, or empty for a line written by hand without a date.
+    #[serde(default)]
+    date: String,
+    text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,9 +224,10 @@ struct AppSettings {
     pet: bebe::PetSettings,
 }
 
-const DEFAULT_DIARY_TEMPLATE: &str = "- ";
-/// The P4b test build's default, from when the date line was part of the day's text.
-const LEGACY_DEFAULT_DIARY_TEMPLATE: &str = "- {{date}}\n\t- ";
+/// Four areas written by hand, then the 【AI总结】 line; summaries go under it (P6).
+const DEFAULT_DIARY_TEMPLATE: &str = "- 工作：\n\t- \n- 学习：\n\t- \n- 关系：\n\t- \n- 生活：\n\t- \n\n=============================================【AI总结】=============================================";
+/// Earlier defaults: the P4b test build (date line in the text) and P4b's single bullet.
+const LEGACY_DEFAULT_DIARY_TEMPLATES: [&str; 2] = ["- {{date}}\n\t- ", "- "];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -324,6 +338,10 @@ struct AiSettings {
     assistant_prompt: String,
     #[serde(default = "default_day_summary_prompt")]
     day_summary_prompt: String,
+    #[serde(default = "habits::default_habit_reasons_prompt")]
+    habit_reasons_prompt: String,
+    #[serde(default = "habits::default_habit_suggestion_prompt")]
+    habit_suggestion_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -779,6 +797,8 @@ fn default_settings() -> AppSettings {
             memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
             assistant_prompt: DEFAULT_ASSISTANT_PROMPT.into(),
             day_summary_prompt: DEFAULT_DAY_SUMMARY_PROMPT.into(),
+            habit_reasons_prompt: habits::default_habit_reasons_prompt(),
+            habit_suggestion_prompt: habits::default_habit_suggestion_prompt(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -835,7 +855,7 @@ fn migrate_memory_analysis_prompt(settings: &mut AppSettings) -> bool {
 }
 
 fn migrate_diary_template(settings: &mut AppSettings) -> bool {
-    if settings.diary.template == LEGACY_DEFAULT_DIARY_TEMPLATE {
+    if LEGACY_DEFAULT_DIARY_TEMPLATES.contains(&settings.diary.template.as_str()) {
         settings.diary.template = DEFAULT_DIARY_TEMPLATE.into();
         true
     } else {
@@ -859,7 +879,8 @@ fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let migrated_memory = migrate_memory_analysis_prompt(&mut settings);
     let migrated_assistant = migrate_assistant_prompt(&mut settings);
     let migrated_diary = migrate_diary_template(&mut settings);
-    if migrated_recall || migrated_memory || migrated_assistant || migrated_diary {
+    let migrated_pet = bebe::migrate(&mut settings.pet, &fs::read_to_string(&path).unwrap_or_default());
+    if migrated_recall || migrated_memory || migrated_assistant || migrated_diary || migrated_pet {
         atomic_write(&path, &settings)?;
     }
     Ok(settings)
@@ -1097,6 +1118,9 @@ fn validate_board(board: &BoardFile) -> Result<(), String> {
         }
         if matches!(item.placement, Placement::Hour { hour } if hour > 23) {
             return Err("习惯小时必须在 0 到 23 之间".into());
+        }
+        if item.obstacles.iter().any(|obstacle| obstacle.text.trim().is_empty() || obstacle.text.contains('\n')) {
+            return Err("阻挠原因不能为空，且只能是一行".into());
         }
     }
     Ok(())
@@ -2626,6 +2650,9 @@ pub fn run() {
             digest::record_pet_event,
             digest::ai_daily_summary,
             digest::ai_query_activity,
+            habits::roll_habit_day,
+            habits::load_habit_history,
+            habits::ai_habit_reasons,
             bebe::load_pet_profile,
             bebe::save_pet_profile,
             bebe::load_pet_plan,

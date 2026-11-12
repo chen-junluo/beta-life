@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendToBody, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, headingDate, monthList, monthTitle, newDayBody } from "./diaryLogic";
+import { AI_DIVIDER, appendToAiSection, appendToBody, appendToNotes, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, headingDate, monthList, monthTitle, newDayBody } from "./diaryLogic";
 
 describe("diary logic", () => {
   it("names days the way the diary writes them", () => {
@@ -35,5 +35,17 @@ describe("diary logic", () => {
     expect(appendToBody("- 读书", "- 散步")).toBe("- 读书\n- 散步");
     expect(appendToBody("一段话", "- 散步")).toBe("一段话\n\n- 散步");
     expect(appendToBody("- 读书", "补一句")).toBe("- 读书\n\n补一句");
+  });
+
+  it("keeps the user's writing above the 【AI总结】 line and summaries under it", () => {
+    const day = `- 工作：\n\t- 写论文\n\n${AI_DIVIDER}\n\n- 时间轴：活跃 6h\n\t- 最长 1h`;
+    expect(appendToAiSection(day, "- 习惯：完成 3/4")).toBe(`- 工作：\n\t- 写论文\n\n${AI_DIVIDER}\n\n- 时间轴：活跃 6h\n\t- 最长 1h\n- 习惯：完成 3/4`);
+    expect(appendToAiSection(`- 工作：\n\n${AI_DIVIDER}`, "- 习惯：完成 3/4\n")).toBe(`- 工作：\n\n${AI_DIVIDER}\n\n- 习惯：完成 3/4`);
+    // No line yet (an old day): it is added first.
+    expect(appendToAiSection("- 今天很累", "- 习惯：完成 3/4")).toBe(`- 今天很累\n\n${AI_DIVIDER}\n\n- 习惯：完成 3/4`);
+    expect(appendToAiSection("", "- 习惯：完成 3/4")).toBe(`${AI_DIVIDER}\n\n- 习惯：完成 3/4`);
+    // The user's kind of text goes above the line.
+    expect(appendToNotes(day, "- 晚上散步")).toBe(`- 工作：\n\t- 写论文\n- 晚上散步\n\n${AI_DIVIDER}\n\n- 时间轴：活跃 6h\n\t- 最长 1h`);
+    expect(appendToNotes("- 读书", "- 散步")).toBe("- 读书\n- 散步");
   });
 });

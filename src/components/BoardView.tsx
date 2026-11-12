@@ -40,6 +40,7 @@ import {
   moveHabit,
   orderedPeriods,
 } from "../boardLogic";
+import { isLowRate, RATE_DAYS, type HabitRate } from "../habitLogic";
 import { splitTags, tagUsage } from "../simpleMarkdown";
 import { tagIcon } from "../tagIcons";
 import { TagBar } from "./TagBar";
@@ -61,7 +62,12 @@ interface BoardViewProps {
   onSloganChange: (periodId: PeriodSetting["id"], slogan: string) => void;
   onTagIconChange: (tag: string, icon: string) => void;
   viewMode: BoardViewMode;
+  /** Last 7 archived days per habit id. */
+  rates?: Record<string, HabitRate>;
 }
+
+/** Completion rates for the cards, and the share below which a rate counts as low (Settings → bebe). */
+const HabitStatsContext = createContext<{ rates: Record<string, HabitRate>; lowPercent: number }>({ rates: {}, lowPercent: 50 });
 
 interface TagFocus {
   /** Tags being previewed (hover) or pinned (click); empty when nothing is focused. */
@@ -166,6 +172,50 @@ function HabitTags({ value }: { value: string }) {
   );
 }
 
+/** 「7 天 3/5」 and, under it, 【阻挠习惯的原因】 folded behind a count (edited in the habit sheet). */
+function HabitStats({ habit }: { habit: Habit }) {
+  const { rates, lowPercent } = useContext(HabitStatsContext);
+  const [open, setOpen] = useState(false);
+  const rate = rates[habit.id];
+  const obstacles = habit.obstacles ?? [];
+  const low = isLowRate(rate, lowPercent);
+  return (
+    <>
+      <div className="habit-stats">
+        <span
+          className={`habit-rate ${low ? "is-low" : ""}`}
+          title={rate?.total ? `最近 ${RATE_DAYS} 天里有记录的 ${rate.total} 天，完成 ${rate.done} 天${low ? `，低于 ${lowPercent}%` : ""}` : `还没有存档的天；每天 0 点存档后开始算`}
+        >
+          {rate?.total ? `${RATE_DAYS} 天 ${rate.done}/${rate.total}` : "新习惯"}
+        </span>
+        {obstacles.length > 0 && (
+          <button
+            type="button"
+            className="habit-obstacle-toggle"
+            aria-expanded={open}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpen((value) => !value);
+            }}
+          >
+            阻挠原因 {obstacles.length}
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="habit-obstacles" onClick={(event) => event.stopPropagation()}>
+          <strong>【阻挠习惯的原因】</strong>
+          <ul>
+            {obstacles.map((obstacle, index) => ({ obstacle, index })).reverse().map(({ obstacle, index }) => (
+              <li key={index}>{obstacle.date && <time>{obstacle.date.slice(5)}</time>}{obstacle.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Check box and gray DONE stamp share one spot; CSS swaps them on .is-done. */
 function DoneMark() {
   return (
@@ -242,6 +292,7 @@ function SortableHabitCard({
       <div className="habit-card-copy">
         <HabitTitle title={habit.title} />
         <HabitTags value={habit.tags} />
+        <HabitStats habit={habit} />
       </div>
       <button
         type="button"
@@ -537,6 +588,7 @@ export function BoardView({
   onSloganChange,
   onTagIconChange,
   viewMode,
+  rates = {},
 }: BoardViewProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pinnedTags, setPinnedTags] = useState<string[]>([]);
@@ -605,7 +657,10 @@ export function BoardView({
     onItemsChange(next);
   }
 
+  const stats = useMemo(() => ({ rates, lowPercent: settings.pet.habitLowPercent }), [rates, settings.pet.habitLowPercent]);
+
   return (
+    <HabitStatsContext.Provider value={stats}>
     <TagFocusContext.Provider value={tagFocus}>
       <TagBar
         usage={usage}
@@ -658,5 +713,6 @@ export function BoardView({
         </DragOverlay>
       </DndContext>
     </TagFocusContext.Provider>
+    </HabitStatsContext.Provider>
   );
 }

@@ -23,6 +23,9 @@ export const PET_CHAT_UNDO = "pet://chat-undo";
 /** Pet → main: 写进日记 from the evening summary, and 看时间轴. */
 export const PET_SUMMARY_DIARY = "pet://summary-diary";
 export const PET_OPEN_TIMELINE = "pet://open-timeline";
+/** Pet → main: the answer to 「为什么没完成呢？」 (`PetHabitReasons`), and 写建议 on a suggestion offer. */
+export const PET_HABIT_REASONS = "pet://habit-reasons";
+export const PET_HABIT_SUGGEST = "pet://habit-suggest";
 
 /** A conversation started from bebe can read the panels (not the diary) and the timeline, and change the time board. */
 export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest: "read", memories: "read", timeline: "read" };
@@ -32,7 +35,27 @@ export interface PetBoardSnapshot {
   periods: PeriodSetting[];
   /** Settings → bebe. */
   pet: PetSettings;
+  /** Habits with a low rate on the last archived day; bebe offers to write suggestions once. */
+  suggest: HabitSuggestOffer | null;
 }
+
+export interface HabitSuggestOffer {
+  /** `YYYY-MM-DD` of the archived day. */
+  date: string;
+  /** `YYMMDD`. */
+  day: string;
+  habits: Array<{ id: string; title: string; done: number; total: number }>;
+}
+
+export interface PetHabitReasons {
+  /** `YYYY-MM-DD` the question was asked. */
+  date: string;
+  habitIds: string[];
+  text: string;
+}
+
+/** The 助推建议 task reads the board (reasons) and the week's diary, appends under 【AI总结】. */
+export const PET_SUGGEST_SCOPE: AiScope = { diary: "write", board: "read" };
 
 export interface PetMarkDone {
   habitId: string;

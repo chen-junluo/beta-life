@@ -7,6 +7,7 @@ import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { DEFAULT_PET_SETTINGS } from "../defaults";
 import { renderMarkdown } from "../markdown";
+import { periodCheck, unfinishedIn } from "../habitLogic";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
   PET_BOARD,
@@ -16,16 +17,20 @@ import {
   PET_CHAT_STOP,
   PET_CHAT_UNDO,
   PET_DOCK_ARRIVED,
+  PET_HABIT_REASONS,
+  PET_HABIT_SUGGEST,
   PET_MARK_DONE,
   PET_OPEN_TIMELINE,
   PET_PRESENCE,
   PET_READY,
   PET_SUMMARY_DIARY,
+  type HabitSuggestOffer,
   type PetBoardSnapshot,
   type PetChatResolve,
   type PetChatSend,
   type PetChatSnapshot,
   type PetChatUndo,
+  type PetHabitReasons,
   type PetMarkDone,
   type PetSummaryDiary,
 } from "./bridge";
@@ -59,6 +64,8 @@ const DRAG_THRESHOLD = 4;
 const DAY_STORAGE_KEY = "bebe:day";
 /** The last day bebe showed the evening summary for (`YYYY-MM-DD`). */
 const SUMMARY_STORAGE_KEY = "bebe:summary";
+/** The last archived day bebe offered habit suggestions for (`YYYY-MM-DD`). */
+const SUGGEST_STORAGE_KEY = "bebe:suggest";
 /** A day with less activity than this gets no evening summary. */
 const SUMMARY_MIN_MS = 10 * 60_000;
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
@@ -72,6 +79,10 @@ type Bubble =
   | { kind: "summary"; summary: DaySummary }
   /** A one-off reminder the user asked bebe for. */
   | { kind: "remind"; reminder: OneOffReminder }
+  /** 「为什么没完成呢？」 15 min before a period ends. */
+  | { kind: "why"; date: string; period: PeriodSetting; habits: Habit[] }
+  /** After 0:00: offer to write suggestions for habits with a low rate. */
+  | { kind: "suggest"; offer: HabitSuggestOffer }
   | { kind: "chat" };
 
 interface DayMemory {
@@ -80,6 +91,8 @@ interface DayMemory {
   skipped: string[];
   /** Apps / sites bebe should not ask about again today (`targetKey`). */
   askSkipped?: string[];
+  /** Periods already asked 「为什么没完成呢？」 (`periodCheck` keys). */
+  asked?: string[];
 }
 
 function loadDay(now: Date): DayMemory {
@@ -141,6 +154,13 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
       },
     },
     remind: { kind: "remind", reminder: { id: "preview", at: Date.now(), text: "站起来喝水，顺便看看窗外" } },
+    why: {
+      kind: "why",
+      date: "2026-11-12",
+      period: { id: "morning", label: "早上", startHour: 7, color: "#F59E0B", slogan: "" },
+      habits: [{ ...habit, id: "a", title: "晨跑 5 公里" }, { ...habit, id: "b", title: "背 30 个 GRE 单词" }, { ...habit, id: "c", title: "写 RQ2 文献综述" }],
+    },
+    suggest: { kind: "suggest", offer: { date: "2026-11-11", day: "261111", habits: [{ id: "a", title: "晨跑 5 公里", done: 2, total: 7 }, { id: "b", title: "背 30 个 GRE 单词", done: 1, total: 5 }] } },
     chat: { kind: "chat" },
   };
   // `chat=bebe`: an instant action with its undo and two offered choices.
@@ -176,6 +196,51 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
     choices: null,
   };
   return { state: params.get("state"), bubble: bubbles[params.get("bubble") ?? ""] ?? null, chat: params.get("bubble") === "chat" ? (params.get("chat") === "bebe" ? bebeChat : chat) : null };
+}
+
+/** 「为什么没完成呢？」: one box for the period's unfinished habits; the AI files the answer per habit. */
+function WhyBubble({ bubble, onAnswer, onSkip }: { bubble: Extract<Bubble, { kind: "why" }>; onAnswer: (text: string) => void; onSkip: () => void }) {
+  const [draft, setDraft] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  // Like the chat: the pet window is created unfocused, so take focus for typing and the IME.
+  useEffect(() => {
+    const focus = () => input.current?.focus();
+    if (isTauri) void invoke("focus_pet_window").catch(console.error).finally(focus);
+    else focus();
+  }, []);
+  const titles = bubble.habits.map((habit) => `「${habit.title}」`).join("");
+  const submit = () => {
+    if (draft.trim()) onAnswer(draft.trim());
+  };
+  return (
+    <section className="pet-bubble pet-why" role="dialog" aria-label="为什么没完成" onKeyDown={(event) => event.key === "Escape" && onSkip()}>
+      <span className="pet-bubble-meta">{bubble.period.label}快结束了 · {bubble.habits.length} 项没完成</span>
+      <p className="pet-bubble-text is-full" title={titles}>{titles}还没完成，为什么呢？</p>
+      <form className="pet-chat-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <textarea
+          ref={input}
+          rows={2}
+          value={draft}
+          placeholder="随便说说，bebe 会记到对应的习惯下面"
+          aria-label="没完成的原因"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button type="submit" className="primary-button" disabled={!draft.trim()} aria-label="记下来">
+          <Send size={14} />
+        </button>
+      </form>
+      <div className="pet-bubble-actions">
+        <button type="button" className="secondary-button" onClick={onSkip}>跳过</button>
+      </div>
+    </section>
+  );
 }
 
 /** Chat with the assistant from bebe; the main window runs it on the shared conversation. */
@@ -302,6 +367,7 @@ export function PetApp() {
   const [periods, setPeriods] = useState<PeriodSetting[]>([]);
   /** Settings → bebe, pushed by the main window with the board. */
   const [pet, setPet] = useState<PetSettings>(DEFAULT_PET_SETTINGS);
+  const [suggestOffer, setSuggestOffer] = useState<HabitSuggestOffer | null>(null);
   const rules = useMemo(() => slackRules(pet), [pet]);
   const windowMs = rules.windowMs;
   /** Pause and one-off reminders, set from a chat (Rust keeps them on this Mac). */
@@ -368,6 +434,7 @@ export function PetApp() {
       setItems(payload.items);
       setPeriods(payload.periods);
       setPet(payload.pet ?? DEFAULT_PET_SETTINGS);
+      setSuggestOffer(payload.suggest ?? null);
     });
     void unlisten.then(() => emitTo("main", PET_READY));
     return () => void unlisten.then((stop) => stop());
@@ -518,6 +585,32 @@ export function PetApp() {
       .catch(console.error);
   }, [now, pulse, periods, pet.summaryLeadMinutes, away, raise, play, preview.bubble]);
 
+  // 「为什么没完成呢？」 15 min before morning, noon and evening end: like the other reminders, not
+  // while asleep, quiet, paused or in beta-life; a question missed until the period ends is skipped.
+  useEffect(() => {
+    if (!isTauri || preview.bubble || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    const date = new Date(now);
+    const check = periodCheck(date, periods);
+    if (!check) return;
+    if (dayRef.current.date !== localDateKey(date)) dayRef.current = loadDay(date);
+    if (dayRef.current.asked?.includes(check.key)) return;
+    dayRef.current = { ...dayRef.current, asked: [...(dayRef.current.asked ?? []), check.key] };
+    saveDay(dayRef.current);
+    const habits = unfinishedIn(items, check.period.id, periods);
+    if (habits.length === 0) return;
+    raise({ kind: "why", date: localDateKey(date), period: check.period, habits });
+    play("alert");
+  }, [now, pulse, items, periods, sleeping, away, quiet, raise, play, preview.bubble]);
+
+  // The next time the user is around after 0:00, offer suggestions for habits with a low rate, once.
+  useEffect(() => {
+    if (!isTauri || preview.bubble || !suggestOffer || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    if (localStorage.getItem(SUGGEST_STORAGE_KEY) === suggestOffer.date) return;
+    localStorage.setItem(SUGGEST_STORAGE_KEY, suggestOffer.date);
+    raise({ kind: "suggest", offer: suggestOffer });
+    play("alert");
+  }, [suggestOffer, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
+
   // The light reminder goes away by itself.
   useEffect(() => {
     if (bubble?.kind !== "nudge" || bubble.level !== 1 || preview.bubble) return;
@@ -608,6 +701,18 @@ export function PetApp() {
     setBubble({ kind: "chat" });
   }
 
+  function answerWhy(bubble: Extract<Bubble, { kind: "why" }>, text: string) {
+    if (isTauri) void emitTo<PetHabitReasons>("main", PET_HABIT_REASONS, { date: bubble.date, habitIds: bubble.habits.map((habit) => habit.id), text });
+    play("happy");
+    setBubble(null);
+  }
+
+  /** The main window starts the 助推建议 task; bebe's chat shows the diff card. */
+  function writeSuggestions(offer: HabitSuggestOffer) {
+    if (isTauri) void emitTo<HabitSuggestOffer>("main", PET_HABIT_SUGGEST, offer);
+    setBubble({ kind: "chat" });
+  }
+
   function openTimeline() {
     if (isTauri) void emitTo("main", PET_OPEN_TIMELINE);
     setBubble(null);
@@ -647,7 +752,8 @@ export function PetApp() {
   return (
     <div className={`pet-stage ${away ? "is-away" : ""}`} ref={stageRef} aria-hidden={away}>
       {bubble?.kind === "chat" && <PetChat chat={chat} onClose={() => setBubble(null)} />}
-      {bubble && bubble.kind !== "chat" && (
+      {bubble?.kind === "why" && <WhyBubble bubble={bubble} onAnswer={(text) => answerWhy(bubble, text)} onSkip={() => setBubble(null)} />}
+      {bubble && bubble.kind !== "chat" && bubble.kind !== "why" && (
         <section className="pet-bubble" role="dialog" aria-live="polite" aria-label="bebe 提醒">
           {bubble.kind === "reminder" && (
             <>
@@ -726,6 +832,19 @@ export function PetApp() {
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>知道啦</button>
                 <button type="button" className="secondary-button" onClick={() => remindLater(bubble.reminder)}>10 分钟后</button>
+              </div>
+            </>
+          )}
+          {bubble.kind === "suggest" && (
+            <>
+              <span className="pet-bubble-meta">完成率偏低 · {bubble.offer.day}</span>
+              <p className="pet-bubble-text is-full">
+                {bubble.offer.habits.map((habit) => `「${habit.title}」${habit.done}/${habit.total}`).join("、")}
+                ，最近做得不太顺，要 bebe 想几条小建议写进日记吗？
+              </p>
+              <div className="pet-bubble-actions">
+                <button type="button" className="primary-button" onClick={() => writeSuggestions(bubble.offer)}>写建议</button>
+                <button type="button" className="secondary-button" onClick={() => setBubble(null)}>不用了</button>
               </div>
             </>
           )}

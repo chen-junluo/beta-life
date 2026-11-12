@@ -1,4 +1,4 @@
-import { appendToBody, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, monthCode, monthList, PREAMBLE } from "../diaryLogic";
+import { appendToAiSection, appendToNotes, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, monthCode, monthList, newDayBody, PREAMBLE } from "../diaryLogic";
 import { listDiaryMonths, loadDiaryMonth, saveDiaryDay, type DiarySnapshot } from "../diaryStorage";
 import type { DiaryDay } from "../types";
 import type { AiChange, ChangeKind } from "./types";
@@ -50,8 +50,14 @@ export function findDay(months: DiaryMonths, id: unknown): DiaryDay {
   return day;
 }
 
-/** Applies one diary write to the loaded months; the day's month must already be loaded. */
-export function applyDiaryChange(months: DiaryMonths, change: ChangeInput): DiaryMonths {
+/** Set by Beta Life (not the model) on append_diary in the summary tasks: the text goes under 【AI总结】. */
+const inAiSection = (args: ChangeInput["arguments"]) => args.section === "ai";
+
+/**
+ * Applies one diary write to the loaded months; the day's month must already be loaded. A summary
+ * for a day not written yet starts from the Settings template, like the 0:00 habit statistics.
+ */
+export function applyDiaryChange(months: DiaryMonths, change: ChangeInput, template = ""): DiaryMonths {
   const args = change.arguments;
   const month = monthOfDay(args.day);
   const days = months[month];
@@ -68,8 +74,10 @@ export function applyDiaryChange(months: DiaryMonths, change: ChangeInput): Diar
       const problem = bodyProblem(addition);
       if (problem) throw new Error(problem);
       const existing = days.find((day) => day.id === code);
-      if (existing) return replace(code, { ...existing, body: appendToBody(existing.body, addition) });
-      return { ...months, [month]: [...days, { id: code, date: code, title: dayLabel(code), body: appendToBody("", addition) }] };
+      const ai = inAiSection(args);
+      const add = (body: string) => (ai ? appendToAiSection(body, addition) : appendToNotes(body, addition));
+      if (existing) return replace(code, { ...existing, body: add(existing.body) });
+      return { ...months, [month]: [...days, { id: code, date: code, title: dayLabel(code), body: add(ai ? newDayBody(template, code) : "") }] };
     }
     case "rewrite_diary_day": {
       const day = findDay(months, args.day);
@@ -93,7 +101,7 @@ export function describeDiaryChange(months: DiaryMonths, change: ChangeInput): {
       const existing = months[monthOfDay(code)]?.find((day) => day.id === code);
       const lines = text(args.text).split("\n").map(clean).filter(Boolean);
       const more = lines.length > 1 ? ` 等 ${lines.length} 行` : "";
-      return { kind: existing ? "edit" : "add", title: existing ? dayTitle(existing) : dayLabel(code), detail: `追加：${short(lines[0] ?? "")}${more}` };
+      return { kind: existing ? "edit" : "add", title: existing ? dayTitle(existing) : dayLabel(code), detail: `${inAiSection(args) ? "追加到【AI总结】" : "追加"}：${short(lines[0] ?? "")}${more}` };
     }
     case "rewrite_diary_day": {
       const day = findDay(months, args.day);
@@ -117,7 +125,7 @@ export function describeDiaryChange(months: DiaryMonths, change: ChangeInput): {
 }
 
 /** Writes confirmed diary changes one day at a time against the files as they are now. */
-export async function commitDiaryChanges(changes: AiChange[]) {
+export async function commitDiaryChanges(changes: AiChange[], template = "") {
   const failed: Failure[] = [];
   const loaded: DiaryMonths = {};
   const before = new Map<string, DiarySnapshot>();
@@ -129,7 +137,7 @@ export async function commitDiaryChanges(changes: AiChange[]) {
       const id = String(change.arguments.day);
       const date = id.slice(0, 6);
       const previous = loaded[month].find((day) => day.id === id) ?? null;
-      const updated = applyDiaryChange(loaded, change)[month].find((day) => day.id === id) ?? null;
+      const updated = applyDiaryChange(loaded, change, template)[month].find((day) => day.id === id) ?? null;
       const outcome = await saveDiaryDay({
         month,
         id: previous ? id : null,

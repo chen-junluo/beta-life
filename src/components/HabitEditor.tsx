@@ -1,8 +1,9 @@
 import { Check, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { splitTags } from "../simpleMarkdown";
-import type { AppSettings, ContainerId, Habit, PeriodId, PeriodSetting, Placement } from "../types";
-import { TagChips, TimeChip } from "./ChipFields";
+import { obstacleText } from "../habitLogic";
+import type { AppSettings, ContainerId, Habit, HabitObstacle, PeriodId, PeriodSetting, Placement } from "../types";
+import { ChipPopover, TagChips, TimeChip } from "./ChipFields";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 interface HabitEditorProps {
@@ -50,6 +51,7 @@ export function HabitEditor({
   const [description, setDescription] = useState(habit?.description ?? "");
   const [tags, setTags] = useState(() => splitTags(habit?.tags ?? ""));
   const [placement, setPlacement] = useState<Placement>(initialPlacement);
+  const [obstacles, setObstacles] = useState<HabitObstacle[]>(habit?.obstacles ?? []);
   const [deleteArmed, setDeleteArmed] = useState(false);
 
   useEffect(() => {
@@ -76,6 +78,7 @@ export function HabitEditor({
       createdAt: habit?.createdAt ?? now,
       updatedAt: now,
       done: habit?.done,
+      obstacles: obstacles.map((obstacle) => ({ ...obstacle, text: obstacleText(obstacle.text) })).filter((obstacle) => obstacle.text),
     });
   }
 
@@ -120,6 +123,31 @@ export function HabitEditor({
             <div className="chip-row">
               <TimeChip placement={placement} settings={settings} onChange={setPlacement} />
               <TagChips tags={tags} knownTags={knownTags} settings={settings} onChange={setTags} />
+              {(habit?.obstacles?.length ?? 0) > 0 && (
+                <ChipPopover label={`阻挠原因 · ${obstacles.length}`} popoverLabel="阻挠习惯的原因" popoverClassName="obstacle-popover">
+                  {() => (
+                    <>
+                      <span className="obstacle-popover-title">【阻挠习惯的原因】bebe 问来、AI 整理的；写错了直接改或删</span>
+                      {obstacles.length === 0 && <p className="obstacle-popover-empty">都删掉了，保存后生效</p>}
+                      <ul>
+                        {obstacles.map((obstacle, index) => (
+                          <li key={index}>
+                            <time>{obstacle.date ? obstacle.date.slice(5) : "—"}</time>
+                            <input
+                              value={obstacle.text}
+                              aria-label={`${obstacle.date || "无日期"} 的原因`}
+                              onChange={(event) => setObstacles((list) => list.map((item, position) => (position === index ? { ...item, text: event.target.value } : item)))}
+                            />
+                            <button type="button" className="icon-button" aria-label={`删除 ${obstacle.date || ""} 的原因`} onClick={() => setObstacles((list) => list.filter((_, position) => position !== index))}>
+                              <X size={14} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </ChipPopover>
+              )}
             </div>
 
             <MarkdownEditor

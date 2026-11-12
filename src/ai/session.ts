@@ -84,7 +84,8 @@ const createdIdFor = (name: string) => (name === "add_memory" ? newMemoryId() : 
  * Runs tools for one turn. Reads see the data captured at the start of the turn; writes are
  * checked and staged on per-panel drafts so later calls can build on them, and nothing is saved.
  */
-export function createToolSession(data: AssistantData) {
+/** `summaryTask`: 写日记总结 / 助推建议, whose append_diary goes under the day's 【AI总结】 line. */
+export function createToolSession(data: AssistantData, { summaryTask = false } = {}) {
   let board = data.board;
   let forests = data.forests;
   let knowledge = data.knowledge;
@@ -194,7 +195,7 @@ export function createToolSession(data: AssistantData) {
       }
       case "diary": {
         const display = describeDiaryChange(diaryDraft, input);
-        diaryDraft = applyDiaryChange(diaryDraft, input);
+        diaryDraft = applyDiaryChange(diaryDraft, input, data.settings.diary.template);
         return display;
       }
       case "timeline":
@@ -251,7 +252,8 @@ export function createToolSession(data: AssistantData) {
         if (!spec) throw new Error(`Unknown tool ${call.name}`);
         if (spec.panel === "bebe") return await runBebe(call, spec);
         if (spec.access === "read") return { content: json(await read(call)) };
-        const input = { name: call.name, arguments: call.arguments, createdId: createdIdFor(call.name) };
+        const args = summaryTask && call.name === "append_diary" ? { ...call.arguments, section: "ai" } : call.arguments;
+        const input = { name: call.name, arguments: args, createdId: createdIdFor(call.name) };
         if (spec.panel === "diary") await ensureMonth(monthOfDay(call.arguments.day));
         const display = stage(spec.panel, input);
         const change: AiChange = { id: crypto.randomUUID(), panel: spec.panel, toolCallId: call.id, ...input, ...display, selected: true };
@@ -334,7 +336,7 @@ export async function commitChanges(changes: AiChange[], targets: CommitTargets)
 
   const diaryChanges = of("diary");
   if (diaryChanges.length > 0) {
-    const result = await commitDiaryChanges(diaryChanges);
+    const result = await commitDiaryChanges(diaryChanges, targets.getState()?.settings.diary.template ?? "");
     if (result.after.length > 0) targets.recordDiary(result.before, result.after);
     failed.push(...result.failed);
   }

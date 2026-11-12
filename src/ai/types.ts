@@ -68,10 +68,13 @@ export interface AiBatch {
 }
 
 /** Entry action that pre-fills a new conversation: a chip in the composer, the prompt lives in `AppSettings.ai`. */
-export type AiTask = "extract_habits" | "summarize_day";
+export type AiTask = "extract_habits" | "summarize_day" | "suggest_habits";
+/** Tasks whose append_diary goes under the day's 【AI总结】 line. */
+export const SUMMARY_TASKS: AiTask[] = ["summarize_day", "suggest_habits"];
 export const AI_TASKS: Record<AiTask, { label: string; panel: AiPanelId }> = {
   extract_habits: { label: "提取习惯", panel: "board" },
   summarize_day: { label: "写日记总结", panel: "diary" },
+  suggest_habits: { label: "助推建议", panel: "diary" },
 };
 
 /** An image pasted or dropped into the composer: `dataUrl` reaches the model in this turn only. */

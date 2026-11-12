@@ -18,8 +18,25 @@ export interface Habit {
   sourceExcerpt?: string;
   createdAt: string;
   updatedAt: string;
-  /** Daily to-do check; cleared by the board's "reset today" action. */
+  /** Daily to-do check; cleared at 0:00 (after the day is archived) or by "reset today". */
   done?: boolean;
+  /** 【阻挠习惯的原因】: one line each, oldest first; written by the AI from bebe's question. */
+  obstacles?: HabitObstacle[];
+}
+
+export interface HabitObstacle {
+  /** `YYYY-MM-DD`, or "" for a line written by hand without a date. */
+  date: string;
+  text: string;
+}
+
+/** One habit on one archived day (Rust `habits::HabitRecord`). */
+export interface HabitRecord {
+  date: string;
+  boardId: string;
+  habitId: string;
+  title: string;
+  done: boolean;
 }
 
 export interface Board {
@@ -60,6 +77,8 @@ export interface AiSettings {
   assistantPrompt: string;
   /** 写进日记: what the AI writes about the day's focus work. */
   daySummaryPrompt: string;
+  habitReasonsPrompt: string;
+  habitSuggestionPrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -114,6 +133,8 @@ export interface PetSettings {
   summaryLeadMinutes: number;
   /** 「稍后提醒」 on a habit reminder. */
   habitSnoozeMinutes: number;
+  /** A habit done on fewer than this share of its recorded days (last 7) gets a nudge suggestion. */
+  habitLowPercent: number;
   /** No slack reminders, questions or habit reminders inside these. */
   quietHours: QuietHours[];
 }

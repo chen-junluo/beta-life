@@ -142,6 +142,15 @@ User-editable preferences for this summary:
 {}"#,
             settings.ai.day_summary_prompt
         )),
+        "suggest_habits" => Ok(format!(
+            r#"[Beta Life task: 助推建议] At 0:00 Beta Life archived one day of habits and wrote its statistics into that day's diary. The user accepted bebe's offer of nudge suggestions for the habits with a low completion rate. Their message gives the day (YYYY-MM-DD and its diary id YYMMDD) and those habits with their ids and rates.
+1. The board index in the context has each habit's note and its 【阻挠习惯的原因】 (`obstacles`). Read the diary for that day and the 6 days before it with read_diary (missing days are fine).
+2. Then call append_diary exactly once, for that day: text = a `- 助推建议：` bullet with one tab-indented child bullet per habit, written as the preferences below ask. Call no other write tool and change no other day; Beta Life puts it under the day's 【AI总结】 line.
+
+User-editable preferences for the suggestions:
+{}"#,
+            settings.ai.habit_suggestion_prompt
+        )),
         _ => Err("AI 对话包含未知的 task".into()),
     }
 }
@@ -228,7 +237,7 @@ fn system_prompt(settings: &AppSettings, scope: &Scope, context: &str, bebe: &st
 - 回想 (recall): knowledge records (Markdown notes with hierarchical tags) reviewed with spaced repetition.
 - 能力森林 (forest): two three-level ability maps, vision (Long-term Vision) and research (Research Agenda); levels are 领域 → 能力组 → 能力.
 - 记忆星云 (memories): personal memories tied to songs, dates, life stages, places and emotions.
-- 日记 (diary): the user's daily journal, one Markdown file per month. Each day is a section under a `## YYMMDD周X` heading; diary tools read and write only the body under the heading, which is free-form Markdown (nested bullets indented with tabs, paragraphs). Keep the user's own words and tab indentation; only touch the days a request is about.
+- 日记 (diary): the user's daily journal, one Markdown file per month. Each day is a section under a `## YYMMDD周X` heading; diary tools read and write only the body under the heading, which is free-form Markdown (nested bullets indented with tabs, paragraphs). Keep the user's own words and tab indentation; only touch the days a request is about. A day may end with a `=============================================【AI总结】=============================================` line: above it is what the user wrote, below it the summaries Beta Life and the AI added.
 - 时间轴 (timeline, read only): the activity record of what was in front on the Mac (app, website domain, window title) with away time left out. Each stretch is focus, neutral or slack by the user's own rules, or unclassified (not counted as slack). Durations are given as text (`1h 05m`, `6m 01s`, `40s`) and times as local `HH:MM`; quote them as given and never convert units yourself. Talk about slack time kindly and concretely, without lecturing.
 
 User-editable assistant preferences:

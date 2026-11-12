@@ -1,6 +1,7 @@
 import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, PeriodId, PetSettings, TabSlogans } from "./types";
 import abilityForestDefaults from "./ability-forest-default.json";
 import researchAgendaDefaults from "./research-agenda-default.json";
+import { AI_DIVIDER } from "./diaryLogic";
 
 export const DEFAULT_ABILITY_FOREST = abilityForestDefaults as AbilityForest;
 export const DEFAULT_RESEARCH_AGENDA = researchAgendaDefaults as AbilityForest;
@@ -31,6 +32,18 @@ export const DEFAULT_DAY_SUMMARY_PROMPT = `在统计下面再写两部分，都�
 1. 「专注做了什么」：把专注时间里的窗口标题和网站归成最多 6 件事，用日记里出现过的项目或任务名称命名；每件写「约 Xh Ym」和主要用到的 app，时长按工具结果相加、四舍五入到 5 分钟；零碎的合并成「其他零碎」。
 2. 「对照计划」：一句话对照当天日记（以及前一天日记里为这一天写的计划）：哪些做了、哪些在记录里没看到；日记里没有写计划就写「日记里没有写这天的计划」。
 只写事实，不评价、不说教；不要照抄日记里的私人内容，只引用项目和任务名称。`;
+
+/** Same as Rust `habits::DEFAULT_HABIT_REASONS_PROMPT`. */
+export const DEFAULT_HABIT_REASONS_PROMPT = `把用户写的原因分配给对应的习惯，每个习惯一句话：
+1. 只保留原因本身，去掉语气词和道歉，尽量用用户自己的说法，不超过 30 个字。
+2. 一句原因说的是好几个习惯（比如「今天一直在开会」），就分给每一个相关的习惯。
+3. 用户没提到的习惯不要写；不要编造原因，也不要给建议。`;
+
+/** Same as Rust `habits::DEFAULT_HABIT_SUGGESTION_PROMPT`. */
+export const DEFAULT_HABIT_SUGGESTION_PROMPT = `给每个完成率偏低的习惯写一条助推建议，作为「- 助推建议：」下面的 Tab 缩进子 bullet，格式「习惯名：建议」：
+1. 先看这个习惯的【阻挠习惯的原因】和最近几天日记里相关的内容，建议要针对反复出现的原因。
+2. 建议要小而具体、今天就能做：缩小到 2 分钟版本、换到更合适的时段或整点、绑定在已经稳定的习惯后面、提前准备好环境。
+3. 一个习惯一条，不超过 50 个字；不说教、不评价；语言跟日记一致。`;
 
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
@@ -92,7 +105,8 @@ export const DEFAULT_TAB_SLOGANS: TabSlogans = {
   diary: "日子会过去，写下来的会留下。",
 };
 
-export const DEFAULT_DIARY_TEMPLATE = "- ";
+/** Four areas written by hand, then the 【AI总结】 line; summaries go under it (Rust `DEFAULT_DIARY_TEMPLATE`). */
+export const DEFAULT_DIARY_TEMPLATE = `- 工作：\n\t- \n- 学习：\n\t- \n- 关系：\n\t- \n- 生活：\n\t- \n\n${AI_DIVIDER}`;
 
 /** Same defaults as Rust `bebe::PetSettings`. */
 export const DEFAULT_PET_SETTINGS: PetSettings = {
@@ -101,8 +115,9 @@ export const DEFAULT_PET_SETTINGS: PetSettings = {
   slackStreakMinutes: 5,
   slackCooldownMinutes: 30,
   slackSnoozeMinutes: 10,
-  summaryLeadMinutes: 30,
+  summaryLeadMinutes: 10,
   habitSnoozeMinutes: 15,
+  habitLowPercent: 50,
   quietHours: [],
 };
 
@@ -140,6 +155,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
     assistantPrompt: DEFAULT_ASSISTANT_PROMPT,
     daySummaryPrompt: DEFAULT_DAY_SUMMARY_PROMPT,
+    habitReasonsPrompt: DEFAULT_HABIT_REASONS_PROMPT,
+    habitSuggestionPrompt: DEFAULT_HABIT_SUGGESTION_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},

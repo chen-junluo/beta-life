@@ -4,7 +4,7 @@ import type { LoadedAppState } from "../types";
 import { undoInstant } from "./bebeTools";
 import { assistantContext, commitChanges, createToolSession, loadAssistantData, type CommitTargets } from "./session";
 import { runTurn, TurnStopped } from "./turn";
-import { AI_TASKS, defaultAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChatStepReply, type Conversation, type ConversationMessage, type ConversationSummary } from "./types";
+import { AI_TASKS, defaultAccess, SUMMARY_TASKS, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChatStepReply, type Conversation, type ConversationMessage, type ConversationSummary } from "./types";
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -98,7 +98,8 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     setStopped(false);
     try {
       const data = await loadAssistantData(turnScope, state);
-      const session = createToolSession(data);
+      const conversationTask = turnTask ?? base.messages.find((message) => message.role === "user")?.task;
+      const session = createToolSession(data, { summaryTask: conversationTask !== undefined && SUMMARY_TASKS.includes(conversationTask) });
       const messages = await runTurn(base.messages, content, turnScope, {
         step: (request) => invoke<ChatStepReply>("ai_chat_step", { request }),
         context: assistantContext(turnScope, data),

@@ -64,6 +64,8 @@ pub(crate) struct PetSettings {
     summary_lead_minutes: u16,
     /// 「稍后提醒」 on a habit reminder.
     habit_snooze_minutes: u16,
+    /// A habit done on fewer than this share of its recorded days (last 7) gets a nudge suggestion.
+    habit_low_percent: u8,
     /// No slack reminders, questions or habit reminders inside these.
     quiet_hours: Vec<QuietHours>,
 }
@@ -76,11 +78,22 @@ impl Default for PetSettings {
             slack_streak_minutes: 5,
             slack_cooldown_minutes: 30,
             slack_snooze_minutes: 10,
-            summary_lead_minutes: 30,
+            summary_lead_minutes: 10,
             habit_snooze_minutes: 15,
+            habit_low_percent: 50,
             quiet_hours: Vec::new(),
         }
     }
+}
+
+/// P5's default evening-summary lead (30) becomes P6's (10), once: only for settings saved before
+/// P6 (`raw` has no `habitLowPercent`), so a 30 chosen later stays.
+pub(crate) fn migrate(settings: &mut PetSettings, raw: &str) -> bool {
+    if settings.summary_lead_minutes != 30 || raw.contains("\"habitLowPercent\"") {
+        return false;
+    }
+    settings.summary_lead_minutes = 10;
+    true
 }
 
 /// `HH:MM` → minutes after midnight.
@@ -94,7 +107,7 @@ fn clock_minutes(clock: &str) -> Option<u16> {
 }
 
 pub(crate) fn validate(settings: &PetSettings) -> Result<(), String> {
-    let ranges: [(&str, u16, u16, u16); 7] = [
+    let ranges: [(&str, u16, u16, u16); 8] = [
         ("摸鱼统计窗口", settings.slack_window_minutes, 3, 60),
         ("摸鱼占比", settings.slack_share_percent.into(), 10, 100),
         ("连续摸鱼时长", settings.slack_streak_minutes, 1, 120),
@@ -102,10 +115,11 @@ pub(crate) fn validate(settings: &PetSettings) -> Result<(), String> {
         ("摸鱼提醒「再说」", settings.slack_snooze_minutes, 1, 240),
         ("晚间总结提前量", settings.summary_lead_minutes, 5, 180),
         ("习惯「稍后提醒」", settings.habit_snooze_minutes, 1, 240),
+        ("习惯完成率偏低", settings.habit_low_percent.into(), 1, 100),
     ];
     for (name, value, min, max) in ranges {
         if !(min..=max).contains(&value) {
-            let unit = if name == "摸鱼占比" { "%" } else { " 分钟" };
+            let unit = if matches!(name, "摸鱼占比" | "习惯完成率偏低") { "%" } else { " 分钟" };
             return Err(format!("{name}应在 {min}–{max}{unit} 之间"));
         }
     }
@@ -401,7 +415,7 @@ fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now
             .join("\n")
     };
     format!(
-        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min.
+        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. 15 min before the morning, noon and evening periods end, bebe asks why that period's unfinished habits were not done and files the answer under each habit's 【阻挠习惯的原因】. At 0:00 the day's habit checks are archived and cleared, and habits done on fewer than {low}% of their recorded days in the last 7 get a nudge suggestion.
 Quiet hours (no slack reminders, questions or habit reminders): {quiet}.
 Right now bebe is {paused}.
 One-off reminders:
@@ -421,6 +435,7 @@ About the user:
         summary_hour = summary_at / 60,
         summary_minute = summary_at % 60,
         habit = pet.habit_snooze_minutes,
+        low = pet.habit_low_percent,
         style = list(&profile.style),
         about = list(&profile.about),
     )
@@ -441,6 +456,17 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "# bebe 偏好\n\n## 说话风格\n- 少用感叹号\n- 叫我小陈\n\n## 我说过的\n- 周三下午要上课\n\t- 14:00–16:00\n\n## 我自己的笔记\n- 不归 bebe 管\n";
+
+    #[test]
+    fn the_p5_summary_lead_migrates_once() {
+        let mut pet = PetSettings { summary_lead_minutes: 30, ..PetSettings::default() };
+        assert!(!migrate(&mut pet, r#"{"pet":{"summaryLeadMinutes":30,"habitLowPercent":50}}"#));
+        assert_eq!(pet.summary_lead_minutes, 30);
+        assert!(migrate(&mut pet, r#"{"pet":{"summaryLeadMinutes":30}}"#));
+        assert_eq!(pet.summary_lead_minutes, 10);
+        let mut custom = PetSettings { summary_lead_minutes: 20, ..PetSettings::default() };
+        assert!(!migrate(&mut custom, "{}"));
+    }
 
     #[test]
     fn profile_round_trips_byte_for_byte() {
@@ -509,7 +535,7 @@ mod tests {
         let text = prompt_section(&settings, &profile, &plan, now);
         assert!(text.contains("more than 60% of the last 10 min"));
         // Sleep starts at 23:00 by default.
-        assert!(text.contains("at 22:30"));
+        assert!(text.contains("at 22:50"));
         assert!(text.contains("周一、周五 14:00–16:00"));
         assert!(text.contains("paused until 11-12 15:30"));
         assert!(text.contains("- id `r1`: 11-12 15:20 喝水"));

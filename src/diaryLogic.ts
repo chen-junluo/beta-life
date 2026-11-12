@@ -67,6 +67,10 @@ export function bodyProblem(body: string): string | null {
   return body.split("\n").some((line) => headingDate(line)) ? "正文里不能有 `## YYMMDD` 这样的日期标题；另一天请单独新建" : null;
 }
 
+/** Above it the user's own writing, below it what Beta Life and the AI add (P6). */
+export const AI_DIVIDER = "=============================================【AI总结】=============================================";
+const isDivider = (line: string) => line.trim() === AI_DIVIDER;
+
 const listLine = (line: string) => /^\s*(?:[-*+]|\d+\.)\s/.test(line);
 
 /** Adds text to the end of a body; trailing empty bullets (e.g. from the template) go first. */
@@ -78,4 +82,27 @@ export function appendToBody(body: string, addition: string): string {
   // A list continues a list; anything else starts a new paragraph.
   const joiner = listLine(lines.at(-1)!) && listLine(added.split("\n", 1)[0]) ? "\n" : "\n\n";
   return `${lines.join("\n")}${joiner}${added}`;
+}
+
+/** Adds the user's kind of text: at the end of the hand-written part, above the 【AI总结】 line. */
+export function appendToNotes(body: string, addition: string): string {
+  const lines = body.split("\n");
+  const divider = lines.findIndex(isDivider);
+  if (divider === -1) return appendToBody(body, addition);
+  const notes = appendToBody(lines.slice(0, divider).join("\n"), addition);
+  return `${notes}\n\n${lines.slice(divider).join("\n")}`;
+}
+
+/** Adds a summary under the 【AI总结】 line, adding the line first when the day has none. */
+export function appendToAiSection(body: string, addition: string): string {
+  const added = addition.replace(/^\n+/, "").replace(/\s+$/, "");
+  const lines = body.replace(/\s+$/, "").split("\n");
+  const divider = lines.findIndex(isDivider);
+  if (divider === -1) {
+    const head = body.replace(/\s+$/, "");
+    return `${head ? `${head}\n\n` : ""}${AI_DIVIDER}\n\n${added}`;
+  }
+  // A blank line after the divider, as the diary editor writes it.
+  const below = lines.slice(divider + 1).join("\n").replace(/^\n+/, "");
+  return `${lines.slice(0, divider + 1).join("\n")}\n\n${appendToBody(below, added)}`;
 }

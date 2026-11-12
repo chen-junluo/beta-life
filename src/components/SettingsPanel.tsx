@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, ChevronDown, Database, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
@@ -10,11 +10,13 @@ import { BebeSettings } from "./BebeSettings";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
-type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
+type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
 
 const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
   { key: "assistantPrompt", label: "AI 助手", help: "AI 助手的工作方式和语气。工具协议、@ 权限和「写入前先确认」由应用管理，这里改不掉。", fallback: DEFAULT_ASSISTANT_PROMPT },
   { key: "daySummaryPrompt", label: "日记总结", help: "时间轴页或 bebe 晚间冒泡点「写进日记」后，AI 在统计下面写专注做了什么、对照计划；读时间轴和这天及前 6 天的日记，写入前先确认由应用管理。", fallback: DEFAULT_DAY_SUMMARY_PROMPT },
+  { key: "habitReasonsPrompt", label: "阻挠原因", help: "时段结束前 bebe 问「为什么没完成」，AI 按这里的要求把你的回答分到各个习惯卡片的【阻挠习惯的原因】；这一步直接写入，写错了在卡片里改或删。", fallback: DEFAULT_HABIT_REASONS_PROMPT },
+  { key: "habitSuggestionPrompt", label: "助推建议", help: "0 点存档后，对 7 天完成率偏低的习惯，bebe 问要不要写建议；AI 读阻挠原因和最近的日记，写在日记【AI总结】下面，写入前先确认由应用管理。", fallback: DEFAULT_HABIT_SUGGESTION_PROMPT },
   { key: "extractionPrompt", label: "习惯提取", help: "点时间板的「AI 提取」后，AI 助手按这里的要求从文字或截图里提取习惯；工具协议和「写入前先确认」由应用管理。", fallback: DEFAULT_EXTRACTION_PROMPT },
   { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },
   { key: "recallPointsPrompt", label: "抽查点起草", help: "根据知识正文生成 framework、mechanism、relationship 抽查点。", fallback: DEFAULT_RECALL_POINTS_PROMPT },
@@ -676,7 +678,7 @@ export function SettingsPanel({
                 </div>
                 <label className="prompt-field-card">
                   <span>新一天的模板</span>
-                  <small>点「写今天」时预填在日期标题下面的正文；可以用 <code>{"{{date}}"}</code> 代表 <code>261111周三</code>。Tab 键输入缩进，嵌套 bullet 用 Tab 缩进。</small>
+                  <small>点「写今天」时预填在日期标题下面的正文；可以用 <code>{"{{date}}"}</code> 代表 <code>261111周三</code>。Tab 键输入缩进，嵌套 bullet 用 Tab 缩进。最后一行 <code>==…【AI总结】==…</code> 是分隔线：上面是你写的，时间轴「写进日记」、0 点的习惯统计和助推建议都写在它下面；这一天没有分隔线时会自动补上。</small>
                   <textarea className="diary-template" rows={6} value={draft.diary.template} onChange={(event) => setDraft((current) => ({ ...current, diary: { ...current.diary, template: event.target.value } }))} onKeyDown={typeTab} spellCheck={false} />
                   <button className="secondary-button align-start" type="button" onClick={() => setDraft((current) => ({ ...current, diary: { ...current.diary, template: DEFAULT_DIARY_TEMPLATE } }))}><RotateCcw size={15} /> 恢复默认</button>
                 </label>

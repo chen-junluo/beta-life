@@ -147,6 +147,8 @@ export function boardIndex(file: BoardFile, settings: AppSettings) {
       ...(item.tags && { tags: item.tags }),
       ...(item.description && { description: item.description }),
       done: Boolean(item.done),
+      // 【阻挠习惯的原因】, newest last; the last 10 are enough to see a pattern.
+      ...(item.obstacles?.length && { obstacles: item.obstacles.slice(-10).map((obstacle) => `${obstacle.date ? `${obstacle.date}：` : ""}${obstacle.text}`) }),
     })),
   );
   const board = file.boards.find((entry) => entry.id === file.activeBoardId);

@@ -3,7 +3,7 @@
 
 use super::fm::{self, raw, s};
 use super::{claim_name, dedupe_ids, derived_id, file_stem, issue, md_files, name_key, place, read_md, remove, rename_dir, set_issues, split_at_heading, stem, subdirs, has_heading, used_names, write_md, BOARD, META};
-use crate::{default_board, period_name, Board, BoardFile, Habit, PeriodId, Placement, SCHEMA_VERSION};
+use crate::{default_board, period_name, Board, BoardFile, Habit, Obstacle, PeriodId, Placement, SCHEMA_VERSION};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -12,6 +12,32 @@ use std::{
 };
 
 const EXCERPT_HEADING: &str = "## AI 提取依据";
+const OBSTACLE_HEADING: &str = "## 阻挠习惯的原因";
+
+/// `- 2026-11-12：起晚了`; a line without a date is kept with an empty date.
+fn obstacle_line(obstacle: &Obstacle) -> String {
+    let text = obstacle.text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if obstacle.date.is_empty() { format!("- {text}") } else { format!("- {}：{text}", obstacle.date) }
+}
+
+fn parse_obstacles(section: &str) -> Vec<Obstacle> {
+    section
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let line = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")).unwrap_or(line).trim();
+            let dated = line
+                .get(..10)
+                .filter(|date| chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok())
+                .and_then(|date| {
+                    let rest = &line[10..];
+                    rest.strip_prefix('：').or_else(|| rest.strip_prefix(':')).map(|text| (date.to_string(), text.trim().to_string()))
+                });
+            let (date, text) = dated.unwrap_or_else(|| (String::new(), line.to_string()));
+            (!text.is_empty()).then_some(Obstacle { date, text })
+        })
+        .collect()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +95,17 @@ pub(crate) fn serialize_habit(habit: &Habit) -> String {
         ("updatedAt", s(&habit.updated_at)),
     ]);
     let mut body = habit.description.trim_end().to_string();
+    // Like the excerpt below: a note that itself contains the heading keeps an (empty) section after it.
+    if !habit.obstacles.is_empty() || has_heading(&body, OBSTACLE_HEADING) {
+        if !body.is_empty() {
+            body.push_str("\n\n");
+        }
+        body.push_str(OBSTACLE_HEADING);
+        if !habit.obstacles.is_empty() {
+            body.push_str("\n\n");
+            body.push_str(&habit.obstacles.iter().map(obstacle_line).collect::<Vec<_>>().join("\n"));
+        }
+    }
     let excerpt = habit.source_excerpt.as_deref().map(str::trim).filter(|excerpt| !excerpt.is_empty());
     // A note that itself contains the heading keeps an (empty) section after it, so it is not split.
     if excerpt.is_some() || has_heading(&body, EXCERPT_HEADING) {
@@ -88,7 +125,8 @@ pub(crate) fn serialize_habit(habit: &Habit) -> String {
 /// name, `morning` when there is no valid time, timestamps from the file.
 pub(crate) fn parse_habit(text: &str, fallback_id: &str, fallback_title: &str, modified: &str) -> Result<Habit, String> {
     let (front, body) = fm::parse(text)?;
-    let (description, excerpt) = split_at_heading(&body, EXCERPT_HEADING);
+    let (rest, excerpt) = split_at_heading(&body, EXCERPT_HEADING);
+    let (description, obstacles) = split_at_heading(&rest, OBSTACLE_HEADING);
     let placement = match front.get("hour").and_then(|hour| hour.trim().parse::<u8>().ok()) {
         Some(hour) if hour <= 23 => Placement::Hour { hour },
         _ => Placement::Period {
@@ -107,6 +145,7 @@ pub(crate) fn parse_habit(text: &str, fallback_id: &str, fallback_title: &str, m
         updated_at: front.text("updatedAt").unwrap_or_else(|| created_at.clone()),
         created_at,
         done: front.get("done").is_some_and(|done| done.trim().eq_ignore_ascii_case("true")),
+        obstacles: obstacles.as_deref().map(parse_obstacles).unwrap_or_default(),
     })
 }
 
@@ -278,6 +317,7 @@ mod tests {
             created_at: "2026-11-01T00:00:00.000Z".into(),
             updated_at: "2026-11-01T00:00:00.000Z".into(),
             done: false,
+            obstacles: Vec::new(),
         }
     }
 
@@ -303,6 +343,35 @@ mod tests {
         let parsed = parse_habit(&serialize_habit(&item), "x", "x", "").unwrap();
         assert_eq!(parsed.description, item.description);
         assert_eq!(parsed.source_excerpt, None);
+    }
+
+    #[test]
+    fn obstacles_round_trip_between_the_note_and_the_excerpt() {
+        let mut item = habit("a1", "晨跑", Placement::Period { period: PeriodId::Morning }, 0);
+        item.description = "慢跑 20 分钟".into();
+        item.source_excerpt = Some("原文".into());
+        item.obstacles = vec![
+            Obstacle { date: "2026-11-11".into(), text: "下雨".into() },
+            Obstacle { date: "2026-11-12".into(), text: "起晚了，赶组会".into() },
+        ];
+        let text = serialize_habit(&item);
+        assert!(text.ends_with("慢跑 20 分钟\n\n## 阻挠习惯的原因\n\n- 2026-11-11：下雨\n- 2026-11-12：起晚了，赶组会\n\n## AI 提取依据\n\n原文\n"), "{text}");
+        let parsed = parse_habit(&text, "x", "x", "").unwrap();
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), serde_json::to_value(&item).unwrap());
+        assert_eq!(serialize_habit(&parsed), text, "beta-life's own file is byte stable");
+
+        // Hand edits in Obsidian: a line without a date, `*` bullets, an ASCII colon.
+        let parsed = parse_habit("---\ntitle: 晨跑\n---\n备注\n\n## 阻挠习惯的原因\n\n* 太累\n- 2026-11-10: 出差\n\n", "x", "x", "").unwrap();
+        assert_eq!(parsed.description, "备注");
+        assert_eq!(parsed.obstacles, vec![Obstacle { date: String::new(), text: "太累".into() }, Obstacle { date: "2026-11-10".into(), text: "出差".into() }]);
+
+        // A note that itself has the heading and no obstacles keeps its text.
+        item.obstacles.clear();
+        item.source_excerpt = None;
+        item.description = "备注\n\n## 阻挠习惯的原因\n\n自己写的".into();
+        let parsed = parse_habit(&serialize_habit(&item), "x", "x", "").unwrap();
+        assert_eq!(parsed.description, item.description);
+        assert!(parsed.obstacles.is_empty());
     }
 
     #[test]

@@ -757,6 +757,18 @@ button:focus-visible, input:focus-visible, :is(textarea, .md-editor):focus-visib
 .habit-tag:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .habit-tag.is-match { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); color: var(--accent); }
 .tag-icon { flex: none; font-size: 1.15em; line-height: 1; }
+
+/* P6: completion over the last 7 archived days, and the reasons folded under the card. */
+.habit-stats { margin-top: 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.habit-rate, .habit-obstacle-toggle { padding: 1px 5px; border-radius: 5px; font-size: var(--tag-font-size, 8px); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.habit-rate { color: var(--muted); background: var(--panel-soft); }
+.habit-rate.is-low { color: #b45309; background: rgba(245, 158, 11, 0.12); font-weight: 650; }
+.habit-obstacle-toggle { border: 1px dashed color-mix(in srgb, var(--danger) 40%, var(--line)); background: none; color: color-mix(in srgb, var(--danger) 80%, var(--ink)); cursor: pointer; }
+.habit-obstacle-toggle[aria-expanded="true"] { border-style: solid; background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.habit-obstacles { margin-top: 6px; padding: 6px 7px; border-radius: 7px; background: color-mix(in srgb, var(--danger) 5%, var(--panel-soft)); font-size: var(--tag-font-size, 8px); line-height: 1.45; cursor: default; }
+.habit-obstacles strong { display: block; margin-bottom: 3px; color: color-mix(in srgb, var(--danger) 75%, var(--ink)); font-weight: 650; }
+.habit-obstacles ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; color: var(--ink); }
+.habit-obstacles time { margin-right: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tag-icon.is-empty { color: var(--muted); font-weight: 700; }
 
 /* Tag focus: hover previews, click pins; cards outside the focused tags fade out. */
@@ -3475,3 +3487,12 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .ai-trace-action small, .pet-chat-action small { color: var(--muted); font-size: 11px; }
 .ai-trace-action.is-undone > span, .pet-chat-action.is-undone > span { color: var(--muted); text-decoration: line-through; }
 .ai-choices { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* P6: 【阻挠习惯的原因】 in the habit sheet's chip row. */
+.obstacle-popover { width: min(420px, 80vw); display: grid; gap: var(--ui-field-gap); }
+.obstacle-popover-title { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.obstacle-popover-empty { margin: 0; color: var(--muted); font-size: 12px; }
+.obstacle-popover ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }
+.obstacle-popover li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.obstacle-popover time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+

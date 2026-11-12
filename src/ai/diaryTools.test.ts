@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS } from "../defaults";
-import { dayLabel } from "../diaryLogic";
+import { AI_DIVIDER, dayLabel } from "../diaryLogic";
 import type { DiaryDay } from "../types";
 import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, type DiaryMonths } from "./diaryTools";
 import { assistantContext, createToolSession } from "./session";
@@ -63,6 +63,17 @@ describe("diary tools", () => {
     const staged = await session.run({ id: "2", name: "delete_diary_day", arguments: { day: "261031" } });
     expect(staged.change).toMatchObject({ panel: "diary", kind: "del", title: "261031周六", detail: "万圣节" });
     expect(JSON.parse(assistantContext({ diary: "read" }, data(diary))).diary.months).toEqual(["2610", "2611"]);
+  });
+
+  it("puts a summary task's append under 【AI总结】, starting a new day from the template", async () => {
+    const diary = { files: ["2611"], current: "2611", months };
+    const session = createToolSession({ ...data(diary), settings: { ...data(diary).settings, diary: { template: `- 工作：\n\n${AI_DIVIDER}` } } }, { summaryTask: true });
+    const staged = await session.run({ id: "1", name: "append_diary", arguments: { day: "261113", text: "- 习惯：完成 3/4" } });
+    expect(staged.change).toMatchObject({ arguments: { section: "ai" }, kind: "add", detail: "追加到【AI总结】：习惯：完成 3/4" });
+    expect(applyDiaryChange(months, staged.change!, `- 工作：\n\n${AI_DIVIDER}`)["2611"].at(-1)!.body).toBe(`- 工作：\n\n${AI_DIVIDER}\n\n- 习惯：完成 3/4`);
+    // An ordinary conversation writes with the user's text, above the line.
+    const plain = await createToolSession(data(diary)).run({ id: "2", name: "append_diary", arguments: { day: "261113", text: "- 散步" } });
+    expect(plain.change!.arguments.section).toBeUndefined();
   });
 
   it("writes confirmed changes day by day and returns undo snapshots", async () => {

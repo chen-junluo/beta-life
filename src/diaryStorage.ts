@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { AI_DIVIDER, appendToAiSection, newDayBody } from "./diaryLogic";
 import type { DiaryMonth, DiarySaveOutcome } from "./types";
 
 export const listDiaryMonths = () => invoke<string[]>("list_diary_months");
@@ -43,4 +44,22 @@ export async function restoreDiarySnapshot(snapshot: DiarySnapshot): Promise<voi
     force: true,
   });
   if (outcome.status !== "saved") throw new Error("日记没有写回");
+}
+
+/**
+ * Beta Life's own statistics under a day's 【AI总结】 line, written without a diff card (P6). A day
+ * not written yet starts from the template. Skipped when that summary is already there (the other
+ * Mac wrote it); `marker` is its first words, e.g. `- 习惯：`. Returns whether it wrote.
+ */
+export async function appendDiarySummary(code: string, text: string, marker: string, template: string): Promise<boolean> {
+  const month = code.slice(0, 4);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const day = (await loadDiaryMonth(month)).days.find((item) => item.id === code) ?? null;
+    const below = day?.body.split(AI_DIVIDER).slice(1).join(AI_DIVIDER) ?? "";
+    if (below.split("\n").some((line) => line.startsWith(marker))) return false;
+    const body = appendToAiSection(day ? day.body : newDayBody(template, code), text);
+    const outcome = await saveDiaryDay({ month, id: day ? code : null, date: code, base: day?.body ?? null, body });
+    if (outcome.status === "saved") return true;
+  }
+  throw new Error("日记这一天正在被改，习惯统计没有写入");
 }
