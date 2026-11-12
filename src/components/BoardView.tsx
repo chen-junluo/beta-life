@@ -201,7 +201,9 @@ function SortableHabitCard({
     if (!node) return;
 
     const updateSpan = () => {
-      const nextSpan = masonryRowSpan(node.getBoundingClientRect().height);
+      // The theme overrides the stack's gap, so measure it instead of assuming the default.
+      const gap = parseFloat(getComputedStyle(node.parentElement ?? node).rowGap);
+      const nextSpan = masonryRowSpan(node.getBoundingClientRect().height, 1, Number.isFinite(gap) ? gap : undefined);
       setRowSpan((current) => current === nextSpan ? current : nextSpan);
     };
     updateSpan();
