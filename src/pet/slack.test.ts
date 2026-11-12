@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { afterNudge, askCandidate, COOLDOWN_MS, FRESH_NUDGES, isWorried, nudgeLevel, targetKey, type ActivityPulse } from "./slack";
+import { afterNudge, askCandidate, DEFAULT_SLACK_RULES, FRESH_NUDGES, isWorried, nudgeLevel, slackRules, targetKey, type ActivityPulse } from "./slack";
+import { DEFAULT_PET_SETTINGS } from "../defaults";
+
+const COOLDOWN_MS = DEFAULT_SLACK_RULES.cooldownMs;
 
 const MIN = 60_000;
 const now = 1_000 * MIN;
@@ -51,5 +54,14 @@ describe("slack reminders", () => {
     expect(askCandidate(pulse({ candidates }), [targetKey(candidates[0])])?.key).toBe("notion.id");
     expect(askCandidate(pulse({ candidates, inBetaLife: true }), [])).toBeNull();
     expect(askCandidate(pulse({ candidates: [] }), [])).toBeNull();
+  });
+
+  it("follows the thresholds from Settings → bebe", () => {
+    // 15-minute window, 50%, 8-minute streak, 45-minute cooldown.
+    const rules = slackRules({ ...DEFAULT_PET_SETTINGS, slackWindowMinutes: 15, slackSharePercent: 50, slackStreakMinutes: 8, slackCooldownMinutes: 45 });
+    expect(nudgeLevel(pulse({ slackSince: now - 7 * MIN }), FRESH_NUDGES, now, rules)).toBeNull();
+    expect(nudgeLevel(pulse({ slackSince: now - 8 * MIN, recentSlackMs: 7.5 * MIN }), FRESH_NUDGES, now, rules)).toBeNull();
+    expect(nudgeLevel(pulse({ slackSince: now - 8 * MIN }), FRESH_NUDGES, now, rules)).toBe(1);
+    expect(afterNudge(1, now, rules).quietUntil).toBe(now + 45 * MIN);
   });
 });

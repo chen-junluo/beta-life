@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, Gauge, KeyRound, NotebookPen, Orbit, Palette, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
+import { BebeSettings } from "./BebeSettings";
+import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
 type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
@@ -20,7 +22,7 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
 ];
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "slogan" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "bebe" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "board", label: "时间板" },
@@ -181,6 +183,10 @@ export function SettingsPanel({
   const [activityRules, setActivityRules] = useState<ActivityRules | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const savedRules = useRef<string | null>(null);
+  // bebe's remembered words live in `bebe/偏好.md`; they load on first visit too.
+  const [petProfile, setPetProfile] = useState<PetProfile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const savedProfile = useRef<string | null>(null);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -214,6 +220,16 @@ export function SettingsPanel({
       })
       .catch((error) => setRulesError(typeof error === "string" ? error : "分类规则读取失败"));
   }, [section, activityRules]);
+
+  useEffect(() => {
+    if (section !== "bebe" || petProfile || !window.__TAURI_INTERNALS__) return;
+    loadPetProfile()
+      .then((profile) => {
+        savedProfile.current = JSON.stringify(profile);
+        setPetProfile(profile);
+      })
+      .catch((error) => setProfileError(typeof error === "string" ? error : "bebe 偏好读取失败"));
+  }, [section, petProfile]);
 
   function updatePeriod(id: PeriodId, patch: Partial<AppSettings["periods"][number]>) {
     setDraft((current) => ({
@@ -261,7 +277,8 @@ export function SettingsPanel({
 
   async function save() {
     const stagesChanged = lifeStages !== null && JSON.stringify(lifeStages) !== savedStages.current;
-    const validationError = validatePeriodStarts(draft) ?? (stagesChanged ? validateLifeStages(lifeStages) : null);
+    const quietError = draft.pet.quietHours.map(quietHoursProblem).find(Boolean) ?? null;
+    const validationError = validatePeriodStarts(draft) ?? quietError ?? (stagesChanged ? validateLifeStages(lifeStages) : null);
     if (validationError) {
       setStatus(validationError);
       return;
@@ -279,6 +296,11 @@ export function SettingsPanel({
         const saved = await invoke<ActivityRules>("save_activity_rules", { rules: activityRules });
         savedRules.current = JSON.stringify(saved);
         setActivityRules(saved);
+      }
+      if (petProfile !== null && JSON.stringify(petProfile) !== savedProfile.current) {
+        const saved = await savePetProfile(petProfile);
+        savedProfile.current = JSON.stringify(saved);
+        setPetProfile(saved);
       }
       setApiKey("");
       setStatus("设置已保存");
@@ -351,6 +373,7 @@ export function SettingsPanel({
     { id: "stages", label: "记忆阶段", icon: <Orbit size={17} /> },
     { id: "diary", label: "日记", icon: <NotebookPen size={17} /> },
     { id: "categories", label: "分类", icon: <Gauge size={17} /> },
+    { id: "bebe", label: "bebe", icon: <PawPrint size={17} /> },
     { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
@@ -677,6 +700,16 @@ export function SettingsPanel({
                   </label>
                 </div>
                 {activityRules ? <ActivityRulesSettings rules={activityRules} onChange={setActivityRules} /> : <div className="settings-note">{rulesError ?? "正在读取分类规则…"}</div>}
+              </div>
+            )}
+
+            {section === "bebe" && (
+              <div className="settings-section form-grid bebe-settings">
+                <div className="section-heading">
+                  <PawPrint size={21} />
+                  <div><h3>bebe</h3><p>bebe 什么时候提醒、什么时候安静，以及你让它记住的话。在对话里说一句也能改：「今晚别提醒我」这类临时的马上生效、可以撤销；「以后都……」这类长期的会先出确认卡。</p></div>
+                </div>
+                <BebeSettings pet={draft.pet} onPetChange={(pet) => setDraft((current) => ({ ...current, pet }))} profile={petProfile} profileError={profileError} onProfileChange={setPetProfile} />
               </div>
             )}
 

@@ -2,7 +2,7 @@ import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle,
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { isImageFile, MAX_IMAGES, readImage } from "../ai/images";
 import { pendingBatch } from "../ai/turn";
-import { AI_TASKS, changePanel, defaultAccess, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
+import { AI_TASKS, changePanel, defaultAccess, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type AiToolPanel, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
 import { monthTitle } from "../diaryLogic";
 import { MarkdownContent } from "./MarkdownEditor";
 
@@ -24,6 +24,9 @@ export const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", r
 const OP_LABELS: Record<ChangeKind, string> = { add: "新增", edit: "修改", move: "移动", del: "删除" };
 
 export const panelStyle = (panel: AiPanelId) => ({ "--ai-panel-color": AI_PANELS[panel].color }) as CSSProperties;
+/** bebe's own changes (its settings, preferences, classifications) group after the panels in a diff card. */
+const DIFF_ORDER: AiToolPanel[] = [...PANEL_ORDER, "bebe"];
+const changeGroup = (panel: AiToolPanel) => (panel === "bebe" ? { name: "bebe", color: "#0d9488" } : AI_PANELS[panel]);
 
 interface AiDockProps {
   conversation: Conversation | null;
@@ -46,6 +49,8 @@ interface AiDockProps {
   task: AiTask | null;
   onRemoveTask: () => void;
   onResolveBatch: (batchId: string, selectedIds: string[] | null) => void;
+  /** Takes back one of bebe's instant actions (by its tool message id). */
+  onUndoAction: (messageId: string) => void;
   onNewConversation: () => void;
   onRename: (title: string) => void;
   /** `workbench`: fills the workbench's middle column, always expanded; pending changes show in its side column. */
@@ -192,11 +197,19 @@ function resolvedLabel(batch: AiBatch): string {
   return [`已写入 ${applied} 项`, skipped > 0 && `未勾选 ${skipped} 项`, failed > 0 && `失败 ${failed} 项`].filter(Boolean).join(" · ");
 }
 
+function undoHint(panels: AiToolPanel[]): string {
+  const undoable = panels.filter((panel): panel is AiPanelId => panel !== "bebe");
+  const bebe = panels.includes("bebe") ? "bebe 的改动在 Settings 里改回" : "";
+  if (undoable.length === 0) return `确认后生效，${bebe}`;
+  const panelHint = undoable.length === 1 ? `确认后整批可在${AI_PANELS[undoable[0]].name} ⌘Z 一次撤销` : "确认后每个 panel 各记一步，可在对应 panel ⌘Z 撤销";
+  return bebe ? `${panelHint}；${bebe}` : panelHint;
+}
+
 export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDockProps["onResolveBatch"] }) {
   const [selected, setSelected] = useState(() => new Set(batch.changes.filter((change) => change.selected).map((change) => change.id)));
   const pending = batch.status === "pending";
   const failed = new Map((batch.failed ?? []).map((entry) => [entry.changeId, entry.reason]));
-  const panels = PANEL_ORDER.filter((panel) => batch.changes.some((change) => changePanel(change) === panel));
+  const panels = DIFF_ORDER.filter((panel) => batch.changes.some((change) => changePanel(change) === panel));
   const toggle = (id: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -210,7 +223,7 @@ export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDo
       <div className="ai-diff-head"><Layers size={14} aria-hidden="true" />{pending ? `待确认修改 · ${batch.changes.length} 项` : "修改记录"}</div>
       {panels.map((panel) => (
         <div key={panel} className="ai-diff-group">
-          {panels.length > 1 && <div className="ai-diff-panel" style={panelStyle(panel)}>{AI_PANELS[panel].name}</div>}
+          {panels.length > 1 && <div className="ai-diff-panel" style={{ "--ai-panel-color": changeGroup(panel).color } as CSSProperties}>{changeGroup(panel).name}</div>}
           {batch.changes.filter((change) => changePanel(change) === panel).map((change) => {
             const checked = pending ? selected.has(change.id) : change.selected;
             return (
@@ -233,7 +246,7 @@ export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDo
       <div className="ai-diff-foot">
         {pending ? (
           <>
-            <small>{panels.length === 1 ? `确认后整批可在${AI_PANELS[panels[0]].name} ⌘Z 一次撤销` : "确认后每个 panel 各记一步，可在对应 panel ⌘Z 撤销"}</small>
+            <small>{undoHint(panels)}</small>
             <button type="button" className="secondary-button" onClick={() => onResolve(batch.id, null)}>取消</button>
             <button type="button" className="primary-button" disabled={selected.size === 0} onClick={() => onResolve(batch.id, [...selected])}>
               确认 {selected.size} 项
@@ -248,12 +261,14 @@ export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDo
 }
 
 /** The whole conversation; a scope line appears only where the permissions changed. */
-function ConversationView({ messages, onResolve, pendingInSide }: { messages: ConversationMessage[]; onResolve: AiDockProps["onResolveBatch"]; pendingInSide: boolean }) {
-  const results = new Map(messages.flatMap((message) => (message.role === "tool" ? [[message.toolCallId, message.content] as const] : [])));
+function ConversationView({ messages, onResolve, pendingInSide, onUndo, onChoose, busy }: { messages: ConversationMessage[]; onResolve: AiDockProps["onResolveBatch"]; pendingInSide: boolean; onUndo: (messageId: string) => void; onChoose: (option: string) => void; busy: boolean }) {
+  const tools = new Map(messages.flatMap((message) => (message.role === "tool" ? [[message.toolCallId, message] as const] : [])));
+  // Offered choices stay tappable until the user sends the next message.
+  const lastUser = messages.map((message) => message.role).lastIndexOf("user");
   let previousScope: AiScope | null = null;
   return (
     <>
-      {messages.map((message) => {
+      {messages.map((message, index) => {
         if (message.role === "user") {
           const changed = previousScope !== null && !sameScope(previousScope, message.scope);
           previousScope = message.scope;
@@ -278,7 +293,17 @@ function ConversationView({ messages, onResolve, pendingInSide }: { messages: Co
         }
         if (message.role === "tool") return null;
         const trace = message.toolCalls.flatMap((call) => {
-          const result = parseResult(results.get(call.id));
+          const tool = tools.get(call.id);
+          if (tool?.action) {
+            return [
+              <div key={call.id} className={`ai-trace-action ${tool.action.undone ? "is-undone" : ""}`}>
+                <CircleCheck size={13} aria-hidden="true" />
+                <span>{tool.action.label}</span>
+                {tool.action.undone ? <small>已撤销</small> : <button type="button" className="text-button" onClick={() => onUndo(tool.id)}>撤销</button>}
+              </div>,
+            ];
+          }
+          const result = parseResult(tool?.content);
           const failure = call.error ?? (typeof result.error === "string" ? result.error : undefined);
           if (failure && result.status !== "staged") {
             return [<div key={call.id} className="is-error"><CircleAlert size={13} aria-hidden="true" />{call.name} 没有执行：{failure}</div>];
@@ -286,10 +311,16 @@ function ConversationView({ messages, onResolve, pendingInSide }: { messages: Co
           const label = traceLabel(call, result);
           return label ? [<div key={call.id}><CircleCheck size={13} aria-hidden="true" />{label}</div>] : [];
         });
+        const choices = index > lastUser ? message.toolCalls.map((call) => tools.get(call.id)?.choices).find(Boolean) : undefined;
         return (
           <div key={message.id} className="ai-msg-assistant">
             {trace.length > 0 && <div className="ai-trace">{trace}</div>}
             {message.content.trim() && <MarkdownContent className="ai-msg-text" value={message.content} />}
+            {choices && (
+              <div className="ai-choices" role="group" aria-label="选一个回答">
+                {choices.map((option) => <button key={option} type="button" className="secondary-button" disabled={busy} onClick={() => onChoose(option)}>{option}</button>)}
+              </div>
+            )}
           </div>
         );
       })}
@@ -315,7 +346,7 @@ function panelMatches(panel: AiPanelId, query: string): boolean {
   return !query || AI_PANELS[panel].name.includes(query) || panel.startsWith(query.toLowerCase());
 }
 
-export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, supportsImages, task, onRemoveTask, onResolveBatch, onNewConversation, onRename, layout = "dock", onOpenWorkbench, onMinimize, flightTarget = null, onFlightEnd, hidden = false, expandRequest = 0 }: AiDockProps) {
+export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scope, onScopeChange, focusRequest, stopped, onStop, onOpenSettings, onSend, supportsImages, task, onRemoveTask, onResolveBatch, onUndoAction, onNewConversation, onRename, layout = "dock", onOpenWorkbench, onMinimize, flightTarget = null, onFlightEnd, hidden = false, expandRequest = 0 }: AiDockProps) {
   const workbench = layout === "workbench";
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<AiImageDraft[]>([]);
@@ -648,7 +679,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
           </header>
           <div className="ai-dock-body">
             {workbench && messages.length === 0 && !busy && !error && <div className="ai-thinking">在下面输入，开始一段新对话；右侧可以先设好权限。</div>}
-            <ConversationView key={conversation?.id} messages={messages} onResolve={resolve} pendingInSide={workbench} />
+            <ConversationView key={conversation?.id} messages={messages} onResolve={resolve} pendingInSide={workbench} onUndo={onUndoAction} onChoose={(option) => onSend(option, [])} busy={busy} />
             {busy && <div className="ai-thinking"><LoaderCircle size={14} className="spin" aria-hidden="true" />思考中…</div>}
             {stopped && !busy && <div className="ai-thinking">已停止。可以补充说明后再发一次。</div>}
             {error && <div className="inline-error" role="alert">{error}</div>}

@@ -16,6 +16,7 @@ use std::process::Command;
 
 mod activity;
 mod ai;
+mod bebe;
 mod categories;
 mod digest;
 mod pet;
@@ -205,6 +206,9 @@ struct AppSettings {
     diary: DiarySettings,
     #[serde(default)]
     activity: ActivitySettings,
+    /// bebe's thresholds, lead times and quiet hours (P5).
+    #[serde(default)]
+    pet: bebe::PetSettings,
 }
 
 const DEFAULT_DIARY_TEMPLATE: &str = "- ";
@@ -780,6 +784,7 @@ fn default_settings() -> AppSettings {
         tag_icons: HashMap::new(),
         diary: DiarySettings::default(),
         activity: ActivitySettings::default(),
+        pet: bebe::PetSettings::default(),
     }
 }
 
@@ -1259,6 +1264,7 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if !(1..=3650).contains(&settings.activity.ai_days) {
         return Err("AI 能读的活动记录天数应在 1–3650 之间".into());
     }
+    bebe::validate(&settings.pet)?;
     if settings.ai.base_url.trim().is_empty() || settings.ai.model.trim().is_empty() {
         return Err("AI Base URL 和 Model 不能为空".into());
     }
@@ -2620,6 +2626,10 @@ pub fn run() {
             digest::record_pet_event,
             digest::ai_daily_summary,
             digest::ai_query_activity,
+            bebe::load_pet_profile,
+            bebe::save_pet_profile,
+            bebe::load_pet_plan,
+            bebe::save_pet_plan,
             ai::ai_chat_step,
             ai::ai_generate_title,
             ai::list_ai_conversations,

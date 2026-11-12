@@ -19,7 +19,7 @@ describe("useAssistant.startTask", () => {
   const noop = () => undefined;
 
   function Probe() {
-    assistant = useAssistant({ activePanel: "board", getState: () => state, commitBoard: noop, commitForest: noop, recordRecall: noop, recordMemories: noop, recordDiary: noop });
+    assistant = useAssistant({ activePanel: "board", getState: () => state, commitBoard: noop, commitForest: noop, recordRecall: noop, recordMemories: noop, recordDiary: noop, commitPetSettings: noop });
     return null;
   }
 

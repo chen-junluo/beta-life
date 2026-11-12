@@ -37,6 +37,15 @@ export function batchNote(batch: AiBatch): string {
   return `${reason}:\n${list(batch.changes)}`;
 }
 
+/** An instant action the user took back: the model learns it from the tool result itself. */
+function undoneContent(content: string): string {
+  try {
+    return JSON.stringify({ ...(JSON.parse(content) as object), undoneByUser: true });
+  } catch {
+    return `${content}\n[The user undid this afterwards.]`;
+  }
+}
+
 /** `live` carries the full images of the running turn; earlier images only leave a note behind. */
 export function toWire(messages: ConversationMessage[], live?: { messageId: string; images: AiImageDraft[] }): WireMessage[] {
   return messages.flatMap((message): WireMessage[] => {
@@ -54,7 +63,7 @@ export function toWire(messages: ConversationMessage[], live?: { messageId: stri
       case "assistant":
         return [{ role: "assistant", content: message.content, toolCalls: message.toolCalls.map(({ id, name, arguments: args }) => ({ id, name, arguments: args })) }];
       case "tool":
-        return [{ role: "tool", content: message.content, toolCallId: message.toolCallId }];
+        return [{ role: "tool", content: message.action?.undone ? undoneContent(message.content) : message.content, toolCallId: message.toolCallId }];
       case "batch":
         return message.batch.status === "pending" ? [] : [{ role: "note", content: batchNote(message.batch) }];
     }
@@ -103,6 +112,7 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
   ];
   deps.onMessages(messages);
   const changes: AiBatch["changes"] = [];
+  let choicesShown = false;
   const stopped = () => deps.signal?.aborted === true;
 
   while (!stopped()) {
@@ -113,10 +123,20 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
     for (const call of reply.toolCalls) {
       const outcome = call.error ? { content: JSON.stringify({ error: call.error }) } : await deps.runTool(call);
       if (outcome.change) changes.push(outcome.change);
-      results.push({ ...stamp(), role: "tool", toolCallId: call.id, name: call.name, content: outcome.content });
+      if (outcome.choices) choicesShown = true;
+      results.push({
+        ...stamp(),
+        role: "tool",
+        toolCallId: call.id,
+        name: call.name,
+        content: outcome.content,
+        ...(outcome.action && { action: outcome.action }),
+        ...(outcome.choices && { choices: outcome.choices }),
+      });
     }
     messages = [...messages, { ...stamp(), role: "assistant", content: reply.content, toolCalls: reply.toolCalls }, ...results];
-    if (reply.toolCalls.length === 0 || changes.length > 0) break;
+    // Staged writes wait for the diff card; offered choices wait for a tap.
+    if (reply.toolCalls.length === 0 || changes.length > 0 || choicesShown) break;
     deps.onMessages(messages);
   }
 

@@ -1,3 +1,5 @@
+import type { PlanUndo } from "../pet/plan";
+
 /** `timeline` (the activity record) is read only. */
 export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary" | "timeline";
 /** The access a panel gets when a conversation starts from it: the timeline can only be read. */
@@ -6,10 +8,15 @@ export const defaultAccess = (panel: AiPanelId): AiAccess => (panel === "timelin
 export type AiAccess = "read" | "write";
 export type AiScope = Partial<Record<AiPanelId, AiAccess>>;
 
+/** Where a tool belongs: a panel, or bebe's own tools, which every conversation has. */
+export type AiToolPanel = AiPanelId | "bebe";
+
 export interface AiToolSpec {
   name: string;
-  panel: AiPanelId;
+  panel: AiToolPanel;
   access: AiAccess;
+  /** instant: applied at once with an undo (bebe's plan); choices: buttons that end the turn. */
+  effect?: "instant" | "choices";
   description: string;
   inputSchema: unknown;
 }
@@ -38,7 +45,7 @@ export type ChangeKind = "add" | "edit" | "move" | "del";
 export interface AiChange {
   id: string;
   /** Missing on changes saved by P2.1, which were all board changes. */
-  panel?: AiPanelId;
+  panel?: AiToolPanel;
   toolCallId: string;
   name: string;
   arguments: ToolArguments;
@@ -82,7 +89,7 @@ export type StoredImage = Pick<AiImageDraft, "id" | "name" | "thumbnail">;
 export type ConversationMessage =
   | { id: string; role: "user"; content: string; scope: AiScope; images?: StoredImage[]; task?: AiTask; createdAt: string }
   | { id: string; role: "assistant"; content: string; toolCalls: CheckedToolCall[]; createdAt: string }
-  | { id: string; role: "tool"; toolCallId: string; name: string; content: string; createdAt: string }
+  | { id: string; role: "tool"; toolCallId: string; name: string; content: string; action?: InstantAction; choices?: string[]; createdAt: string }
   | { id: string; role: "batch"; batch: AiBatch; createdAt: string };
 
 export interface Conversation {
@@ -110,10 +117,20 @@ export type WireMessage =
   | { role: "tool"; content: string; toolCallId: string }
   | { role: "note"; content: string };
 
-export const changePanel = (change: AiChange): AiPanelId => change.panel ?? "board";
+export const changePanel = (change: AiChange): AiToolPanel => change.panel ?? "board";
+
+/** A bebe action that already happened (no diff card); the user can undo it from the chat. */
+export interface InstantAction {
+  label: string;
+  undo: PlanUndo;
+  undone?: boolean;
+}
 
 export interface ToolOutcome {
   /** JSON string returned to the model as the tool result. */
   content: string;
   change?: AiChange;
+  action?: InstantAction;
+  /** offer_choices: buttons under the reply; the turn ends. */
+  choices?: string[];
 }

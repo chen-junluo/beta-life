@@ -48,7 +48,7 @@ describe("AiDock", () => {
   });
 
   function render(props: Partial<Parameters<typeof AiDock>[0]> = {}) {
-    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn(), onRename: vi.fn(), onRemoveTask: vi.fn() };
+    const handlers = { onSend: vi.fn(), onResolveBatch: vi.fn(), onUndoAction: vi.fn(), onNewConversation: vi.fn(), onOpenSettings: vi.fn(), onScopeChange: vi.fn(), onStop: vi.fn(), onRename: vi.fn(), onRemoveTask: vi.fn() };
     act(() => root.render(
       <AiDock conversation={conversation} busy={false} error={null} hasApiKey activePanel="board" scope={{ board: "write" }} focusRequest={0} stopped={false} supportsImages task={null} {...handlers} {...props} />,
     ));
@@ -66,6 +66,27 @@ describe("AiDock", () => {
     act(() => confirm.click());
     expect(onResolveBatch).toHaveBeenCalledWith("batch", ["x"]);
     expect(host.querySelector(".ai-dock-card")).toBeNull();
+  });
+
+  it("shows bebe's instant actions with an undo and offered choices as buttons", () => {
+    const bebe: Conversation = {
+      ...conversation,
+      messages: [
+        { id: "u", role: "user", content: "今晚别提醒我", scope: {}, createdAt: "" },
+        { id: "a", role: "assistant", content: "以后每天都这样吗？", toolCalls: [{ id: "c1", name: "snooze", arguments: {} }, { id: "c2", name: "offer_choices", arguments: {} }], createdAt: "" },
+        { id: "t1", role: "tool", toolCallId: "c1", name: "snooze", content: "{}", action: { label: "暂停提醒到 22:30", undo: { kind: "snooze", previous: null } }, createdAt: "" },
+        { id: "t2", role: "tool", toolCallId: "c2", name: "offer_choices", content: "{}", choices: ["只今晚", "以后每天"], createdAt: "" },
+        { id: "b", role: "batch", createdAt: "", batch: { id: "bb", status: "pending", changes: [{ id: "x", panel: "bebe", toolCallId: "c3", name: "set_bebe_settings", arguments: {}, kind: "edit", title: "bebe 设置", detail: "晚间总结提前 30 分钟 → 60 分钟", selected: true }] } },
+      ],
+    };
+    const { onUndoAction, onSend } = render({ conversation: bebe });
+    expect(host.textContent).toContain("暂停提醒到 22:30");
+    expect(host.textContent).toContain("bebe 的改动在 Settings 里改回");
+    const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent?.trim() === label)!;
+    act(() => button("撤销").click());
+    expect(onUndoAction).toHaveBeenCalledWith("t1");
+    act(() => button("以后每天").click());
+    expect(onSend).toHaveBeenCalledWith("以后每天", []);
   });
 
   it("sends on Enter but not while an IME is composing", () => {

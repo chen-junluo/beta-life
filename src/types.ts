@@ -91,6 +91,33 @@ export interface ActivitySettings {
   aiTitles: boolean;
 }
 
+export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+/** Days and a local `HH:MM` range; `end` before `start` runs past midnight. */
+export interface QuietHours {
+  days: Weekday[];
+  start: string;
+  end: string;
+}
+
+/** bebe's thresholds, lead times and quiet hours (Rust `bebe::PetSettings`). */
+export interface PetSettings {
+  /** Slack reminder: slack above `slackSharePercent` of the last `slackWindowMinutes`… */
+  slackWindowMinutes: number;
+  slackSharePercent: number;
+  /** …and a current slack streak at least this long. */
+  slackStreakMinutes: number;
+  slackCooldownMinutes: number;
+  /** 「X 分钟后再说」 on a slack reminder. */
+  slackSnoozeMinutes: number;
+  /** The evening summary shows this long before the sleep period. */
+  summaryLeadMinutes: number;
+  /** 「稍后提醒」 on a habit reminder. */
+  habitSnoozeMinutes: number;
+  /** No slack reminders, questions or habit reminders inside these. */
+  quietHours: QuietHours[];
+}
+
 export interface DiarySettings {
   /** The body of a new day under its `## YYMMDD周X` heading; `{{date}}` becomes `YYMMDD周X`. */
   template: string;
@@ -128,6 +155,7 @@ export interface AppSettings {
   tagIcons: Record<string, string>;
   diary: DiarySettings;
   activity: ActivitySettings;
+  pet: PetSettings;
 }
 
 export interface LoadedAppState {

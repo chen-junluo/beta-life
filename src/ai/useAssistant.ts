@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedAppState } from "../types";
+import { undoInstant } from "./bebeTools";
 import { assistantContext, commitChanges, createToolSession, loadAssistantData, type CommitTargets } from "./session";
 import { runTurn, TurnStopped } from "./turn";
 import { AI_TASKS, defaultAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChatStepReply, type Conversation, type ConversationMessage, type ConversationSummary } from "./types";
@@ -177,6 +178,22 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     });
   }
 
+  /** Takes back one of bebe's instant actions (a pause or a one-off reminder) and marks it undone. */
+  async function undoAction(messageId: string) {
+    const target = current.current?.messages.find((message) => message.id === messageId);
+    if (target?.role !== "tool" || !target.action || target.action.undone) return;
+    try {
+      await undoInstant(target.action.undo);
+    } catch (reason) {
+      setError(`撤销失败：${errorMessage(reason)}`);
+      return;
+    }
+    const latest = current.current;
+    if (!latest) return;
+    const action = { ...target.action, undone: true };
+    persist({ ...latest, updatedAt: new Date().toISOString(), messages: latest.messages.map((message) => (message.id === target.id ? { ...target, action } : message)) });
+  }
+
   /** A new conversation started by an entry action (写进日记) and sent right away: its task, scope and first message. */
   async function startTask(nextTask: AiTask, turnScope: AiScope, text: string, title: string) {
     if (busy) return;
@@ -233,5 +250,5 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     if (current.current?.id === id) startNew(activePanel);
   }
 
-  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, startTask, startNew, rename, open, remove, refreshSummaries };
+  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, undoAction, startTask, startNew, rename, open, remove, refreshSummaries };
 }

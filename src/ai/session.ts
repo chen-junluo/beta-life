@@ -1,14 +1,15 @@
 import type { KnowledgeBundle } from "../recallStorage";
 import type { MemorySnapshot } from "../memoryStorage";
-import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata } from "../types";
+import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata, PetSettings } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { loadDiaryMonth, type DiarySnapshot } from "../diaryStorage";
+import { applyPetSettings, applyPreference, classifyTarget, commitBebeChanges, describeClassify, describePetSettings, describePreference, loadPetProfile, runInstant, type PetProfile } from "./bebeTools";
 import { AI_TOOLS, applyBoardBatch, applyBoardChange, boardIndex, describeBoardChange } from "./boardTools";
 import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, diaryMonthIndex, findDay, loadDiaryData, monthOfDay, type DiaryData, type DiaryMonths } from "./diaryTools";
 import { applyForestChange, describeForestChange, forestIndex, forestMapIndex, readNode, type Forests } from "./forestTools";
 import { applyMemoryChange, asMemories, commitMemoryChanges, describeMemoryChange, loadMemoryData, memoryIndex, newMemoryId, readMemory } from "./memoryTools";
 import { applyRecallChange, commitRecallChanges, describeRecallChange, dueRecords, loadKnowledge, loadPoints, recallIndex } from "./recallTools";
-import { changePanel, type AiChange, type AiPanelId, type AiScope, type AiToolCall, type ChangeKind, type ToolOutcome } from "./types";
+import { changePanel, type AiChange, type AiPanelId, type AiScope, type AiToolCall, type AiToolPanel, type AiToolSpec, type ChangeKind, type ToolOutcome } from "./types";
 
 /** Everything the assistant may read during one turn, captured when the turn starts. */
 export interface AssistantData {
@@ -91,6 +92,9 @@ export function createToolSession(data: AssistantData) {
   // Reads see the months as loaded during the turn; staged writes build on `diaryDraft`.
   const diaryLoaded: DiaryMonths = { ...data.diary?.months };
   let diaryDraft: DiaryMonths = { ...diaryLoaded };
+  // bebe's staged settings and preferences; the profile loads the first time a turn needs it.
+  let pet = data.settings.pet;
+  let profile: PetProfile | null = null;
 
   async function ensureMonth(month: string) {
     if (!/^\d{4}$/.test(month)) throw new Error(`month must be YYMM, got "${month}"`);
@@ -198,11 +202,54 @@ export function createToolSession(data: AssistantData) {
     }
   }
 
+  /** bebe's tools: the plan changes at once, choices end the turn, the rest is staged. */
+  async function runBebe(call: AiToolCall, spec: AiToolSpec): Promise<ToolOutcome> {
+    if (spec.effect === "instant") {
+      const action = await runInstant(call.name, call.arguments);
+      return { content: json({ status: "done", did: action.label, note: "Already applied; the user can undo it." }), action };
+    }
+    if (spec.effect === "choices") {
+      const options = (Array.isArray(call.arguments.options) ? call.arguments.options : []).map(String);
+      return { content: json({ status: "shown", note: "The options are buttons under your reply; the user's pick comes as their next message." }), choices: options };
+    }
+    let args = call.arguments;
+    let display: { kind: ChangeKind; title: string; detail: string };
+    switch (call.name) {
+      case "set_bebe_settings": {
+        const next = applyPetSettings(pet, args);
+        display = describePetSettings(pet, next);
+        pet = next;
+        break;
+      }
+      case "remember_preference":
+      case "forget_preference": {
+        profile ??= await loadPetProfile();
+        const next = applyPreference(profile, call.name, args);
+        display = describePreference(call.name, args);
+        profile = next;
+        break;
+      }
+      case "classify_activity": {
+        if (args.kind !== "keyword") {
+          const target = await classifyTarget(args);
+          args = { ...args, targetKind: target.kind, key: target.key, label: target.label };
+        }
+        display = describeClassify(args);
+        break;
+      }
+      default:
+        throw new Error(`Unknown tool ${call.name}`);
+    }
+    const change: AiChange = { id: crypto.randomUUID(), panel: "bebe", toolCallId: call.id, name: call.name, arguments: args, ...display, selected: true };
+    return { content: json({ status: "staged", note: "Waiting for the user to confirm in the diff card." }), change };
+  }
+
   return {
     async run(call: AiToolCall): Promise<ToolOutcome> {
       const spec = TOOL_PANELS.get(call.name);
       try {
         if (!spec) throw new Error(`Unknown tool ${call.name}`);
+        if (spec.panel === "bebe") return await runBebe(call, spec);
         if (spec.access === "read") return { content: json(await read(call)) };
         const input = { name: call.name, arguments: call.arguments, createdId: createdIdFor(call.name) };
         if (spec.panel === "diary") await ensureMonth(monthOfDay(call.arguments.day));
@@ -229,13 +276,15 @@ export interface CommitTargets {
   recordRecall: (before: KnowledgeBundle[], after: KnowledgeBundle[]) => void;
   recordMemories: (before: MemorySnapshot[], after: MemorySnapshot[]) => void;
   recordDiary: (before: DiarySnapshot[], after: DiarySnapshot[]) => void;
+  /** Confirmed bebe settings; Settings → bebe is where they are changed back. */
+  commitPetSettings: (pet: PetSettings) => void;
 }
 
 /** Writes the confirmed changes panel by panel: one undo step per touched panel (and forest map). */
 export async function commitChanges(changes: AiChange[], targets: CommitTargets): Promise<Failure[]> {
   const state = targets.getState();
   if (!state) return changes.map((change) => ({ changeId: change.id, reason: "App state is not loaded" }));
-  const of = (panel: AiPanelId) => changes.filter((change) => changePanel(change) === panel);
+  const of = (panel: AiToolPanel) => changes.filter((change) => changePanel(change) === panel);
   const failed: Failure[] = [];
 
   const boardChanges = of("board");
@@ -288,6 +337,11 @@ export async function commitChanges(changes: AiChange[], targets: CommitTargets)
     const result = await commitDiaryChanges(diaryChanges);
     if (result.after.length > 0) targets.recordDiary(result.before, result.after);
     failed.push(...result.failed);
+  }
+
+  const bebeChanges = of("bebe");
+  if (bebeChanges.length > 0) {
+    failed.push(...await commitBebeChanges(bebeChanges, { getPet: () => targets.getState()?.settings.pet ?? null, savePet: targets.commitPetSettings }));
   }
   return failed;
 }

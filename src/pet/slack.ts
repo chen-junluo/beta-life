@@ -1,4 +1,6 @@
 import type { ActivityCategory, RuleTarget } from "../activity";
+import { DEFAULT_PET_SETTINGS } from "../defaults";
+import type { PetSettings } from "../types";
 
 /** Rust `categories::Pulse`, polled by bebe every tick. */
 export interface ActivityPulse {
@@ -14,16 +16,36 @@ export interface ActivityPulse {
 }
 
 const MINUTE = 60_000;
-export const PULSE_REQUEST = { windowMs: 10 * MINUTE, askAfterMs: 3 * MINUTE };
-/** Slack must fill more than this share of the recent window… */
-const SLACK_SHARE = 0.6;
-/** …and the current streak must be this long. */
-const STREAK_MS = 5 * MINUTE;
-/** No second slack reminder sooner than this. */
-export const COOLDOWN_MS = 30 * MINUTE;
-export const SNOOZE_SLACK_MS = 10 * MINUTE;
 /** Between two "what is this?" questions. */
 export const ASK_GAP_MS = 5 * MINUTE;
+
+/** The slack reminder thresholds from Settings → bebe, in milliseconds. */
+export interface SlackRules {
+  /** Slack must fill more than `share` of the last `windowMs`… */
+  windowMs: number;
+  share: number;
+  /** …and the current streak must be this long. */
+  streakMs: number;
+  /** No second slack reminder sooner than this. */
+  cooldownMs: number;
+  /** 「X 分钟后再说」. */
+  snoozeMs: number;
+}
+
+export function slackRules(pet: PetSettings): SlackRules {
+  return {
+    windowMs: pet.slackWindowMinutes * MINUTE,
+    share: pet.slackSharePercent / 100,
+    streakMs: pet.slackStreakMinutes * MINUTE,
+    cooldownMs: pet.slackCooldownMinutes * MINUTE,
+    snoozeMs: pet.slackSnoozeMinutes * MINUTE,
+  };
+}
+
+export const DEFAULT_SLACK_RULES = slackRules(DEFAULT_PET_SETTINGS);
+
+/** Rust `categories::PulseRequest`. */
+export const pulseRequest = (windowMs: number) => ({ windowMs, askAfterMs: 3 * MINUTE });
 
 export type NudgeLevel = 1 | 2 | 3;
 
@@ -42,19 +64,19 @@ function sameEpisode(pulse: ActivityPulse, memory: NudgeMemory): boolean {
 }
 
 /**
- * The reminder to show now, if any: more than 60% of the last 10 minutes on slack and a streak
- * of at least 5 minutes, at most every 30 minutes. Within one episode each reminder is one level
- * stronger (light bubble → bubble with actions → worried bebe); a new episode starts again at 1.
+ * The reminder to show now, if any: by default more than 60% of the last 10 minutes on slack and
+ * a streak of at least 5 minutes, at most every 30 minutes. Within one episode each reminder is one
+ * level stronger (light bubble → bubble with actions → worried bebe); a new episode starts at 1.
  */
-export function nudgeLevel(pulse: ActivityPulse, memory: NudgeMemory, now: number): NudgeLevel | null {
+export function nudgeLevel(pulse: ActivityPulse, memory: NudgeMemory, now: number, rules = DEFAULT_SLACK_RULES): NudgeLevel | null {
   if (pulse.inBetaLife || !pulse.current || pulse.slackSince === null) return null;
-  if (now < memory.quietUntil || now - pulse.slackSince < STREAK_MS) return null;
-  if (pulse.recentSlackMs <= SLACK_SHARE * PULSE_REQUEST.windowMs) return null;
+  if (now < memory.quietUntil || now - pulse.slackSince < rules.streakMs) return null;
+  if (pulse.recentSlackMs <= rules.share * rules.windowMs) return null;
   return sameEpisode(pulse, memory) ? (Math.min(memory.level + 1, 3) as NudgeLevel) : 1;
 }
 
-export function afterNudge(level: NudgeLevel, now: number): NudgeMemory {
-  return { quietUntil: now + COOLDOWN_MS, nudgedAt: now, level };
+export function afterNudge(level: NudgeLevel, now: number, rules = DEFAULT_SLACK_RULES): NudgeMemory {
+  return { quietUntil: now + rules.cooldownMs, nudgedAt: now, level };
 }
 
 /** bebe looks worried while the episode that reached level 3 goes on. */

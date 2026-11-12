@@ -1,5 +1,5 @@
 import type { AiBatch, AiScope, Conversation } from "../ai/types";
-import type { Habit, PeriodSetting } from "../types";
+import type { Habit, PeriodSetting, PetSettings } from "../types";
 
 /** The main window owns the board; it pushes snapshots to the pet and applies the pet's requests. */
 export const PET_READY = "pet://ready";
@@ -18,6 +18,8 @@ export const PET_CHAT = "pet://chat";
 export const PET_CHAT_SEND = "pet://chat-send";
 export const PET_CHAT_RESOLVE = "pet://chat-resolve";
 export const PET_CHAT_STOP = "pet://chat-stop";
+/** Pet → main: undo one of bebe's instant actions (`PetChatUndo`). */
+export const PET_CHAT_UNDO = "pet://chat-undo";
 /** Pet → main: 写进日记 from the evening summary, and 看时间轴. */
 export const PET_SUMMARY_DIARY = "pet://summary-diary";
 export const PET_OPEN_TIMELINE = "pet://open-timeline";
@@ -28,6 +30,8 @@ export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest:
 export interface PetBoardSnapshot {
   items: Habit[];
   periods: PeriodSetting[];
+  /** Settings → bebe. */
+  pet: PetSettings;
 }
 
 export interface PetMarkDone {
@@ -44,6 +48,15 @@ export interface PetChatSnapshot {
   lastUser: string | null;
   reply: string | null;
   batch: AiBatch | null;
+  /** bebe's instant actions in this round, each with its undo. */
+  actions: Array<{ id: string; label: string; undone: boolean }>;
+  /** offer_choices: tapping one sends it as the next message. */
+  choices: string[] | null;
+}
+
+export interface PetChatUndo {
+  /** The tool message that holds the action. */
+  messageId: string;
 }
 
 export interface PetChatSend {
@@ -78,5 +91,8 @@ export function petChatSnapshot(
   const round = messages.slice(start);
   const reply = round.flatMap((message) => (message.role === "assistant" && message.content.trim() ? [message.content] : [])).at(-1) ?? null;
   const batch = round.flatMap((message) => (message.role === "batch" ? [message.batch] : [])).at(-1) ?? null;
-  return { ...state, title: conversation?.title ?? null, lastUser: user?.role === "user" ? user.content || (user.images?.length ? `[图片 ×${user.images.length}]` : "") : null, reply, batch };
+  const tools = round.flatMap((message) => (message.role === "tool" ? [message] : []));
+  const actions = tools.flatMap((message) => (message.action ? [{ id: message.id, label: message.action.label, undone: message.action.undone === true }] : []));
+  const choices = tools.flatMap((message) => (message.choices ? [message.choices] : [])).at(-1) ?? null;
+  return { ...state, title: conversation?.title ?? null, lastUser: user?.role === "user" ? user.content || (user.images?.length ? `[图片 ×${user.images.length}]` : "") : null, reply, batch, actions, choices };
 }

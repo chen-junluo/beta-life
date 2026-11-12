@@ -918,5 +918,303 @@
       ],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "snooze",
+    "panel": "bebe",
+    "access": "write",
+    "effect": "instant",
+    "description": "Pause bebe's slack reminders, its questions about unclassified apps and its habit reminders for a while; one-off reminders still show. Give minutes from now, or until as local HH:MM (the next time that clock time comes, e.g. the sleep period start for 今晚). minutes 0 ends a pause now. Acts at once; the user can undo it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440,
+          "description": "From now; 0 ends the pause."
+        },
+        "until": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "description": "Local HH:MM."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "schedule_reminder",
+    "panel": "bebe",
+    "access": "write",
+    "effect": "instant",
+    "description": "bebe shows a one-off reminder bubble once, within the next 24 hours. Give minutes from now, or at as local HH:MM (the next time that clock time comes). For something every day, add a habit on the board instead. Acts at once; the user can undo it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "What to remind, short, in the user's words."
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "From now."
+        },
+        "at": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "description": "Local HH:MM."
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cancel_reminder",
+    "panel": "bebe",
+    "access": "write",
+    "effect": "instant",
+    "description": "Cancel a one-off reminder by its id from the list of one-off reminders. Acts at once; the user can undo it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "offer_choices",
+    "panel": "bebe",
+    "access": "read",
+    "effect": "choices",
+    "description": "Show 2–4 short options as buttons under your reply and end the turn; your reply text is the question. The option the user taps comes back as their next message. Use it when one short answer decides the request, e.g. whether a change is 只今晚 or 以后每天.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          }
+        }
+      },
+      "required": [
+        "options"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "set_bebe_settings",
+    "panel": "bebe",
+    "access": "write",
+    "description": "Change bebe's lasting settings; staged for the user to confirm. Pass only the fields to change. quietHours replaces the whole list, so pass the existing quiet hours too when adding one, and [] to remove all.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slackWindowMinutes": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 60,
+          "description": "Slack share is measured over this many recent minutes."
+        },
+        "slackSharePercent": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "description": "A slack reminder needs slack above this share of the window."
+        },
+        "slackStreakMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "description": "…and a current slack streak at least this long."
+        },
+        "slackCooldownMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "description": "At most one slack reminder this often."
+        },
+        "slackSnoozeMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "description": "How long 「再说」 on a slack reminder waits."
+        },
+        "summaryLeadMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 180,
+          "description": "The evening summary shows this long before the sleep period."
+        },
+        "habitSnoozeMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "description": "How long 「稍后提醒」 on a habit reminder waits."
+        },
+        "quietHours": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "No slack reminders, questions or habit reminders in these. end before start runs past midnight.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 7,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
+                }
+              },
+              "start": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 5,
+                "description": "Local HH:MM."
+              },
+              "end": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 5,
+                "description": "Local HH:MM."
+              }
+            },
+            "required": [
+              "days",
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "remember_preference",
+    "panel": "bebe",
+    "access": "write",
+    "description": "Remember something the user asked for, for good; staged for the user to confirm. style: how to talk, added to every conversation (e.g. 少用感叹号). about: a fact about the user's life or wishes (e.g. 周三下午要上课). One short line in the user's words.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string",
+          "enum": [
+            "style",
+            "about"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "section",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "forget_preference",
+    "panel": "bebe",
+    "access": "write",
+    "description": "Forget one remembered item; staged for the user to confirm. text must match the item exactly as listed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string",
+          "enum": [
+            "style",
+            "about"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "section",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "classify_activity",
+    "panel": "bebe",
+    "access": "write",
+    "description": "Set how an app, a website or a window-title keyword counts on the timeline, for good; staged for the user to confirm. app: the app name as the timeline shows it; site: a domain like bilibili.com (covers its subdomains); keyword: words in window titles, checked before sites and apps. none removes the rule, so it becomes unclassified.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "app",
+            "site",
+            "keyword"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "focus",
+            "neutral",
+            "slack",
+            "none"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "category"
+      ],
+      "additionalProperties": false
+    }
   }
 ]

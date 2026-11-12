@@ -34,6 +34,7 @@ import {
   PET_CHAT_SCOPE,
   PET_CHAT_SEND,
   PET_CHAT_STOP,
+  PET_CHAT_UNDO,
   PET_DIARY_SCOPE,
   PET_OPEN_TIMELINE,
   PET_SUMMARY_DIARY,
@@ -45,6 +46,7 @@ import {
   petChatSnapshot,
   type PetBoardSnapshot,
   type PetChatResolve,
+  type PetChatUndo,
   type PetChatSend,
   type PetMarkDone,
   type PetSummaryDiary,
@@ -83,7 +85,7 @@ const SECTION_LABELS: Record<WorkspaceSection, string> = {
 };
 
 function withSettingDefaults(settings: AppSettings): AppSettings {
-  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary } };
+  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary }, pet: { ...DEFAULT_SETTINGS.pet, ...settings.pet } };
 }
 
 function shortPeriodLabel(period: AppSettings["periods"][number]): string {
@@ -358,6 +360,16 @@ export default function App() {
       recordDiary(before, after);
       setDiaryRevision((revision) => revision + 1);
     },
+    // Confirmed in a diff card; Settings → bebe is where they are changed back.
+    commitPetSettings: (pet) => {
+      const current = stateRef.current;
+      if (!current) return;
+      const settings = { ...current.settings, pet };
+      const nextState = { ...current, settings };
+      stateRef.current = nextState;
+      setState(nextState);
+      void queueSettingsSave(settings).catch((error) => console.error(error));
+    },
   });
 
   const assistantRef = useRef(assistant);
@@ -466,6 +478,7 @@ export default function App() {
       listen<PetChatSend>(PET_CHAT_SEND, ({ payload }) => void assistantRef.current.send(payload.text, PET_CHAT_SCOPE)),
       listen<PetChatResolve>(PET_CHAT_RESOLVE, ({ payload }) => void assistantRef.current.resolveBatch(payload.batchId, payload.selectedIds)),
       listen(PET_CHAT_STOP, () => assistantRef.current.stop()),
+      listen<PetChatUndo>(PET_CHAT_UNDO, ({ payload }) => void assistantRef.current.undoAction(payload.messageId)),
       // 写进日记 from bebe's evening summary: no model call, just the diff card to confirm.
       listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
       listen(PET_OPEN_TIMELINE, () => {
@@ -541,17 +554,18 @@ export default function App() {
 
   const petItems = state ? activeItems(state.board) : null;
   const petPeriods = state?.settings.periods;
+  const petSettings = state?.settings.pet;
   useEffect(() => {
-    if (!window.__TAURI_INTERNALS__ || !petItems || !petPeriods) return;
-    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods }).catch(console.error);
-  }, [petItems, petPeriods]);
+    if (!window.__TAURI_INTERNALS__ || !petItems || !petPeriods || !petSettings) return;
+    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods, pet: petSettings }).catch(console.error);
+  }, [petItems, petPeriods, petSettings]);
 
   useEffect(() => {
     if (!window.__TAURI_INTERNALS__) return;
     const sendSnapshot = () => {
       const current = stateRef.current;
       if (!current) return;
-      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods });
+      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods, pet: current.settings.pet });
     };
     const unlisteners = [
       listen(PET_READY, sendSnapshot),
@@ -746,6 +760,7 @@ export default function App() {
       task={assistant.task}
       onRemoveTask={() => assistant.setTask(null)}
       onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
+      onUndoAction={(messageId) => void assistant.undoAction(messageId)}
       onNewConversation={() => assistant.startNew(dockPanel)}
       onRename={assistant.rename}
       layout={showWorkbench ? "workbench" : "dock"}

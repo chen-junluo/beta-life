@@ -3452,3 +3452,26 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .rule-list li { min-height: 38px; padding: 0 2px 0 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto 30px; align-items: center; gap: 8px; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .rule-list li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-list .icon-button { width: 30px; height: 30px; }
+
+/* Settings → bebe */
+.bebe-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.bebe-number-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.bebe-number-grid > .settings-field-card { margin: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-soft); }
+.bebe-number-grid input { height: 36px; font-size: 12px; }
+.quiet-list li { padding: 6px 2px 6px 4px; grid-template-columns: auto minmax(0, 1fr) 30px; }
+.quiet-days { display: flex; gap: 3px; }
+.quiet-days button { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer; }
+.quiet-days button.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.quiet-range { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--muted); }
+.quiet-range input { width: 126px; height: 32px; font-size: 12px; }
+.bebe-add { margin-top: var(--ui-field-gap); }
+.preference-list li { padding: 6px 2px 6px 0; grid-template-columns: minmax(0, 1fr) 30px; }
+.preference-list input, .preference-list textarea { height: 32px; font-size: 12px; }
+.preference-list textarea { height: auto; min-height: 32px; resize: vertical; }
+
+/* bebe's instant actions and offered choices, in the dock and in bebe's chat */
+.ai-trace > .ai-trace-action { align-items: center; color: var(--ink); }
+.ai-trace-action .text-button, .pet-chat-action .text-button { padding: 0 2px; font-size: 11px; }
+.ai-trace-action small, .pet-chat-action small { color: var(--muted); font-size: 11px; }
+.ai-trace-action.is-undone > span, .pet-chat-action.is-undone > span { color: var(--muted); text-decoration: line-through; }
+.ai-choices { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }

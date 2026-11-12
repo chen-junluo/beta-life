@@ -1,4 +1,4 @@
-import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, PeriodId, TabSlogans } from "./types";
+import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, PeriodId, PetSettings, TabSlogans } from "./types";
 import abilityForestDefaults from "./ability-forest-default.json";
 import researchAgendaDefaults from "./research-agenda-default.json";
 
@@ -94,6 +94,18 @@ export const DEFAULT_TAB_SLOGANS: TabSlogans = {
 
 export const DEFAULT_DIARY_TEMPLATE = "- ";
 
+/** Same defaults as Rust `bebe::PetSettings`. */
+export const DEFAULT_PET_SETTINGS: PetSettings = {
+  slackWindowMinutes: 10,
+  slackSharePercent: 60,
+  slackStreakMinutes: 5,
+  slackCooldownMinutes: 30,
+  slackSnoozeMinutes: 10,
+  summaryLeadMinutes: 30,
+  habitSnoozeMinutes: 15,
+  quietHours: [],
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   periods: [
@@ -133,6 +145,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tagIcons: {},
   diary: { template: DEFAULT_DIARY_TEMPLATE },
   activity: { aiDays: 30, aiTitles: true },
+  pet: DEFAULT_PET_SETTINGS,
 };
 
 export const DEFAULT_BOARD: BoardFile = {

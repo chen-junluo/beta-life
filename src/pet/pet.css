@@ -117,3 +117,6 @@
 .pet-chat-composer textarea { flex: 1; min-width: 0; min-height: 52px; max-height: 96px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--ui-control-radius); background: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; line-height: 1.5; resize: none; }
 .pet-chat-composer textarea:focus { border-color: rgba(99, 102, 241, 0.55); outline: none; }
 .pet-chat-composer .primary-button { width: 32px; min-height: 32px; padding: 0; justify-content: center; }
+
+.pet-chat-action { margin: 0; display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 12px; }
+.pet-chat-action svg { flex: none; color: #10b981; }

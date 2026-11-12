@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../defaults";
 import type { Habit, Placement } from "../types";
-import { isSleepPeriod, reminderSlot, summaryDay } from "./reminders";
+import { inQuietHours, isSleepPeriod, quietHoursText, reminderSlot, summaryDay } from "./reminders";
 
 const periods = DEFAULT_SETTINGS.periods;
 const startOf = (id: string) => periods.find((period) => period.id === id)!.startHour;
@@ -56,5 +56,26 @@ describe("bebe evening summary", () => {
     expect(summaryDay(at(0, 10), withSleep(0))).toBeNull();
     // Sleep at 1:00: the summary at 0:30 closes the day before.
     expect(summaryDay(at(0, 30), withSleep(1))).toBe("2026-11-08");
+  });
+});
+
+describe("bebe's lead time and quiet hours", () => {
+  it("shows the evening summary with the lead time from Settings", () => {
+    expect(summaryDay(at(22, 0), periods, 60 * 60_000)).toBe("2026-11-09");
+    expect(summaryDay(at(21, 59), periods, 60 * 60_000)).toBeNull();
+  });
+
+  it("is quiet on the listed days and across midnight", () => {
+    // 2026-11-09 is a Monday.
+    const lecture = { days: ["mon" as const], start: "14:00", end: "16:00" };
+    expect(inQuietHours(at(14, 0), [lecture])).toBe(true);
+    expect(inQuietHours(at(15, 59), [lecture])).toBe(true);
+    expect(inQuietHours(at(16, 0), [lecture])).toBe(false);
+    expect(inQuietHours(new Date(2026, 10, 10, 14, 30), [lecture])).toBe(false);
+    // Sunday night 23:00–01:00 covers Monday 0:30, not Monday 23:30.
+    const late = { days: ["sun" as const], start: "23:00", end: "01:00" };
+    expect(inQuietHours(at(0, 30), [late])).toBe(true);
+    expect(inQuietHours(at(23, 30), [late])).toBe(false);
+    expect(quietHoursText({ days: ["fri", "mon"], start: "14:00", end: "16:00" })).toBe("周一、周五 14:00–16:00");
   });
 });
