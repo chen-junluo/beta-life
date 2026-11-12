@@ -35,3 +35,24 @@ export function reminderSlot(now: Date, items: Habit[], periods: PeriodSetting[]
   if (pending.length === 0) return null;
   return { key: `${localDateKey(now)}T${String(hour).padStart(2, "0")}`, habits: pending };
 }
+
+/** bebe's evening summary shows in the half hour before the sleep period starts. */
+export const SUMMARY_LEAD_MS = 30 * 60_000;
+
+/**
+ * The day (`YYYY-MM-DD`) to summarize when `now` falls in the half hour before sleep, else null.
+ * A sleep period starting after midnight (1:00–11:00) closes the previous calendar day.
+ */
+export function summaryDay(now: Date, periods: PeriodSetting[]): string | null {
+  const sleep = periods.find((period) => period.id === "sleep");
+  if (!sleep) return null;
+  for (const offset of [0, 1]) {
+    const sleepAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, sleep.startHour);
+    const from = sleepAt.getTime() - SUMMARY_LEAD_MS;
+    if (now.getTime() < from || now.getTime() >= sleepAt.getTime()) continue;
+    const day = new Date(from);
+    if (sleep.startHour > 0 && sleep.startHour < 12) day.setDate(day.getDate() - 1);
+    return localDateKey(day);
+  }
+  return null;
+}

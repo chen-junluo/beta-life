@@ -30,6 +30,8 @@ pub(crate) enum Panel {
     Forest,
     Memories,
     Diary,
+    /// The activity record; read only.
+    Timeline,
 }
 
 impl Panel {
@@ -40,6 +42,7 @@ impl Panel {
             Panel::Forest => "能力森林 (forest)",
             Panel::Memories => "记忆星云 (memories)",
             Panel::Diary => "日记 (diary)",
+            Panel::Timeline => "时间轴 (timeline)",
         }
     }
 }
@@ -125,6 +128,16 @@ User-editable extraction preferences:
 {}"#,
             settings.ai.extraction_prompt
         )),
+        "summarize_day" => Ok(format!(
+            r#"[Beta Life task: 写日记总结] The user pressed 写进日记 for one day of the activity record. Their message gives the day (YYYY-MM-DD and its diary id YYMMDD) and a statistics block computed by Beta Life.
+1. Gather, in one response: query_activity with from = to = that day, category "focus", groupBy "title", limit 80 (if window titles are hidden, groupBy "site" instead); and read_diary for that day and the 6 days before it (missing days are fine).
+2. Then call append_diary exactly once, for that day: text = the statistics block exactly as given, followed by the parts the preferences below ask for, as tab-indented bullets under it. Call no other write tool and change no other day.
+Durations come only from tool results: add up the items you group together and never invent time. If there was no focus time, say so in one bullet.
+
+User-editable preferences for this summary:
+{}"#,
+            settings.ai.day_summary_prompt
+        )),
         _ => Err("AI 对话包含未知的 task".into()),
     }
 }
@@ -206,12 +219,13 @@ fn system_prompt(settings: &AppSettings, scope: &Scope, context: &str) -> String
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        r#"You are the assistant inside Beta Life, a local-first desktop app with five panels:
+        r#"You are the assistant inside Beta Life, a local-first desktop app with five panels and an activity timeline:
 - 时间板 (board): daily habits and to-dos placed in a period or at an hour.
 - 回想 (recall): knowledge records (Markdown notes with hierarchical tags) reviewed with spaced repetition.
 - 能力森林 (forest): two three-level ability maps, vision (Long-term Vision) and research (Research Agenda); levels are 领域 → 能力组 → 能力.
 - 记忆星云 (memories): personal memories tied to songs, dates, life stages, places and emotions.
 - 日记 (diary): the user's daily journal, one Markdown file per month. Each day is a section under a `## YYMMDD周X` heading; diary tools read and write only the body under the heading, which is free-form Markdown (nested bullets indented with tabs, paragraphs). Keep the user's own words and tab indentation; only touch the days a request is about.
+- 时间轴 (timeline, read only): the activity record of what was in front on the Mac (app, website domain, window title) with away time left out. Each stretch is focus, neutral or slack by the user's own rules, or unclassified (not counted as slack). Durations are given as text (`1h 05m`, `6m 01s`, `40s`) and times as local `HH:MM`; quote them as given and never convert units yourself. Talk about slack time kindly and concretely, without lecturing.
 
 User-editable assistant preferences:
 {prompt}
@@ -713,6 +727,7 @@ fn export_markdown(conversation: &Conversation) -> String {
         Panel::Forest => "forest",
         Panel::Memories => "memories",
         Panel::Diary => "diary",
+        Panel::Timeline => "timeline",
     };
     let fields = vec![
         ("id", s(&conversation.id)),
@@ -1068,6 +1083,8 @@ mod tests {
         assert!(wire_messages(&gif, "system".into(), &settings).is_err());
         let five = bad(json!({"images": vec![json!({"mimeType": "image/png", "dataUrl": "data:image/png;base64,AA"}); 5]}));
         assert!(wire_messages(&five, "system".into(), &settings).is_err());
+        let day = wire_messages(&serde_json::from_value::<Vec<WireMessage>>(json!([{"role": "user", "content": "写进日记", "task": "summarize_day"}])).unwrap(), "system".into(), &settings).unwrap();
+        assert!(day[1]["content"].as_str().unwrap().contains("append_diary exactly once"));
         let unknown = bad(json!({"task": "drop_tables"}));
         assert!(wire_messages(&unknown, "system".into(), &settings).is_err());
     }

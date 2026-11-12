@@ -26,9 +26,9 @@ use tauri::{AppHandle, Emitter, State};
 const RULES_CHANGED_EVENT: &str = "activity://rules-changed";
 const RULES_FILE: &str = "categories.json";
 /// Away or asleep longer than this ends a slack streak.
-const STREAK_GAP_MS: i64 = 60_000;
+pub(crate) const STREAK_GAP_MS: i64 = 60_000;
 /// A glance at another app shorter than this does not end a slack streak.
-const STREAK_BLIP_MS: i64 = 30_000;
+pub(crate) const STREAK_BLIP_MS: i64 = 30_000;
 
 /// Serializes read-modify-write of the rules file (main window, Settings and bebe all write it).
 static RULES_LOCK: Mutex<()> = Mutex::new(());
@@ -92,6 +92,12 @@ pub(crate) struct Target {
     kind: TargetKind,
     key: String,
     label: String,
+}
+
+impl Target {
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
 }
 
 const PRESET_APPS: [(&str, &str, Category); 31] = [
@@ -204,7 +210,7 @@ impl Rules {
     }
 
     /// The rule target of a session and its category from that target alone (no keywords).
-    fn target(&self, session: &activity::Session) -> (Target, Option<Category>) {
+    pub(crate) fn target(&self, session: &activity::Session) -> (Target, Option<Category>) {
         if let Some(domain) = session.domain.as_deref() {
             return match self.domain_rule(domain) {
                 Some(rule) => (Target { kind: TargetKind::Domain, key: rule.domain.clone(), label: rule.domain.clone() }, Some(rule.category)),
@@ -221,7 +227,7 @@ impl Rules {
 
     /// Keyword first, then the domain for web pages (a page without a domain rule stays
     /// unclassified even if its browser has one), then the app.
-    fn classify(&self, session: &activity::Session) -> Option<Category> {
+    pub(crate) fn classify(&self, session: &activity::Session) -> Option<Category> {
         self.keyword(&session.title).or_else(|| self.target(session).1)
     }
 
@@ -304,7 +310,7 @@ fn read_rules(path: &Path) -> Result<Rules, String> {
     }
 }
 
-fn load(app: &AppHandle) -> Result<Rules, String> {
+pub(crate) fn load(app: &AppHandle) -> Result<Rules, String> {
     let _guard = RULES_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     read_rules(&rules_path(app)?)
 }
@@ -444,8 +450,8 @@ pub(crate) struct Current {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Candidate {
     #[serde(flatten)]
-    target: Target,
-    today_ms: i64,
+    pub(crate) target: Target,
+    pub(crate) today_ms: i64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -463,7 +469,21 @@ pub(crate) struct Pulse {
     candidates: Vec<Candidate>,
 }
 
-fn session_label(session: &activity::Session) -> String {
+/// Time since `from` on each unclassified rule target, longest first.
+pub(crate) fn unclassified_usage(rules: &Rules, classified: &[(&activity::Session, Option<Category>)], from: i64) -> Vec<Candidate> {
+    let mut usage: HashMap<Target, i64> = HashMap::new();
+    for (session, category) in classified {
+        let spent = session.end - session.start.max(from);
+        if category.is_none() && spent > 0 {
+            *usage.entry(rules.target(session).0).or_default() += spent;
+        }
+    }
+    let mut candidates: Vec<Candidate> = usage.into_iter().map(|(target, today_ms)| Candidate { target, today_ms }).collect();
+    candidates.sort_by(|a, b| b.today_ms.cmp(&a.today_ms).then_with(|| a.target.key.cmp(&b.target.key)));
+    candidates
+}
+
+pub(crate) fn session_label(session: &activity::Session) -> String {
     session.domain.clone().unwrap_or_else(|| session.app.clone())
 }
 
@@ -492,19 +512,8 @@ fn pulse_from(rules: &Rules, sessions: &[activity::Session], open: Option<&activ
         edge = session.start;
     }
 
-    let mut usage: HashMap<Target, i64> = HashMap::new();
-    for (session, category) in &classified {
-        let spent = session.end - session.start.max(today);
-        if category.is_none() && spent > 0 {
-            *usage.entry(rules.target(session).0).or_default() += spent;
-        }
-    }
-    let mut candidates: Vec<Candidate> = usage
-        .into_iter()
-        .filter(|(_, today_ms)| *today_ms >= request.ask_after_ms)
-        .map(|(target, today_ms)| Candidate { target, today_ms })
-        .collect();
-    candidates.sort_by(|a, b| b.today_ms.cmp(&a.today_ms).then_with(|| a.target.key.cmp(&b.target.key)));
+    let mut candidates = unclassified_usage(rules, &classified, today);
+    candidates.retain(|candidate| candidate.today_ms >= request.ask_after_ms);
 
     let current = open.map(|session| {
         let keyword = rules.keyword(&session.title);
@@ -514,7 +523,7 @@ fn pulse_from(rules: &Rules, sessions: &[activity::Session], open: Option<&activ
     Pulse { in_beta_life: false, current, recent_slack_ms, slack_since, candidates }
 }
 
-fn local_midnight(day: NaiveDate) -> i64 {
+pub(crate) fn local_midnight(day: NaiveDate) -> i64 {
     day.and_hms_opt(0, 0, 0)
         .and_then(|naive| Local.from_local_datetime(&naive).earliest())
         .map(|time| time.timestamp_millis())

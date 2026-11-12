@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PeriodId } from "./types";
 
 /** Mirrors Rust `categories::Category`; `null` while the user has not classified it. */
 export type ActivityCategory = "focus" | "neutral" | "slack";
@@ -153,6 +154,73 @@ export function summarizeDay(sessions: ActivitySession[], bounds: [number, numbe
   const categories: CategoryTotals = { focus: 0, neutral: 0, slack: 0, none: 0 };
   for (const session of clipped) categories[session.category ?? "none"] += session.end - session.start;
   return { total: ranked.reduce((sum, item) => sum + item.total, 0), groups, band, categories };
+}
+
+/** `load_daily_summary` (Rust `digest::DaySummary`): every duration is in milliseconds. */
+export interface DaySummary {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  totals: CategoryTotals;
+  longestFocus: { start: number; end: number } | null;
+  /** Slack sites (or apps), longest first, at most 3. */
+  topSlack: Array<{ label: string; ms: number }>;
+  /** Unclassified rule targets, longest first, at most 3; `todayMs` is time on that day. */
+  unclassified: Array<RuleTarget & { todayMs: number }>;
+  periods: Array<CategoryTotals & { id: PeriodId; label: string }>;
+  /** Per-day means over the previous 7 days that have any record. */
+  average: { days: number; active: number; focus: number; slack: number } | null;
+  nudges: { count: number; back: number };
+}
+
+export function loadDailySummary(date: string): Promise<DaySummary> {
+  return invoke<DaySummary>("load_daily_summary", { date });
+}
+
+export function activeTotal(totals: CategoryTotals): number {
+  return totals.focus + totals.neutral + totals.slack + totals.none;
+}
+
+/** Whole percent of active time spent on focus; `null` without any record. */
+export function focusShare(totals: CategoryTotals): number | null {
+  const active = activeTotal(totals);
+  return active > 0 ? Math.round((totals.focus / active) * 100) : null;
+}
+
+/** `+35m` / `−10m` / `±0`: today against the average. */
+export function formatDelta(ms: number): string {
+  if (Math.abs(ms) < 60_000) return "±0";
+  return `${ms > 0 ? "+" : "−"}${formatDuration(Math.abs(ms))}`;
+}
+
+/** The evening bubble: one or two sentences, no titles. */
+export function summaryLine(summary: DaySummary): string {
+  const { totals } = summary;
+  const share = focusShare(totals);
+  const parts = [`今天专注 ${formatDuration(totals.focus)}${share === null ? "" : `（${share}%）`}`, `摸鱼 ${formatDuration(totals.slack)}`];
+  if (totals.none >= 60_000) parts.push(`还有 ${formatDuration(totals.none)} 没分类`);
+  const streak = summary.longestFocus ? `最长一口气专注了 ${formatDuration(summary.longestFocus.end - summary.longestFocus.start)}。` : "";
+  const slack = summary.topSlack[0] ? `摸鱼最多的是 ${summary.topSlack[0].label}。` : "";
+  return `${parts.join("，")}。${streak}${slack}`;
+}
+
+/** 写进日记 (bebe's evening bubble and the timeline page): the date, its diary day `YYMMDD`, and the statistics the AI puts first. */
+export function summaryDiaryEntry(summary: DaySummary): { date: string; day: string; text: string } {
+  const [year, month, day] = summary.date.split("-");
+  return { date: summary.date, day: `${year.slice(2)}${month}${day}`, text: summaryDiaryText(summary) };
+}
+
+/** Appended to the day's diary body: tab-indented bullets like the user's own diary. */
+export function summaryDiaryText(summary: DaySummary): string {
+  const { totals } = summary;
+  const share = focusShare(totals);
+  const lines = [
+    `- 时间轴：活跃 ${formatDuration(activeTotal(totals))}，专注 ${formatDuration(totals.focus)}${share === null ? "" : `（${share}%）`}、中性 ${formatDuration(totals.neutral)}、摸鱼 ${formatDuration(totals.slack)}、待分类 ${formatDuration(totals.none)}`,
+  ];
+  if (summary.longestFocus) lines.push(`\t- 最长连续专注 ${formatDuration(summary.longestFocus.end - summary.longestFocus.start)}（${clock(summary.longestFocus.start)}–${clock(summary.longestFocus.end)}）`);
+  const slack = summary.topSlack.map((item) => `${item.label} ${formatDuration(item.ms)}`).join("、");
+  const nudges = summary.nudges.count > 0 ? `bebe 提醒 ${summary.nudges.count} 次，回去做事 ${summary.nudges.back} 次` : "";
+  if (slack || nudges) lines.push(`\t- ${[slack && `摸鱼最多：${slack}`, nudges].filter(Boolean).join("；")}`);
+  return lines.join("\n");
 }
 
 export function clock(ms: number): string {

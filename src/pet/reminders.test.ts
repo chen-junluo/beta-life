@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../defaults";
 import type { Habit, Placement } from "../types";
-import { isSleepPeriod, reminderSlot } from "./reminders";
+import { isSleepPeriod, reminderSlot, summaryDay } from "./reminders";
 
 const periods = DEFAULT_SETTINGS.periods;
 const startOf = (id: string) => periods.find((period) => period.id === id)!.startHour;
@@ -37,5 +37,24 @@ describe("bebe reminder slots", () => {
     expect(isSleepPeriod(at(sleep), periods)).toBe(true);
     expect(reminderSlot(at(sleep), items, periods)).toBeNull();
     expect(isSleepPeriod(at(morning), periods)).toBe(false);
+  });
+});
+
+describe("bebe evening summary", () => {
+  const withSleep = (startHour: number) => periods.map((period) => (period.id === "sleep" ? { ...period, startHour } : period));
+
+  it("is due in the half hour before sleep starts", () => {
+    const sleep = withSleep(23);
+    expect(summaryDay(at(22, 29), sleep)).toBeNull();
+    expect(summaryDay(at(22, 30), sleep)).toBe("2026-11-09");
+    expect(summaryDay(at(22, 59), sleep)).toBe("2026-11-09");
+    expect(summaryDay(at(23, 0), sleep)).toBeNull();
+  });
+
+  it("handles sleep at midnight and after midnight", () => {
+    expect(summaryDay(at(23, 40), withSleep(0))).toBe("2026-11-09");
+    expect(summaryDay(at(0, 10), withSleep(0))).toBeNull();
+    // Sleep at 1:00: the summary at 0:30 closes the day before.
+    expect(summaryDay(at(0, 30), withSleep(1))).toBe("2026-11-08");
   });
 });

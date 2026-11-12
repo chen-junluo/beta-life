@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import tools from "../ai/tools.json";
 import { pendingBatch } from "../ai/turn";
 import type { AiBatch, AiPanelId, AiScope, Conversation, ConversationMessage, ConversationSummary } from "../ai/types";
-import { AI_PANELS, DiffCard, PANEL_ORDER, PICKER_LABELS, PICKER_LEVELS, panelStyle, parseResult, traceLabel, type PickerAccess } from "./AiDock";
+import { AI_PANELS, DiffCard, PANEL_ORDER, PICKER_LABELS, PICKER_LEVELS, levelsFor, levelTitle, panelStyle, parseResult, traceLabel, type PickerAccess } from "./AiDock";
 
 const TOOL_PANELS = new Map(tools.map((tool) => [tool.name, tool.panel as AiPanelId]));
 const DAY = 24 * 60 * 60 * 1000;
@@ -157,7 +157,7 @@ export function AiWorkbench({ summaries, conversation, busy, scope, onScopeChang
                   <span className="ai-mention-name">{AI_PANELS[panel].name}</span>
                   <span className="ai-mention-seg" role="radiogroup" aria-label={`${AI_PANELS[panel].name}的权限`}>
                     {PICKER_LEVELS.map((level) => (
-                      <button key={level} type="button" role="radio" aria-checked={access === level} className={access === level ? `is-on ${level}` : ""} disabled={busy} onClick={() => setAccess(panel, level)}>
+                      <button key={level} type="button" role="radio" aria-checked={access === level} className={access === level ? `is-on ${level}` : ""} disabled={busy || !levelsFor(panel).includes(level)} title={levelTitle(panel, level)} onClick={() => setAccess(panel, level)}>
                         {PICKER_LABELS[level]}
                       </button>
                     ))}

@@ -29,7 +29,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const day = (id: string, body: string): DiaryDay => ({ id, date: id.slice(0, 6), title: dayLabel(id), body });
 const change = (name: string, args: Record<string, unknown>) => ({ name, arguments: args });
-const data = (diary: Parameters<typeof diaryIndex>[0]) => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary });
+const data = (diary: Parameters<typeof diaryIndex>[0]) => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary, timeline: null });
 
 describe("diary tools", () => {
   const months: DiaryMonths = { "2611": [day("261110", "- 读书"), day("261111", "- ")] };

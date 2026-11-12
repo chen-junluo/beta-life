@@ -17,6 +17,7 @@ use std::process::Command;
 mod activity;
 mod ai;
 mod categories;
+mod digest;
 mod pet;
 mod vault;
 #[allow(dead_code)]
@@ -27,6 +28,12 @@ const KEYCHAIN_SERVICE: &str = "com.dylanchen.beta-life";
 const KEYCHAIN_ACCOUNT: &str = "ai-provider";
 #[cfg(target_os = "windows")]
 const WINDOWS_API_KEY_FILE: &str = "api-key.dpapi";
+
+/// 写进日记 (P3c): how the AI writes up a day's focus work under the statistics.
+const DEFAULT_DAY_SUMMARY_PROMPT: &str = r#"在统计下面再写两部分，都用 Tab 缩进的子 bullet，语言跟日记一致：
+1. 「专注做了什么」：把专注时间里的窗口标题和网站归成最多 6 件事，用日记里出现过的项目或任务名称命名；每件写「约 Xh Ym」和主要用到的 app，时长按工具结果相加、四舍五入到 5 分钟；零碎的合并成「其他零碎」。
+2. 「对照计划」：一句话对照当天日记（以及前一天日记里为这一天写的计划）：哪些做了、哪些在记录里没看到；日记里没有写计划就写「日记里没有写这天的计划」。
+只写事实，不评价、不说教；不要照抄日记里的私人内容，只引用项目和任务名称。"#;
 
 const DEFAULT_EXTRACTION_PROMPT: &str = r#"请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
@@ -196,6 +203,8 @@ struct AppSettings {
     tag_icons: HashMap<String, String>,
     #[serde(default)]
     diary: DiarySettings,
+    #[serde(default)]
+    activity: ActivitySettings,
 }
 
 const DEFAULT_DIARY_TEMPLATE: &str = "- ";
@@ -212,6 +221,22 @@ struct DiarySettings {
 impl Default for DiarySettings {
     fn default() -> Self {
         Self { template: DEFAULT_DIARY_TEMPLATE.into() }
+    }
+}
+
+/// What the AI may read of the activity record (P3c).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct ActivitySettings {
+    /// The AI reads the last this many days, today included.
+    ai_days: u16,
+    /// Off: the AI sees apps, sites, categories and durations, but no window titles.
+    ai_titles: bool,
+}
+
+impl Default for ActivitySettings {
+    fn default() -> Self {
+        Self { ai_days: 30, ai_titles: true }
     }
 }
 
@@ -293,6 +318,8 @@ struct AiSettings {
     memory_analysis_prompt: String,
     #[serde(default = "default_assistant_prompt")]
     assistant_prompt: String,
+    #[serde(default = "default_day_summary_prompt")]
+    day_summary_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -747,11 +774,17 @@ fn default_settings() -> AppSettings {
             recall_evaluation_prompt: DEFAULT_RECALL_EVALUATION_PROMPT.into(),
             memory_analysis_prompt: DEFAULT_MEMORY_ANALYSIS_PROMPT.into(),
             assistant_prompt: DEFAULT_ASSISTANT_PROMPT.into(),
+            day_summary_prompt: DEFAULT_DAY_SUMMARY_PROMPT.into(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
         diary: DiarySettings::default(),
+        activity: ActivitySettings::default(),
     }
+}
+
+fn default_day_summary_prompt() -> String {
+    DEFAULT_DAY_SUMMARY_PROMPT.into()
 }
 
 fn default_extraction_prompt() -> String {
@@ -1222,6 +1255,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
         || settings.periods.iter().any(|period| period.start_hour > 23)
     {
         return Err("四个时间段的 ID 和开始时间必须各不相同".into());
+    }
+    if !(1..=3650).contains(&settings.activity.ai_days) {
+        return Err("AI 能读的活动记录天数应在 1–3650 之间".into());
     }
     if settings.ai.base_url.trim().is_empty() || settings.ai.model.trim().is_empty() {
         return Err("AI Base URL 和 Model 不能为空".into());
@@ -2580,6 +2616,10 @@ pub fn run() {
             categories::save_activity_rules,
             categories::set_activity_rule,
             categories::activity_pulse,
+            digest::load_daily_summary,
+            digest::record_pet_event,
+            digest::ai_daily_summary,
+            digest::ai_query_activity,
             ai::ai_chat_step,
             ai::ai_generate_title,
             ai::list_ai_conversations,

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ChevronLeft, Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
+import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
 import { collectTags } from "./simpleMarkdown";
@@ -12,6 +12,8 @@ import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
 import { restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
 import { useAssistant } from "./ai/useAssistant";
+import type { AiPanelId } from "./ai/types";
+import { summaryDiaryEntry } from "./activity";
 import { usePanelHistory } from "./history";
 import { restoreKnowledgeBundle, type KnowledgeBundle } from "./recallStorage";
 import { restoreMemorySnapshot, type MemorySnapshot } from "./memoryStorage";
@@ -32,6 +34,9 @@ import {
   PET_CHAT_SCOPE,
   PET_CHAT_SEND,
   PET_CHAT_STOP,
+  PET_DIARY_SCOPE,
+  PET_OPEN_TIMELINE,
+  PET_SUMMARY_DIARY,
   PET_DOCK_ARRIVED,
   PET_MARK_DONE,
   PET_READY,
@@ -42,6 +47,7 @@ import {
   type PetChatResolve,
   type PetChatSend,
   type PetMarkDone,
+  type PetSummaryDiary,
 } from "./pet/bridge";
 import type {
   AbilityForest,
@@ -332,8 +338,10 @@ export default function App() {
   }), [recordHistory]);
 
   const [dockFocus, setDockFocus] = useState(0);
+  /** The panel the dock starts new conversations from: the timeline page counts as its own (read only). */
+  const dockPanel: AiPanelId = page === "timeline" ? "timeline" : activeSection;
   const assistant = useAssistant({
-    activePanel: activeSection,
+    activePanel: dockPanel,
     getState: () => stateRef.current,
     commitBoard,
     commitForest: (map, forest) => changeAbilityForest(map, forest, true),
@@ -413,8 +421,8 @@ export default function App() {
     ];
     return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
   }, [clearHistory]);
-  const activeSectionRef = useRef(activeSection);
-  activeSectionRef.current = activeSection;
+  const dockPanelRef = useRef(dockPanel);
+  dockPanelRef.current = dockPanel;
   /** Minimized into bebe: the dock disappears until bebe is double-clicked or ⌘K. */
   const [dockHidden, setDockHidden] = useState(false);
   const [dockFlight, setDockFlight] = useState<{ x: number; y: number } | null>(null);
@@ -449,7 +457,7 @@ export default function App() {
       listen(PET_SUMMON_DOCK, () => {
         const { busy, startNew } = assistantRef.current;
         if (busy) setDockExpand((count) => count + 1);
-        else startNew(activeSectionRef.current);
+        else startNew(dockPanelRef.current);
         setDockHidden(false);
         setDockFlight(null);
         setDockFocus((count) => count + 1);
@@ -458,6 +466,12 @@ export default function App() {
       listen<PetChatSend>(PET_CHAT_SEND, ({ payload }) => void assistantRef.current.send(payload.text, PET_CHAT_SCOPE)),
       listen<PetChatResolve>(PET_CHAT_RESOLVE, ({ payload }) => void assistantRef.current.resolveBatch(payload.batchId, payload.selectedIds)),
       listen(PET_CHAT_STOP, () => assistantRef.current.stop()),
+      // 写进日记 from bebe's evening summary: no model call, just the diff card to confirm.
+      listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
+      listen(PET_OPEN_TIMELINE, () => {
+        setPage("timeline");
+        void invoke("show_main_window").catch(console.error);
+      }),
     ];
     return () => unlisteners.forEach((unlisten) => void unlisten.then((stop) => stop()));
   }, []);
@@ -474,6 +488,37 @@ export default function App() {
       window.removeEventListener("drop", ignore);
     };
   }, []);
+
+  // A conversation not started yet follows the page: nothing granted in the workbench (pick on the
+  // right), @时间轴 read only on the timeline, and the panel's own pill back on a panel.
+  const dockPlace = showWorkbench ? "workbench" : dockPanel;
+  useEffect(() => {
+    const { conversation, busy, task, scope, startNew } = assistantRef.current;
+    if (conversation || busy || task) return;
+    const granted = Object.keys(scope).length;
+    const timelineOnly = granted === 1 && scope.timeline === "read";
+    if (dockPlace === "workbench") {
+      if (granted > 0) startNew(dockPanelRef.current, null, {});
+    } else if (dockPlace === "timeline" ? !timelineOnly : timelineOnly || granted === 0) {
+      startNew(dockPlace);
+    }
+  }, [dockPlace]);
+
+  /**
+   * 写进日记 from the timeline page or bebe's evening summary: the AI adds what the focus time was
+   * spent on (timeline + that week's diary) under Beta Life's statistics; the diff card waits for the user.
+   */
+  function stageSummaryDiary({ date, day, text }: PetSummaryDiary) {
+    return assistantRef.current.startTask("summarize_day", PET_DIARY_SCOPE, `把 ${date}（日记 ${day}）的活动总结写进日记。\n\nBeta Life 统计（原样放在最前面）：\n${text}`, `${day} 日记总结`);
+  }
+
+  /** The timeline's 写进日记: the round runs in the dock. */
+  function writeSummaryToDiary(entry: PetSummaryDiary) {
+    setDockHidden(false);
+    setDockFlight(null);
+    setDockExpand((count) => count + 1);
+    void stageSummaryDiary(entry);
+  }
 
   /** AI 提取: a new conversation with the 提取习惯 chip and the board writable, ready for text or screenshots. */
   function startHabitExtraction() {
@@ -689,7 +734,7 @@ export default function App() {
       busy={assistant.busy}
       error={assistant.error}
       hasApiKey={state.hasApiKey}
-      activePanel={activeSection}
+      activePanel={dockPanel}
       scope={assistant.scope}
       onScopeChange={assistant.setScope}
       focusRequest={dockFocus}
@@ -701,7 +746,7 @@ export default function App() {
       task={assistant.task}
       onRemoveTask={() => assistant.setTask(null)}
       onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
-      onNewConversation={() => assistant.startNew(activeSection)}
+      onNewConversation={() => assistant.startNew(dockPanel)}
       onRename={assistant.rename}
       layout={showWorkbench ? "workbench" : "dock"}
       onOpenWorkbench={() => setPage("workbench")}
@@ -729,8 +774,10 @@ export default function App() {
           <span aria-hidden="true">β</span>
         </button>
         <h1 className="topbar-tab"><i aria-hidden="true" />{showWorkbench ? "AI 工作台" : page === "timeline" ? "时间轴" : SECTION_LABELS[activeSection]}</h1>
-        {page !== "panel" ? (
-          <div className="topbar-lead"><span className="ai-wb-origin">从 {SECTION_LABELS[activeSection]} 打开 · 可随时返回</span></div>
+        {page === "timeline" ? (
+          <div className="topbar-lead"><span className="ai-wb-origin">每天在前台的 app、网站和窗口，按专注 / 中性 / 摸鱼分类</span></div>
+        ) : showWorkbench ? (
+          <div className="topbar-lead"><span className="ai-wb-origin">所有 AI 对话；右侧设置这段对话能访问哪些 panel</span></div>
         ) : (
           <div className="topbar-lead">
             <Quote size={13} aria-hidden="true" />
@@ -762,11 +809,6 @@ export default function App() {
         )}
 
         <div className="topbar-actions">
-          {page !== "panel" && (
-            <button className="secondary-button" onClick={() => setPage("panel")} aria-label={`返回${SECTION_LABELS[activeSection]}`} title={`返回${SECTION_LABELS[activeSection]}`}>
-              <ChevronLeft size={16} aria-hidden="true" /> <span className="topbar-label">返回{SECTION_LABELS[activeSection]}</span>
-            </button>
-          )}
           {page === "panel" && <div className="history-actions">
             <button className="icon-button" onClick={() => void history.undo(activeSection)} disabled={!history.canUndo(activeSection)} title="撤销 ⌘Z" aria-label="撤销"><Undo2 size={18} /></button>
             <button className="icon-button" onClick={() => void history.redo(activeSection)} disabled={!history.canRedo(activeSection)} title="重做 ⇧⌘Z" aria-label="重做"><Redo2 size={18} /></button>
@@ -817,9 +859,9 @@ export default function App() {
         onScopeChange={assistant.setScope}
         onOpen={(id) => void assistant.open(id)}
         onDelete={(id) => void assistant.remove(id)}
-        onNew={() => assistant.startNew(activeSection)}
+        onNew={() => assistant.startNew(activeSection, null, {})}
         onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
-      >{dock}</AiWorkbench> : page === "timeline" ? <TimelineView /> : activeSection === "recall" ? <RecallView
+      >{dock}</AiWorkbench> : page === "timeline" ? <TimelineView onWriteDiary={(summary) => void writeSummaryToDiary(summaryDiaryEntry(summary))} writeDisabled={assistant.busy} /> : activeSection === "recall" ? <RecallView
         settings={state.settings}
         hasApiKey={state.hasApiKey}
         onOpenSettings={() => setShowSettings(true)}

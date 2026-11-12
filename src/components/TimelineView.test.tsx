@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import type { ActivityDay, ActivityStatus } from "../activity";
+import { dayKey, type ActivityDay, type ActivityStatus, type DaySummary } from "../activity";
 import { TimelineView } from "./TimelineView";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -31,7 +31,17 @@ describe("TimelineView", () => {
       },
       domains: { "news.ycombinator.com": { kind: "domain", key: "ycombinator.com", label: "ycombinator.com", category: null } },
     };
-    mockedInvoke.mockImplementation((command) => Promise.resolve(({ load_activity_day: record, activity_status: status } as Record<string, unknown>)[command]) as never);
+    const summary: DaySummary = {
+      date: dayKey(today),
+      totals: { focus: 60 * 60_000, neutral: 0, slack: 0, none: 30 * 60_000 },
+      longestFocus: { start: at(0), end: at(1) },
+      topSlack: [],
+      unclassified: [{ kind: "domain", key: "ycombinator.com", label: "ycombinator.com", todayMs: 30 * 60_000 }],
+      periods: [{ id: "sleep", label: "睡眠", focus: 60 * 60_000, neutral: 0, slack: 0, none: 30 * 60_000 }],
+      average: { days: 3, active: 120 * 60_000, focus: 90 * 60_000, slack: 10 * 60_000 },
+      nudges: { count: 0, back: 0 },
+    };
+    mockedInvoke.mockImplementation((command) => Promise.resolve(({ load_activity_day: record, activity_status: status, load_daily_summary: summary } as Record<string, unknown>)[command]) as never);
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -76,6 +86,28 @@ describe("TimelineView", () => {
     await act(async () => slack.click());
     expect(mockedInvoke).toHaveBeenCalledWith("set_activity_rule", { request: { kind: "domain", key: "ycombinator.com", name: "ycombinator.com", category: "slack" } });
     expect(mockedInvoke).toHaveBeenCalledWith("load_activity_day", expect.anything());
+  });
+
+  it("shows the day's digest and classifies its unclassified sites", async () => {
+    await act(async () => root.render(<TimelineView />));
+    const card = host.querySelector(".timeline-summary")!;
+    expect(card.textContent).toContain("67%");
+    expect(card.textContent).toContain("最长连续 1h 00m");
+    expect(card.textContent).toContain("−30m");
+    expect(card.textContent).toContain("今天没有摸鱼");
+    const chip = card.querySelector<HTMLButtonElement>(".timeline-unclassified .field-chip")!;
+    await act(async () => chip.click());
+    const focus = [...card.querySelectorAll<HTMLButtonElement>(".category-popover button")].find((button) => button.textContent === "专注")!;
+    await act(async () => focus.click());
+    expect(mockedInvoke).toHaveBeenCalledWith("set_activity_rule", { request: { kind: "domain", key: "ycombinator.com", name: "ycombinator.com", category: "focus" } });
+  });
+
+  it("writes the day's digest to the diary from the header", async () => {
+    const onWriteDiary = vi.fn();
+    await act(async () => root.render(<TimelineView onWriteDiary={onWriteDiary} />));
+    const button = [...host.querySelectorAll<HTMLButtonElement>(".timeline-head button")].find((item) => item.textContent?.includes("写进日记"))!;
+    await act(async () => button.click());
+    expect(onWriteDiary).toHaveBeenCalledWith(expect.objectContaining({ date: dayKey(today) }));
   });
 
   it("cannot go past today and offers a way back from earlier days", async () => {

@@ -79,6 +79,11 @@
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
+
+/* The evening summary is written by beta-life, not a user title: show all of it. */
+.pet-bubble-text.is-full {
+  -webkit-line-clamp: unset;
+}
 .pet-countdown { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent); }
 
 .pet-bubble-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pet-gap); }

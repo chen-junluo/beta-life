@@ -18,9 +18,12 @@ export const PET_CHAT = "pet://chat";
 export const PET_CHAT_SEND = "pet://chat-send";
 export const PET_CHAT_RESOLVE = "pet://chat-resolve";
 export const PET_CHAT_STOP = "pet://chat-stop";
+/** Pet → main: 写进日记 from the evening summary, and 看时间轴. */
+export const PET_SUMMARY_DIARY = "pet://summary-diary";
+export const PET_OPEN_TIMELINE = "pet://open-timeline";
 
-/** A conversation started from bebe can read every panel and change the time board. */
-export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest: "read", memories: "read" };
+/** A conversation started from bebe can read the panels (not the diary) and the timeline, and change the time board. */
+export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest: "read", memories: "read", timeline: "read" };
 
 export interface PetBoardSnapshot {
   items: Habit[];
@@ -46,6 +49,18 @@ export interface PetChatSnapshot {
 export interface PetChatSend {
   text: string;
 }
+
+export interface PetSummaryDiary {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** `YYMMDD`. */
+  day: string;
+  /** Beta Life's statistics, kept as the first lines. */
+  text: string;
+}
+
+/** The 写进日记 task: reads the timeline and the week's diary, appends to the day (confirmed in a diff card). */
+export const PET_DIARY_SCOPE: AiScope = { diary: "write", timeline: "read" };
 
 export interface PetChatResolve {
   batchId: string;

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { MessageCircle, Send, Square, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
-import { RULES_CHANGED, setActivityRule, CATEGORIES, type ActivityCategory, type RuleTarget } from "../activity";
+import { activeTotal, loadDailySummary, RULES_CHANGED, setActivityRule, summaryDiaryEntry, summaryLine, CATEGORIES, type ActivityCategory, type DaySummary, type RuleTarget } from "../activity";
 import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { renderMarkdown } from "../markdown";
@@ -15,15 +15,18 @@ import {
   PET_CHAT_STOP,
   PET_DOCK_ARRIVED,
   PET_MARK_DONE,
+  PET_OPEN_TIMELINE,
   PET_PRESENCE,
   PET_READY,
+  PET_SUMMARY_DIARY,
   type PetBoardSnapshot,
   type PetChatResolve,
   type PetChatSend,
   type PetChatSnapshot,
   type PetMarkDone,
+  type PetSummaryDiary,
 } from "./bridge";
-import { isSleepPeriod, localDateKey, reminderSlot } from "./reminders";
+import { isSleepPeriod, localDateKey, reminderSlot, summaryDay } from "./reminders";
 import {
   afterNudge,
   ASK_GAP_MS,
@@ -49,6 +52,10 @@ const FOCUS_MS = 5 * 60_000;
 const LIGHT_NUDGE_MS = 15_000;
 const DRAG_THRESHOLD = 4;
 const DAY_STORAGE_KEY = "bebe:day";
+/** The last day bebe showed the evening summary for (`YYYY-MM-DD`). */
+const SUMMARY_STORAGE_KEY = "bebe:summary";
+/** A day with less activity than this gets no evening summary. */
+const SUMMARY_MIN_MS = 10 * 60_000;
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
 
 type Bubble =
@@ -57,6 +64,7 @@ type Bubble =
   | { kind: "checkin"; habit: Habit }
   | { kind: "nudge"; level: NudgeLevel; label: string; minutes: number; target: RuleTarget | null }
   | { kind: "ask"; target: RuleTarget; minutes: number }
+  | { kind: "summary"; summary: DaySummary }
   | { kind: "chat" };
 
 interface DayMemory {
@@ -80,6 +88,11 @@ function loadDay(now: Date): DayMemory {
 
 function saveDay(day: DayMemory) {
   localStorage.setItem(DAY_STORAGE_KEY, JSON.stringify(day));
+}
+
+/** Counted in the daily summary; a failed write only loses one count. */
+function recordPetEvent(kind: "nudge" | "back") {
+  if (isTauri) void invoke("record_pet_event", { kind }).catch(console.error);
 }
 
 function formatCountdown(ms: number): string {
@@ -107,6 +120,19 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
     checkin: { kind: "checkin", habit },
     nudge: { kind: "nudge", level: Number(params.get("level") ?? 2) as NudgeLevel, label: "bilibili.com", minutes: 12, target: { kind: "domain", key: "bilibili.com", label: "bilibili.com" } },
     ask: { kind: "ask", target: { kind: "domain", key: "ycombinator.com", label: "ycombinator.com" }, minutes: 7 },
+    summary: {
+      kind: "summary",
+      summary: {
+        date: "2026-11-12",
+        totals: { focus: 260 * 60_000, neutral: 50 * 60_000, slack: 65 * 60_000, none: 25 * 60_000 },
+        longestFocus: { start: new Date(2026, 10, 12, 14, 5).getTime(), end: new Date(2026, 10, 12, 15, 45).getTime() },
+        topSlack: [{ label: "bilibili.com", ms: 40 * 60_000 }],
+        unclassified: [],
+        periods: [],
+        average: null,
+        nudges: { count: 3, back: 2 },
+      },
+    },
     chat: { kind: "chat" },
   };
   const chat: PetChatSnapshot = {
@@ -390,6 +416,7 @@ export function PetApp() {
     const level = nudgeLevel(pulse, nudges, at);
     if (level && pulse.current && pulse.slackSince !== null) {
       setNudges(afterNudge(level, at));
+      recordPetEvent("nudge");
       raise({ kind: "nudge", level, label: pulse.current.label, minutes: Math.round((at - pulse.slackSince) / 60_000), target: pulse.current.target });
       // Level 3 makes worried the base state (it loops); the others only perk up once.
       play(level === 3 ? "worried" : "alert");
@@ -403,6 +430,22 @@ export function PetApp() {
     lastAskAt.current = at;
     raise({ kind: "ask", target: candidate, minutes: Math.max(1, Math.round(candidate.todayMs / 60_000)) });
   }, [pulse, nudges, sleeping, away, raise, play, preview.bubble]);
+
+  // The evening summary, once a day in the half hour before sleep, when the user is at the Mac
+  // but not in beta-life.
+  useEffect(() => {
+    if (!isTauri || preview.bubble || !pulse?.current || pulse.inBetaLife || away || bubbleRef.current) return;
+    const day = summaryDay(new Date(now), periods);
+    if (!day || localStorage.getItem(SUMMARY_STORAGE_KEY) === day) return;
+    localStorage.setItem(SUMMARY_STORAGE_KEY, day);
+    void loadDailySummary(day)
+      .then((summary) => {
+        if (activeTotal(summary.totals) < SUMMARY_MIN_MS || bubbleRef.current) return;
+        raise({ kind: "summary", summary });
+        play("alert");
+      })
+      .catch(console.error);
+  }, [now, pulse, periods, away, raise, play, preview.bubble]);
 
   // The light reminder goes away by itself.
   useEffect(() => {
@@ -477,6 +520,23 @@ export function PetApp() {
     setBubble(null);
   }
 
+  function backToWork() {
+    recordPetEvent("back");
+    play("happy");
+    setBubble(null);
+  }
+
+  /** The main window stages the text as a diary change; bebe's chat shows the diff card. */
+  function summaryToDiary(summary: DaySummary) {
+    if (isTauri) void emitTo<PetSummaryDiary>("main", PET_SUMMARY_DIARY, summaryDiaryEntry(summary));
+    setBubble({ kind: "chat" });
+  }
+
+  function openTimeline() {
+    if (isTauri) void emitTo("main", PET_OPEN_TIMELINE);
+    setBubble(null);
+  }
+
   function startFocus(habit: Habit) {
     play("happy");
     setBubble({ kind: "focus", habit, endsAt: Date.now() + FOCUS_MS });
@@ -546,7 +606,7 @@ export function PetApp() {
                   <button type="button" className="secondary-button" onClick={() => setBubble(null)}>知道啦</button>
                 ) : (
                   <>
-                    <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>回去做事</button>
+                    <button type="button" className="primary-button" onClick={backToWork}>回去做事</button>
                     <button type="button" className="secondary-button" onClick={snoozeSlack}>10 分钟后再说</button>
                     {bubble.target && (
                       <button type="button" className="secondary-button" onClick={() => void classify(bubble.target!, "neutral")} title={`把 ${bubble.target.label} 改成中性；也可以在时间轴里改成专注`}>
@@ -569,6 +629,17 @@ export function PetApp() {
                   </button>
                 ))}
                 <button type="button" className="secondary-button" onClick={() => skipAsk(bubble.target)}>今天不问</button>
+              </div>
+            </>
+          )}
+          {bubble.kind === "summary" && (
+            <>
+              <span className="pet-bubble-meta">今日总结</span>
+              <p className="pet-bubble-text is-full">{summaryLine(bubble.summary)}</p>
+              <div className="pet-bubble-actions">
+                <button type="button" className="primary-button" onClick={() => summaryToDiary(bubble.summary)}>写进日记</button>
+                <button type="button" className="secondary-button" onClick={openTimeline}>看时间轴</button>
+                <button type="button" className="secondary-button" onClick={() => setBubble(null)}>知道啦</button>
               </div>
             </>
           )}

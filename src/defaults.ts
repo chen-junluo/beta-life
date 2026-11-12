@@ -26,6 +26,12 @@ export const DEFAULT_ASSISTANT_PROMPT = `你是 bebe，一只住在 Beta Life �
 5. 删除和大范围移动只在用户明确要求时才做；请求有歧义、会明显影响结果时，先问一个简短的问题。
 6. 回答总结或回顾类问题时，引用面板里的真实条目，简短、具体。`;
 
+/** 写进日记: how the AI writes up a day's focus work under the statistics (mirrors Rust). */
+export const DEFAULT_DAY_SUMMARY_PROMPT = `在统计下面再写两部分，都用 Tab 缩进的子 bullet，语言跟日记一致：
+1. 「专注做了什么」：把专注时间里的窗口标题和网站归成最多 6 件事，用日记里出现过的项目或任务名称命名；每件写「约 Xh Ym」和主要用到的 app，时长按工具结果相加、四舍五入到 5 分钟；零碎的合并成「其他零碎」。
+2. 「对照计划」：一句话对照当天日记（以及前一天日记里为这一天写的计划）：哪些做了、哪些在记录里没看到；日记里没有写计划就写「日记里没有写这天的计划」。
+只写事实，不评价、不说教；不要照抄日记里的私人内容，只引用项目和任务名称。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -121,10 +127,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     recallEvaluationPrompt: DEFAULT_RECALL_EVALUATION_PROMPT,
     memoryAnalysisPrompt: DEFAULT_MEMORY_ANALYSIS_PROMPT,
     assistantPrompt: DEFAULT_ASSISTANT_PROMPT,
+    daySummaryPrompt: DEFAULT_DAY_SUMMARY_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},
   diary: { template: DEFAULT_DIARY_TEMPLATE },
+  activity: { aiDays: 30, aiTitles: true },
 };
 
 export const DEFAULT_BOARD: BoardFile = {

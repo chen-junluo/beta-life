@@ -58,6 +58,8 @@ export interface AiSettings {
   recallEvaluationPrompt: string;
   memoryAnalysisPrompt: string;
   assistantPrompt: string;
+  /** 写进日记: what the AI writes about the day's focus work. */
+  daySummaryPrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -79,6 +81,14 @@ export interface TabSlogans {
   forest: string;
   memories: string;
   diary: string;
+}
+
+/** What the AI may read of the activity record. */
+export interface ActivitySettings {
+  /** The last this many days, today included. */
+  aiDays: number;
+  /** Off: apps, sites, categories and durations only. */
+  aiTitles: boolean;
 }
 
 export interface DiarySettings {
@@ -117,6 +127,7 @@ export interface AppSettings {
   /** Tag name -> emoji shown before the tag; "" means no icon (show #). */
   tagIcons: Record<string, string>;
   diary: DiarySettings;
+  activity: ActivitySettings;
 }
 
 export interface LoadedAppState {

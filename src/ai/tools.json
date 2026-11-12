@@ -842,5 +842,81 @@
       ],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "get_daily_summary",
+    "panel": "timeline",
+    "access": "read",
+    "description": "The digest of one day of the activity record: time per category (focus / neutral / slack / unclassified), the longest focus run, the top slack sites or apps, the longest unclassified apps or sites, time per board period, the per-day average of the previous 7 recorded days, and how many slack reminders bebe showed and how often the user went back to work. Durations are text like `1h 05m` or `6m 01s`. Only the last days the user allows in Settings can be read.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "Local date YYYY-MM-DD; defaults to today."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "query_activity",
+    "panel": "timeline",
+    "access": "read",
+    "description": "Sum the activity record over a range of days, grouped by app, site (web pages by domain, other time by app), window title, or category; optionally only one category. For a single day (from = to) set sessions to also get each stretch with its local start and end time, e.g. to answer what the user was doing at 3 pm. If the user turned window titles off in Settings, titles are not returned and grouping by title fails.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "First day, YYYY-MM-DD."
+        },
+        "to": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "Last day, YYYY-MM-DD (inclusive)."
+        },
+        "groupBy": {
+          "type": "string",
+          "enum": [
+            "app",
+            "site",
+            "title",
+            "category"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "focus",
+            "neutral",
+            "slack",
+            "none"
+          ],
+          "description": "Only this category; none = unclassified."
+        },
+        "sessions": {
+          "type": "boolean",
+          "description": "Single day only: also list the sessions (at most 300)."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Groups to return, longest first (default 20)."
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "groupBy"
+      ],
+      "additionalProperties": false
+    }
   }
 ]

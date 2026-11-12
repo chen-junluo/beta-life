@@ -2,7 +2,7 @@ import { AtSign, ChevronUp, CircleAlert, CircleCheck, Eye, Layers, LoaderCircle,
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { isImageFile, MAX_IMAGES, readImage } from "../ai/images";
 import { pendingBatch } from "../ai/turn";
-import { AI_TASKS, changePanel, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
+import { AI_TASKS, changePanel, defaultAccess, type AiAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChangeKind, type CheckedToolCall, type Conversation, type ConversationMessage } from "../ai/types";
 import { monthTitle } from "../diaryLogic";
 import { MarkdownContent } from "./MarkdownEditor";
 
@@ -12,10 +12,14 @@ export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
   forest: { name: "能力森林", color: "#16a34a" },
   memories: { name: "记忆星云", color: "#6366f1" },
   diary: { name: "日记", color: "#e11d48" },
+  timeline: { name: "时间轴", color: "#0ea5e9" },
 };
-export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories", "diary"];
+export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories", "diary", "timeline"];
 export type PickerAccess = AiAccess | "off";
 export const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
+/** The activity record can only be read; its 可改 is shown disabled so the rows line up. */
+export const levelsFor = (panel: AiPanelId): PickerAccess[] => (panel === "timeline" ? ["off", "read"] : PICKER_LEVELS);
+export const levelTitle = (panel: AiPanelId, level: PickerAccess) => (levelsFor(panel).includes(level) ? undefined : "时间轴只能读，AI 不能改活动记录");
 export const PICKER_LABELS: Record<PickerAccess, string> = { off: "不访问", read: "只读", write: "可改" };
 const OP_LABELS: Record<ChangeKind, string> = { add: "新增", edit: "修改", move: "移动", del: "删除" };
 
@@ -77,7 +81,7 @@ export function scopeText(scope: AiScope): string {
 const sameScope = (left: AiScope, right: AiScope) => PANEL_ORDER.every((panel) => left[panel] === right[panel]);
 
 /** The conversation's permissions as colored circles (pen = can modify, eye = read only); click to change. */
-function ScopeDots({ scope, activePanel, disabled, onEdit, onAddActive }: { scope: AiScope; activePanel: AiPanelId; disabled: boolean; onEdit: () => void; onAddActive: () => void }) {
+function ScopeDots({ scope, activePanel, hideActive, disabled, onEdit, onAddActive }: { scope: AiScope; activePanel: AiPanelId; hideActive: boolean; disabled: boolean; onEdit: () => void; onAddActive: () => void }) {
   const panels = PANEL_ORDER.filter((panel) => scope[panel]);
   return (
     <div className="ai-scope-dots">
@@ -95,15 +99,15 @@ function ScopeDots({ scope, activePanel, disabled, onEdit, onAddActive }: { scop
           </span>
         ))}
       </button>
-      {!scope[activePanel] && (
+      {!scope[activePanel] && !hideActive && (
         <button
           type="button"
           className="ai-scope-dot is-ghost"
           style={panelStyle(activePanel)}
           disabled={disabled}
           onClick={onAddActive}
-          aria-label={`加入 @${AI_PANELS[activePanel].name}（可改）`}
-          title={`加入 @${AI_PANELS[activePanel].name}（可改）`}
+          aria-label={`加入 @${AI_PANELS[activePanel].name}（${PICKER_LABELS[defaultAccess(activePanel)]}）`}
+          title={`加入 @${AI_PANELS[activePanel].name}（${PICKER_LABELS[defaultAccess(activePanel)]}）`}
         >
           <Plus size={11} aria-hidden="true" />
         </button>
@@ -215,7 +219,10 @@ export function DiffCard({ batch, onResolve }: { batch: AiBatch; onResolve: AiDo
                 <span className={`ai-op ${change.kind}`}>{OP_LABELS[change.kind]}</span>
                 <span className="ai-diff-text">
                   {change.title}
-                  {change.detail && <small>{change.detail}</small>}
+                  {/* Text added to the diary is shown in full so it can be reviewed before confirming. */}
+                  {change.name === "append_diary" && typeof change.arguments.text === "string" ? (
+                    <pre className="ai-diff-body">{change.arguments.text}</pre>
+                  ) : change.detail && <small>{change.detail}</small>}
                   {failed.has(change.id) && <small className="ai-diff-failed">没有写入：{failed.get(change.id)}</small>}
                 </span>
               </label>
@@ -438,8 +445,9 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
   function stepPickerAccess(direction: 1 | -1) {
     if (!picker) return;
     const panel = PANEL_ORDER[picker.highlighted];
-    const level = PICKER_LEVELS.indexOf(picker.draft[panel] ?? "off");
-    setPickerAccess(panel, PICKER_LEVELS[Math.max(0, Math.min(PICKER_LEVELS.length - 1, level + direction))]);
+    const levels = levelsFor(panel);
+    const level = levels.indexOf(picker.draft[panel] ?? "off");
+    setPickerAccess(panel, levels[Math.max(0, Math.min(levels.length - 1, level + direction))]);
   }
 
   function applyPicker() {
@@ -519,8 +527,9 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
         ArrowLeft: () => stepPickerAccess(-1),
         Tab: () => {
           const panel = PANEL_ORDER[picker.highlighted];
-          const level = PICKER_LEVELS.indexOf(picker.draft[panel] ?? "off");
-          setPickerAccess(panel, PICKER_LEVELS[(level + 1) % PICKER_LEVELS.length]);
+          const levels = levelsFor(panel);
+          const level = levels.indexOf(picker.draft[panel] ?? "off");
+          setPickerAccess(panel, levels[(level + 1) % levels.length]);
         },
         Enter: applyPicker,
         Escape: () => setPicker(null),
@@ -579,6 +588,8 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
                   role="radio"
                   aria-checked={access === level}
                   className={access === level ? `is-on ${level}` : ""}
+                  disabled={!levelsFor(panel).includes(level)}
+                  title={levelTitle(panel, level)}
                   onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); setPicker({ ...picker, highlighted: index }); setPickerAccess(panel, level); }}
                 >
                   {PICKER_LABELS[level]}
@@ -609,13 +620,14 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
               <ScopeDots
                 scope={scope}
                 activePanel={activePanel}
+                hideActive={workbench}
                 disabled={!hasApiKey}
                 onEdit={() => {
                   input.current?.focus();
                   if (picker) setPicker(null);
                   else openPicker(null, "", "header");
                 }}
-                onAddActive={() => onScopeChange({ ...scope, [activePanel]: "write" })}
+                onAddActive={() => onScopeChange({ ...scope, [activePanel]: defaultAccess(activePanel) })}
               />
             )}
             {!workbench && <>
@@ -691,8 +703,8 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
                   </button>
                 </span>
               ))}
-              {!scope[activePanel] && (
-                <button type="button" className="ai-at-ghost" style={panelStyle(activePanel)} onClick={() => onScopeChange({ ...scope, [activePanel]: "write" })}>
+              {!scope[activePanel] && !workbench && (
+                <button type="button" className="ai-at-ghost" style={panelStyle(activePanel)} onClick={() => onScopeChange({ ...scope, [activePanel]: defaultAccess(activePanel) })}>
                   <Plus size={11} aria-hidden="true" />@{AI_PANELS[activePanel].name}
                 </button>
               )}
@@ -705,7 +717,7 @@ export function AiDock({ conversation, busy, error, hasApiKey, activePanel, scop
               rows={1}
               value={draft}
               style={isNew ? flowStyle : undefined}
-              placeholder={draftTask ? (supportsImages ? "粘贴文字或截图，也可以把图片拖进来…" : "粘贴要整理的文字…") : !isNew ? "继续对话…" : pills.length > 1 ? "问 AI…（@ 选择 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 选择 panel）`}
+              placeholder={draftTask ? (supportsImages ? "粘贴文字或截图，也可以把图片拖进来…" : "粘贴要整理的文字…") : !isNew ? "继续对话…" : workbench && pills.length === 0 ? "问 AI…（在右侧或用 @ 选择 AI 能访问的 panel）" : pills.length > 1 || workbench ? "问 AI…（@ 选择 panel）" : activePanel === "timeline" ? "问 AI 时间都花在哪了…（@ 选择 panel）" : `问 AI，或让它帮你改${AI_PANELS[activePanel].name}…（@ 选择 panel）`}
               aria-label="给 AI 助手发消息"
               onChange={(event) => updateDraft(event.target.value, event.target.selectionStart ?? event.target.value.length)}
               onKeyDown={handleKeyDown}

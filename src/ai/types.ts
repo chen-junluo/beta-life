@@ -1,4 +1,7 @@
-export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary";
+/** `timeline` (the activity record) is read only. */
+export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary" | "timeline";
+/** The access a panel gets when a conversation starts from it: the timeline can only be read. */
+export const defaultAccess = (panel: AiPanelId): AiAccess => (panel === "timeline" ? "read" : "write");
 /** "write" includes "read". A panel missing from the scope is not accessible. */
 export type AiAccess = "read" | "write";
 export type AiScope = Partial<Record<AiPanelId, AiAccess>>;
@@ -58,9 +61,10 @@ export interface AiBatch {
 }
 
 /** Entry action that pre-fills a new conversation: a chip in the composer, the prompt lives in `AppSettings.ai`. */
-export type AiTask = "extract_habits";
+export type AiTask = "extract_habits" | "summarize_day";
 export const AI_TASKS: Record<AiTask, { label: string; panel: AiPanelId }> = {
   extract_habits: { label: "提取习惯", panel: "board" },
+  summarize_day: { label: "写日记总结", panel: "diary" },
 };
 
 /** An image pasted or dropped into the composer: `dataUrl` reaches the model in this turn only. */

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadedAppState } from "../types";
 import { assistantContext, commitChanges, createToolSession, loadAssistantData, type CommitTargets } from "./session";
 import { runTurn, TurnStopped } from "./turn";
-import { AI_TASKS, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChatStepReply, type Conversation, type ConversationMessage, type ConversationSummary } from "./types";
+import { AI_TASKS, defaultAccess, type AiBatch, type AiImageDraft, type AiPanelId, type AiScope, type AiTask, type ChatStepReply, type Conversation, type ConversationMessage, type ConversationSummary } from "./types";
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -35,7 +35,7 @@ interface AssistantOptions extends Omit<CommitTargets, "getState"> {
 export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [summaries, setSummaries] = useState<ConversationSummary[]>([]);
-  const [scope, setScope] = useState<AiScope>({ [activePanel]: "write" });
+  const [scope, setScope] = useState<AiScope>({ [activePanel]: defaultAccess(activePanel) });
   /** Chip of a new conversation started from an entry action; it goes out with the first message. */
   const [task, setTask] = useState<AiTask | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,16 +77,16 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     };
   }, []);
 
-  /** `newScope` applies only when this message starts a conversation (bebe uses its own default). */
-  async function send(text: string, newScope?: AiScope, images: AiImageDraft[] = []) {
+  /** `newScope` and `start` apply only when this message starts a conversation (bebe uses its own default). */
+  async function send(text: string, newScope?: AiScope, images: AiImageDraft[] = [], start?: { task: AiTask; title: string }) {
     const state = targetsRef.current.getState();
     const content = text.trim();
     if (!state || (!content && images.length === 0) || busy) return;
     const now = new Date().toISOString();
     const isFirstTurn = (current.current?.messages.length ?? 0) === 0;
-    const turnTask = isFirstTurn ? task : null;
-    const firstTitle = content.replace(/\s+/g, " ").slice(0, 20) || (turnTask ? AI_TASKS[turnTask].label : "图片");
-    const base = current.current ?? { id: crypto.randomUUID(), title: firstTitle, panel: activePanel, createdAt: now, updatedAt: now, messages: [] };
+    const turnTask = isFirstTurn ? start?.task ?? task : null;
+    const firstTitle = start?.title ?? (content.replace(/\s+/g, " ").slice(0, 20) || (turnTask ? AI_TASKS[turnTask].label : "图片"));
+    const base = current.current ?? { id: crypto.randomUUID(), title: firstTitle, panel: turnTask ? AI_TASKS[turnTask].panel : activePanel, createdAt: now, updatedAt: now, messages: [] };
     const turnScope = isFirstTurn && newScope ? newScope : scope;
     if (turnScope !== scope) setScope(turnScope);
     if (turnTask) setTask(null);
@@ -111,7 +111,7 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
         },
         signal: controller.signal,
       }, { images, task: turnTask ?? undefined });
-      if (isFirstTurn) {
+      if (isFirstTurn && !start) {
         const reply = [...messages].reverse().find((message) => message.role === "assistant" && message.content.trim());
         void autoTitle(base.id, firstTitle, content || firstTitle, reply?.role === "assistant" ? reply.content : "");
       }
@@ -177,12 +177,22 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     });
   }
 
+  /** A new conversation started by an entry action (写进日记) and sent right away: its task, scope and first message. */
+  async function startTask(nextTask: AiTask, turnScope: AiScope, text: string, title: string) {
+    if (busy) return;
+    current.current = null;
+    setConversation(null);
+    await send(text, turnScope, [], { task: nextTask, title });
+  }
+
   /** `nextTask` pre-fills the chip of an entry action (e.g. 提取习惯 on the board). */
-  function startNew(panel: AiPanelId, nextTask: AiTask | null = null) {
+  /** `scope` overrides the default (the start panel's pill); the workbench starts with none. */
+  function startNew(panel: AiPanelId, nextTask: AiTask | null = null, scope?: AiScope) {
     if (busy) return;
     persist(null);
     setTask(nextTask);
-    setScope({ [nextTask ? AI_TASKS[nextTask].panel : panel]: "write" });
+    const start = nextTask ? AI_TASKS[nextTask].panel : panel;
+    setScope(scope ?? { [start]: defaultAccess(start) });
     setError(null);
     setStopped(false);
   }
@@ -203,7 +213,7 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
       current.current = loaded;
       setConversation(loaded);
       setTask(null);
-      setScope(scopeOf(loaded.messages) ?? { [loaded.panel]: "write" });
+      setScope(scopeOf(loaded.messages) ?? { [loaded.panel]: defaultAccess(loaded.panel) });
       setError(null);
       setStopped(false);
     } catch (reason) {
@@ -223,5 +233,5 @@ export function useAssistant({ activePanel, ...targets }: AssistantOptions) {
     if (current.current?.id === id) startNew(activePanel);
   }
 
-  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, startNew, rename, open, remove, refreshSummaries };
+  return { conversation, summaries, scope, setScope, task, setTask, busy, error, stopped, send, stop, resolveBatch, startTask, startNew, rename, open, remove, refreshSummaries };
 }

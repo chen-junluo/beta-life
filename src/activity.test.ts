@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayBounds, dayKey, formatDuration, summarizeDay, UNTITLED, type ActivitySession } from "./activity";
+import { dayBounds, dayKey, formatDelta, formatDuration, summarizeDay, summaryDiaryEntry, summaryDiaryText, summaryLine, UNTITLED, type ActivitySession, type DaySummary } from "./activity";
 
 const day = new Date(2026, 10, 10);
 const bounds = dayBounds(day);
@@ -44,5 +44,39 @@ describe("activity summary", () => {
     expect(formatDuration(48 * 60_000)).toBe("48m");
     expect(formatDuration(160 * 60_000)).toBe("2h 40m");
     expect(dayKey(day)).toBe("2026-11-10");
+  });
+});
+
+describe("daily digest text", () => {
+  const summary: DaySummary = {
+    date: "2026-11-10",
+    totals: { focus: 260 * 60_000, neutral: 50 * 60_000, slack: 65 * 60_000, none: 25 * 60_000 },
+    longestFocus: { start: at(14, 5), end: at(15, 45) },
+    topSlack: [{ label: "bilibili.com", ms: 40 * 60_000 }, { label: "zhihu.com", ms: 15 * 60_000 }],
+    unclassified: [],
+    periods: [],
+    average: null,
+    nudges: { count: 3, back: 2 },
+  };
+
+  it("says the day in one bubble line", () => {
+    expect(summaryLine(summary)).toBe("今天专注 4h 20m（65%），摸鱼 1h 05m，还有 25m 没分类。最长一口气专注了 1h 40m。摸鱼最多的是 bilibili.com。");
+  });
+
+  it("writes tab-indented bullets for the diary", () => {
+    expect(summaryDiaryText(summary)).toBe([
+      "- 时间轴：活跃 6h 40m，专注 4h 20m（65%）、中性 50m、摸鱼 1h 05m、待分类 25m",
+      "\t- 最长连续专注 1h 40m（14:05–15:45）",
+      "\t- 摸鱼最多：bilibili.com 40m、zhihu.com 15m；bebe 提醒 3 次，回去做事 2 次",
+    ].join("\n"));
+    expect(summaryDiaryText({ ...summary, longestFocus: null, topSlack: [], nudges: { count: 0, back: 0 } }).split("\n")).toHaveLength(1);
+  });
+
+  it("targets the summary's own day in the diary", () => {
+    expect(summaryDiaryEntry(summary)).toEqual({ date: "2026-11-10", day: "261110", text: summaryDiaryText(summary) });
+  });
+
+  it("formats differences against the average", () => {
+    expect([formatDelta(35 * 60_000), formatDelta(-10 * 60_000), formatDelta(20_000)]).toEqual(["+35m", "−10m", "±0"]);
   });
 });

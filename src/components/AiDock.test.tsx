@@ -103,7 +103,7 @@ describe("AiDock", () => {
     const { onScopeChange } = render({ conversation: null });
     const input = host.querySelector("textarea")!;
     type(input, "总结一下 @记忆");
-    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(5);
+    expect(host.querySelectorAll(".ai-mention-row")).toHaveLength(6);
     expect(host.querySelector(".ai-mention-row.is-active")?.textContent).toContain("记忆星云");
     key(input, "ArrowRight");
     key(input, "ArrowUp");
@@ -117,6 +117,18 @@ describe("AiDock", () => {
     expect(onScopeChange).toHaveBeenCalledWith({ board: "read", forest: "write", memories: "read" });
     expect(input.value).toBe("总结一下 ");
     expect(host.querySelector(".ai-mention-menu")).toBeNull();
+  });
+
+  it("offers the timeline read only", () => {
+    const { onScopeChange } = render({ conversation: null });
+    const input = host.querySelector("textarea")!;
+    type(input, "我今天在干嘛 @时间轴");
+    expect(host.querySelector(".ai-mention-row.is-active")?.textContent).toContain("时间轴");
+    expect([...host.querySelectorAll<HTMLButtonElement>(".ai-mention-row.is-active button")].map((button) => button.disabled)).toEqual([false, false, true]);
+    key(input, "ArrowRight");
+    key(input, "ArrowRight");
+    key(input, "Enter");
+    expect(onScopeChange).toHaveBeenCalledWith(expect.objectContaining({ timeline: "read" }));
   });
 
   it("opens the picker from the @ button and cancels with Escape", () => {

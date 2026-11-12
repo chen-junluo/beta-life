@@ -33,7 +33,7 @@ const input = (name: string, args: Record<string, unknown>, createdId?: string) 
 
 function data(overrides: Partial<AssistantData> = {}): AssistantData {
   const { content: _content, ...metadata } = memory;
-  return { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests, knowledge: [knowledge], memories: [metadata as MemoryMetadata], lifeStages: stages, diary: null, ...overrides };
+  return { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests, knowledge: [knowledge], memories: [metadata as MemoryMetadata], lifeStages: stages, diary: null, timeline: null, ...overrides };
 }
 
 describe("forest tools", () => {

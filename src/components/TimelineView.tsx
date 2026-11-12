@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, ChevronLeft, ChevronRight, ShieldAlert } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, NotebookPen, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   CATEGORIES,
   dayBounds,
   dayKey,
   formatDuration,
+  loadDailySummary,
   RULES_CHANGED,
   setActivityRule,
   summarizeDay,
@@ -14,9 +15,12 @@ import {
   type ActivityCategory,
   type ActivityDay,
   type ActivityStatus,
+  type DaySummary,
+  type RuleTarget,
   type TargetState,
 } from "../activity";
 import { CategoryChip } from "./CategoryChip";
+import { DaySummaryCard } from "./DaySummaryCard";
 
 const REFRESH_MS = 15_000;
 const TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -26,10 +30,15 @@ function errorText(reason: unknown): string {
 }
 
 /** Day view of the activity record: a 24h band, apps ranked by time, and a category per app / site. */
-export function TimelineView() {
+export function TimelineView({ onWriteDiary, writeDisabled = false }: {
+  /** 写进日记: stage the day's digest as a diary change (confirmed in the dock's diff card). */
+  onWriteDiary?: (summary: DaySummary) => void;
+  writeDisabled?: boolean;
+} = {}) {
   const [day, setDay] = useState(() => new Date());
   const [record, setRecord] = useState<ActivityDay | null>(null);
   const [status, setStatus] = useState<ActivityStatus | null>(null);
+  const [summary, setSummary] = useState<DaySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -38,6 +47,8 @@ export function TimelineView() {
 
   const refresh = useCallback(async () => {
     setNow(Date.now());
+    // The digest is extra: if it fails the day's record still shows.
+    void loadDailySummary(key).then((loaded) => setSummary(loaded ?? null), () => setSummary(null));
     try {
       const [loaded, current] = await Promise.all([
         invoke<ActivityDay>("load_activity_day", { date: key }),
@@ -84,7 +95,7 @@ export function TimelineView() {
     }
   }
 
-  async function classify(target: TargetState, category: ActivityCategory | null) {
+  async function classify(target: RuleTarget, category: ActivityCategory | null) {
     try {
       await setActivityRule(target, category);
       await refresh();
@@ -115,7 +126,14 @@ export function TimelineView() {
             <button type="button" className="icon-button" onClick={() => shiftDay(1)} disabled={isToday} aria-label="后一天"><ChevronRight size={17} /></button>
             {!isToday && <button type="button" className="text-button" onClick={() => { setExpanded(null); setDay(new Date()); }}>回到今天</button>}
           </div>
-          <div className="timeline-total"><span>活跃</span><strong>{formatDuration(total)}</strong></div>
+          <div className="timeline-head-end">
+            {onWriteDiary && total > 0 && summary?.date === key && (
+              <button type="button" className="secondary-button" disabled={writeDisabled} onClick={() => onWriteDiary(summary)} title={writeDisabled ? "AI 正在回复，稍后再写" : "AI 结合这天和前 6 天的日记，总结专注时做了什么；在 AI 对话里确认后才写进这一天的日记"}>
+                <NotebookPen size={15} aria-hidden="true" /> 写进日记
+              </button>
+            )}
+            <div className="timeline-total"><span>活跃</span><strong>{formatDuration(total)}</strong></div>
+          </div>
         </header>
         {total > 0 && (
           <ul className="timeline-cats" aria-label="各类时长">
@@ -124,6 +142,8 @@ export function TimelineView() {
             ))}
           </ul>
         )}
+
+        {total > 0 && summary?.date === key && <DaySummaryCard summary={summary} onClassify={(target, category) => void classify(target, category)} />}
 
         {status && !status.supported && <div className="timeline-notice"><ShieldAlert size={15} aria-hidden="true" /><span>活动记录目前只支持 macOS。</span></div>}
         {status?.supported && !status.accessibility && (

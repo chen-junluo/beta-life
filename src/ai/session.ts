@@ -1,6 +1,7 @@
 import type { KnowledgeBundle } from "../recallStorage";
 import type { MemorySnapshot } from "../memoryStorage";
 import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata } from "../types";
+import { invoke } from "@tauri-apps/api/core";
 import { loadDiaryMonth, type DiarySnapshot } from "../diaryStorage";
 import { AI_TOOLS, applyBoardBatch, applyBoardChange, boardIndex, describeBoardChange } from "./boardTools";
 import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, diaryMonthIndex, findDay, loadDiaryData, monthOfDay, type DiaryData, type DiaryMonths } from "./diaryTools";
@@ -19,6 +20,8 @@ export interface AssistantData {
   lifeStages: LifeStage[];
   /** Loaded only when the scope can read the diary. */
   diary: DiaryData | null;
+  /** Today's activity digest as the model reads it (durations as text), only when the scope can read the timeline. */
+  timeline: unknown;
 }
 
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -35,12 +38,14 @@ export function forestsOf(state: LoadedAppState): Forests {
 
 /** Loads the panels that live on disk (recall, memories, diary) only when the scope can read them. */
 export async function loadAssistantData(scope: AiScope, state: LoadedAppState): Promise<AssistantData> {
-  const [knowledge, memoryData, diary] = await Promise.all([
+  const [knowledge, memoryData, diary, timeline] = await Promise.all([
     scope.recall ? loadKnowledge() : Promise.resolve([]),
     scope.memories ? loadMemoryData() : Promise.resolve({ memories: [], lifeStages: [] }),
     scope.diary ? loadDiaryData() : Promise.resolve(null),
+    // Without today's digest the tools still work; a broken activity record must not block the chat.
+    scope.timeline ? invoke<unknown>("ai_daily_summary", { date: null }).catch(() => null) : Promise.resolve(null),
   ]);
-  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary };
+  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary, timeline };
 }
 
 /** Everything the model sees without calling a tool: the index of each panel the scope can read. */
@@ -52,6 +57,9 @@ export function assistantContext(scope: AiScope, data: AssistantData): string {
     ...(scope.recall && { recall: recallIndex(data.knowledge) }),
     ...(scope.memories && { memories: memoryIndex(data.memories, data.lifeStages) }),
     ...(scope.diary && data.diary && { diary: diaryIndex(data.diary) }),
+    ...(scope.timeline && data.timeline != null && {
+      timeline: { today: data.timeline, readableDays: data.settings.activity.aiDays, windowTitles: data.settings.activity.aiTitles },
+    }),
   });
 }
 
@@ -149,6 +157,10 @@ export function createToolSession(data: AssistantData) {
           })),
         };
       }
+      case "get_daily_summary":
+        return invoke<unknown>("ai_daily_summary", { date: args.date ?? null });
+      case "query_activity":
+        return invoke("ai_query_activity", { request: args });
       default:
         throw new Error(`Unknown tool ${call.name}`);
     }
@@ -181,6 +193,8 @@ export function createToolSession(data: AssistantData) {
         diaryDraft = applyDiaryChange(diaryDraft, input);
         return display;
       }
+      case "timeline":
+        throw new Error("The timeline is read only");
     }
   }
 
