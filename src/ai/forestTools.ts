@@ -50,6 +50,7 @@ export function forestMapIndex(forest: AbilityForest, map: AbilityMapKind) {
       parentId: node.parentId,
       order: node.order,
       hasNote: node.markdown.trim().length > 0,
+      ...(node.active && { active: true }),
     })),
   };
 }

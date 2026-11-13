@@ -95,8 +95,8 @@ export interface PetSummaryDiary {
   text: string;
 }
 
-/** The 写进日记 task: reads the timeline and the week's diary, appends to the day (confirmed in a diff card). */
-export const PET_DIARY_SCOPE: AiScope = { diary: "write", timeline: "read" };
+/** The 写进日记 task: reads the timeline, the week's diary and the 在推进 goals of 能力森林, appends to the day (confirmed in a diff card). */
+export const PET_DIARY_SCOPE: AiScope = { diary: "write", timeline: "read", forest: "read" };
 
 export interface PetChatResolve {
   batchId: string;

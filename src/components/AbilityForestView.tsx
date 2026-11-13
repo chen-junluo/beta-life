@@ -1,6 +1,8 @@
 import {
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileJson,
   Minus,
@@ -26,9 +28,11 @@ import {
   parseAbilityForestJson,
   reorderAbilityNode,
   renameAbilityNode,
+  setAbilityNodeActive,
   setAbilityNodeColor,
   updateAbilityMarkdown,
 } from "../abilityForest";
+import { entryDateLabel, goalStatus, namePaths, pathKey, type GoalEntry } from "../goals";
 import {
   abilityMapCanMove,
   abilityMapHitTest,
@@ -49,6 +53,8 @@ type ForestSaveState = "saved" | "saving" | "error";
 
 interface AbilityForestViewProps {
   forest: AbilityForest;
+  /** 长期目标 entries by node path when this map takes part in it (Settings), else null (P7). */
+  goals?: Map<string, GoalEntry[]> | null;
   saveState: ForestSaveState;
   onForestChange: (forest: AbilityForest, immediate?: boolean) => void;
   topbarActions?: HTMLElement | null;
@@ -111,7 +117,7 @@ function orderedTree(forest: AbilityForest, collapsed: Set<string>) {
   return rows;
 }
 
-export function AbilityForestView({ forest, saveState, onForestChange, topbarActions, mapTabs }: AbilityForestViewProps) {
+export function AbilityForestView({ forest, goals = null, saveState, onForestChange, topbarActions, mapTabs }: AbilityForestViewProps) {
   const initialMapState = mapStateFor(forest);
   const [selectedId, setSelectedId] = useState(initialMapState.selectedId ?? "data-literacy");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -126,6 +132,8 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
   const [collision, setCollision] = useState(false);
   const [collisionPreview, setCollisionPreview] = useState<{ x: number; y: number; size: number } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  /** The 在推进 chip was clicked: the editor area shows the node's progress timeline. */
+  const [goalView, setGoalView] = useState(false);
   // WKWebView in Tauri does not implement window.confirm, so import confirms in-app before opening the picker.
   const [importArmed, setImportArmed] = useState(false);
   const [mapWidth, setMapWidth] = useState(initialMapState.mapWidth ?? 0);
@@ -141,6 +149,11 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
   const splitterDrag = useRef<{ type: "vertical" | "horizontal"; startPos: number; startSize: number } | null>(null);
   const selected = selectedId ? forest.nodes.find((node) => node.id === selectedId) ?? orderedSiblings(forest, null)[0] : undefined;
   const rows = useMemo(() => orderedTree(forest, collapsed), [forest, collapsed]);
+  const paths = useMemo(() => namePaths(forest), [forest]);
+  const now = new Date();
+  const goalEntries = (node: AbilityNode) => goals?.get(pathKey(paths.get(node.id) ?? [])) ?? [];
+  const goalOf = (node: AbilityNode) => goals && node.level > 0 && node.active ? goalStatus(goalEntries(node), now) : null;
+  const selectedGoal = selected ? goalOf(selected) : null;
   const siblings = selected ? orderedSiblings(forest, selected.parentId) : [];
   const selectedIndex = selected ? siblings.findIndex((item) => item.id === selected.id) : -1;
   const selectedBranch = selected ? descendantIds(forest, selected.id) : new Set<string>();
@@ -599,6 +612,14 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
                     ) : <span className="tree-fold-spacer" />}
                     <span className="tree-node-dot" aria-hidden="true" style={{ "--node-color": color } as CSSProperties} />
                     <button type="button" className="tree-node-label" onClick={() => selectNode(node.id)}>{node.name}</button>
+                    {(() => {
+                      const goal = goalOf(node);
+                      return goal && (
+                        <span className={`tree-goal ${goal.stale ? "is-stale" : ""}`} title="在推进 · 最近一次推进">
+                          {goal.label}{goal.monthDays > 0 && ` · 本月 ${goal.monthDays} 天`}
+                        </span>
+                      );
+                    })()}
                     {hasChildren && <span className="tree-child-count" aria-label={`${childCount} 个子节点`}>{childCount}</span>}
                   </div>
                 );
@@ -613,7 +634,45 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
             aria-label="调整树状图高度"
           />
 
-          {selected ? (
+          {selected && selectedGoal && goalView ? (
+            <section className="ability-node-editor ability-goal-view" aria-label="推进时间线">
+              <div className="ability-meta-line">
+                <button type="button" className="ability-goal-chip" onClick={() => setGoalView(false)}>
+                  <ChevronLeft size={13} /> 回到编辑
+                </button>
+                <button
+                  type="button"
+                  className="ability-goal-chip is-on ability-goal-off"
+                  aria-pressed="true"
+                  title="点一下不再标为在推进"
+                  onClick={() => { setGoalView(false); change(setAbilityNodeActive(forest, selected.id, false), true); }}
+                >
+                  ◎ 在推进
+                </button>
+              </div>
+              <h3 className="ability-goal-title">{selected.name}</h3>
+              {(() => {
+                const entries = goalEntries(selected);
+                const days = new Set(entries.map((entry) => entry.date)).size;
+                return entries.length > 0 ? (
+                  <>
+                    <p className="ability-goal-summary">最近 <b>{selectedGoal.label}</b> · 本月 <b>{selectedGoal.monthDays} 天</b> · 共 <b>{days} 天</b></p>
+                    <ol className="ability-goal-timeline">
+                      {entries.map((entry, index) => (
+                        <li key={`${entry.date}-${index}`}>
+                          <time dateTime={entry.date}>{entryDateLabel(entry.date)}</time>
+                          <span>{entry.text || "（没写做了什么）"}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                ) : (
+                  <p className="ability-goal-empty">日记里还没有它的推进记录。晚间「写进日记」时，AI 会对照当天日记，把推进了什么写在【AI总结】的「长期目标」下面。</p>
+                );
+              })()}
+              <p className="ability-goal-hint">记录来自日记里的「长期目标」；要改就去改那天的日记。</p>
+            </section>
+          ) : selected ? (
             <section className="ability-node-editor">
               <div className="ability-meta-line">
                 <span className="ability-level-tag">{levelNames[selected.level]}</span>
@@ -644,6 +703,20 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
                     </div>
                   </>
                 )}
+                {goals && selected.level > 0 && (
+                  <>
+                    <span className="ability-meta-sep">·</span>
+                    {selectedGoal ? (
+                      <button type="button" className="ability-goal-chip is-on" title="看推进时间线" onClick={() => setGoalView(true)}>
+                        ◎ 在推进 · {selectedGoal.label} <ChevronRight size={13} />
+                      </button>
+                    ) : (
+                      <button type="button" className="ability-goal-chip is-ghost" title="标为在推进：晚间写日记时对照这个目标" onClick={() => change(setAbilityNodeActive(forest, selected.id, true), true)}>
+                        + 在推进
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
               <input
@@ -667,24 +740,29 @@ export function AbilityForestView({ forest, saveState, onForestChange, topbarAct
                 />
               </div>
 
-              <div className="ability-editor-actions">
-                <button type="button" className="button" disabled={selected.level >= 2} onClick={addChild}>
-                  ＋ 添加子节点
-                </button>
+              <div className={`ability-editor-actions ${deleteConfirmId === selected.id ? "is-confirming" : ""}`}>
+                {deleteConfirmId === selected.id ? (
+                  <>
+                    <button type="button" className="ability-delete-button" onClick={removeSelected}>
+                      <Trash2 size={14} /> 确认删除
+                    </button>
+                    <button type="button" className="button" onClick={() => { setDeleteConfirmId(null); setMessage(null); }}>
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="ability-delete-button" onClick={removeSelected} aria-label="删除节点" title="删除节点">
+                      <Trash2 size={14} />
+                    </button>
+                    <button type="button" className="button" disabled={selected.level >= 2} onClick={addChild}>
+                      ＋ 添加子节点
+                    </button>
+                  </>
+                )}
                 <button type="button" className="button primary" onClick={() => change(forest, true)}>
                   保存节点
                 </button>
-              </div>
-
-              <div className="ability-delete-actions">
-                <button type="button" className="ability-delete-button" onClick={removeSelected}>
-                  <Trash2 size={14} /> {deleteConfirmId === selected.id ? "确认删除" : "删除节点"}
-                </button>
-                {deleteConfirmId === selected.id && (
-                  <button type="button" className="ability-delete-cancel" onClick={() => { setDeleteConfirmId(null); setMessage(null); }}>
-                    取消
-                  </button>
-                )}
               </div>
 
               {message && <p className="ability-editor-message" role="status">{message}</p>}

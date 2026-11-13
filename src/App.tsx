@@ -32,6 +32,7 @@ import { MemoriesView } from "./components/MemoriesView";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_ABILITY_MAP_NAMES, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import { AbilityMapTabs } from "./components/AbilityMapTabs";
+import { entriesByPath, goalsMessage, loadGoalProgress, type GoalProgress } from "./goals";
 import {
   PET_BOARD,
   PET_CHAT,
@@ -97,7 +98,7 @@ const SECTION_LABELS: Record<WorkspaceSection, string> = {
 };
 
 function withSettingDefaults(settings: AppSettings): AppSettings {
-  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary }, pet: { ...DEFAULT_SETTINGS.pet, ...settings.pet } };
+  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary }, pet: { ...DEFAULT_SETTINGS.pet, ...settings.pet }, goals: settings.goals ?? DEFAULT_SETTINGS.goals };
 }
 
 function shortPeriodLabel(period: AppSettings["periods"][number]): string {
@@ -190,6 +191,9 @@ export default function App() {
   /** The AI workbench covers the panel area; `activeSection` stays the panel it was opened from. */
   /** Full pages from the drawer replace the panel; `activeSection` stays the panel to return to. */
   const [page, setPage] = useState<"panel" | "workbench" | "timeline">("panel");
+  /** 长期目标 progress read back from the diary, while the forest is shown (P7). */
+  const [goalProgress, setGoalProgress] = useState<GoalProgress | null>(null);
+  const [goalRevision, setGoalRevision] = useState(0);
   const showWorkbench = page === "workbench";
   const history = usePanelHistory();
   const recordHistory = history.record;
@@ -292,6 +296,8 @@ export default function App() {
         .then(() => invoke<void>("save_ability_forest", { map, abilityForest: forestToSave }))
         .then(() => {
           if (!hasPending()) setForestSaveState("saved");
+          // Renamed or moved nodes: progress is keyed by name path.
+          setGoalRevision((revision) => revision + 1);
         })
         .catch((error) => {
           console.error(error);
@@ -478,6 +484,15 @@ export default function App() {
   const [dockFocus, setDockFocus] = useState(0);
   /** The panel the dock starts new conversations from: the timeline page counts as its own (read only). */
   const dockPanel: AiPanelId = page === "timeline" ? "timeline" : activeSection;
+  const goalMaps = state?.settings.goals.maps.join(",") ?? "";
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__ || page !== "panel" || activeSection !== "forest" || !goalMaps) return;
+    let current = true;
+    void loadGoalProgress(goalMaps.split(",") as AbilityMapKind[])
+      .then((progress) => { if (current) setGoalProgress(progress); })
+      .catch(console.error);
+    return () => { current = false; };
+  }, [page, activeSection, goalMaps, diaryRevision, goalRevision]);
   const assistant = useAssistant({
     activePanel: dockPanel,
     getState: () => stateRef.current,
@@ -658,8 +673,10 @@ export default function App() {
    * 写进日记 from the timeline page or bebe's evening summary: the AI adds what the focus time was
    * spent on (timeline + that week's diary) under Beta Life's statistics; the diff card waits for the user.
    */
-  function stageSummaryDiary({ date, day, text }: PetSummaryDiary) {
-    return assistantRef.current.startTask("summarize_day", PET_DIARY_SCOPE, `把 ${date}（日记 ${day}）的活动总结写进日记。\n\nBeta Life 统计（原样放在最前面）：\n${text}`, `${day} 日记总结`);
+  async function stageSummaryDiary({ date, day, text }: PetSummaryDiary) {
+    const maps = stateRef.current?.settings.goals.maps ?? [];
+    const goals = maps.length > 0 ? await loadGoalProgress(maps).then((progress) => progress.goals).catch(() => []) : [];
+    return assistantRef.current.startTask("summarize_day", PET_DIARY_SCOPE, `把 ${date}（日记 ${day}）的活动总结写进日记。\n\nBeta Life 统计（原样放在最前面）：\n${text}${goalsMessage(goals)}`, `${day} 日记总结`);
   }
 
   /** 写建议 on bebe's offer after 0:00: the AI reads the reasons and the week's diary; the diff card waits for the user. */
@@ -1033,6 +1050,7 @@ export default function App() {
       /> : activeSection === "forest" ? <AbilityForestView
         key={activeAbilityMap}
         forest={state[ABILITY_MAP_STATE_KEYS[activeAbilityMap]]}
+        goals={state.settings.goals.maps.includes(activeAbilityMap) ? entriesByPath(goalProgress, activeAbilityMap) : null}
         saveState={forestSaveState}
         onForestChange={changeActiveAbilityForest}
         topbarActions={topbarActions}
@@ -1100,6 +1118,10 @@ export default function App() {
           onApiKeyCleared={() => setState((current) => current ? { ...current, hasApiKey: false } : current)}
           onBoardImported={(imported) => commitBoard(imported)}
           onLifeStagesSaved={() => setLifeStagesRevision((revision) => revision + 1)}
+          goalMaps={ABILITY_MAP_KINDS.map((kind) => {
+            const forest = state[ABILITY_MAP_STATE_KEYS[kind]];
+            return { kind, name: forest.name?.trim() || DEFAULT_ABILITY_MAP_NAMES[kind], active: forest.nodes.filter((node) => node.active && node.level > 0).length };
+          })}
         />
       )}
     </div>

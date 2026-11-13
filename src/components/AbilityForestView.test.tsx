@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ABILITY_FOREST } from "../defaults";
+import { pathKey, type GoalEntry } from "../goals";
 import type { AbilityForest } from "../types";
 import { AbilityForestView } from "./AbilityForestView";
 
@@ -59,8 +60,7 @@ describe("AbilityForestView", () => {
   });
 
   it("deletes the selected branch with an in-app confirmation", () => {
-    const deleteButton = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("删除节点"))!;
+    const deleteButton = host.querySelector<HTMLButtonElement>('[aria-label="删除节点"]')!;
     act(() => deleteButton.click());
     expect(host.textContent).toContain("再次点击确认删除");
     const confirmButton = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
@@ -69,6 +69,31 @@ describe("AbilityForestView", () => {
     const updated = onForestChange.mock.calls.at(-1)![0] as AbilityForest;
     expect(updated.nodes.some((node) => node.id === "data-literacy")).toBe(false);
     expect(updated.mapState?.selectedId).toBe("technology");
+  });
+
+  it("marks 中节点 as 在推进 only for maps that take part, and shows their timeline in place of the editor", () => {
+    const button = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent?.includes(text));
+    expect(button("在推进"), "map not chosen in Settings").toBeUndefined();
+
+    const forest = structuredClone(DEFAULT_ABILITY_FOREST);
+    const render = (next: AbilityForest, goals: Map<string, GoalEntry[]>) => act(() => root.render(
+      <AbilityForestView forest={next} goals={goals} saveState="saved" onForestChange={onForestChange} topbarActions={topbarActions} />,
+    ));
+    render(forest, new Map());
+    act(() => button("+ 在推进")!.click());
+    const marked = onForestChange.mock.calls.at(-1)![0] as AbilityForest;
+    expect(marked.nodes.find((node) => node.id === "data-literacy")?.active).toBe(true);
+
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const entry: GoalEntry = { map: "vision", path: ["技术与产品", "数据素养"], date: iso, text: "跑通事件研究图" };
+    render(marked, new Map([[pathKey(entry.path), [entry]]]));
+    expect(host.querySelector(".tree-goal")?.textContent).toBe("今天 · 本月 1 天");
+    act(() => button("在推进 · 今天")!.click());
+    expect(host.querySelector(".ability-markdown-input")).toBeNull();
+    expect(host.querySelector(".ability-goal-timeline")?.textContent).toContain("跑通事件研究图");
+    act(() => button("回到编辑")!.click());
+    expect(host.querySelectorAll(".ability-markdown-input")).toHaveLength(1);
   });
 
   it("opens the JSON import picker only after a second in-app click", () => {

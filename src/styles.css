@@ -1920,7 +1920,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .ability-map-tools button:hover, .ability-map-tools select:hover { background: rgba(38,57,46,.08); }
 .ability-map-tools select { max-width: 132px; padding: 0 5px; }
 .ability-map-zoom { min-width: 39px; color: #6e7169; font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
-.ability-map-legend { position: absolute; right: 17px; bottom: 22px; z-index: 1; display: flex; align-items: center; gap: 11px; color: rgba(73,76,69,.75); font-size: 8px; pointer-events: none; }
+.ability-map-legend { position: absolute; top: 18px; right: 17px; z-index: 1; display: flex; align-items: center; gap: 11px; color: rgba(73,76,69,.75); font-size: 8px; pointer-events: none; }
 .ability-map-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .ability-map-legend i { width: 8px; height: 8px; display: inline-block; border: 1px solid #779b70; border-radius: 3px; background: #e5efe1; }
 .ability-map-legend .legend-middle { border-color: #7e9ab0; background: #e6eef4; }
@@ -2005,7 +2005,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .tree-node-dot { width: 8px; height: 8px; flex: 0 0 8px; border: 1px solid color-mix(in srgb, var(--node-color) 75%, #263329); border-radius: 50%; background: var(--node-color); }
 .tree-node-label { min-width: 0; flex: 1; overflow: hidden; border: 0; background: transparent; color: var(--ink); font-size: 10px; font-weight: 560; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .tree-child-count { min-width: 18px; padding: 2px 5px; border-radius: 4px; background: var(--panel-soft); color: var(--muted); font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
-.ability-node-editor { min-height: 0; flex: 1; padding: 12px 14px 13px; display: flex; flex-direction: column; gap: 11px; overflow: auto; scrollbar-width: thin; scrollbar-color: #c8d0dc transparent; }
+.ability-node-editor { --forest-dock-clearance: 84px; min-height: 0; flex: 1; padding: 12px 14px var(--forest-dock-clearance); display: flex; flex-direction: column; gap: 11px; overflow: auto; scrollbar-width: thin; scrollbar-color: #c8d0dc transparent; }
 
 .ability-meta-line {
   display: flex;
@@ -2103,18 +2103,20 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   outline: none;
 }
 
+/* The editor fills the pane by default; once dragged by its corner (the browser writes an inline
+   height) it keeps that height, taller than the pane scrolls the editor area. */
 .ability-markdown-field-wrapper {
   min-height: 72px;
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  overflow: hidden;
 }
 .ability-markdown-input {
   min-height: 135px;
   max-height: none;
-  flex: 1;
+  flex: 1 0 auto;
+  height: 0;
   width: 100%;
   padding: 13px;
   resize: vertical;
@@ -2127,6 +2129,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   transition: border-color .14s;
   overflow: auto;
 }
+.ability-markdown-input[style*="height"] { flex-grow: 0; }
 .ability-markdown-input:hover {
   border-color: #c8d1de;
 }
@@ -2135,7 +2138,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   outline: none;
 }
 
-.ability-editor-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ability-editor-actions { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; }
 .ability-editor-actions .button {
   min-height: 38px;
   padding: 0 12px;
@@ -2164,15 +2167,15 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   background: #1f3127;
 }
 
-.ability-delete-actions { margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 7px; }
 .ability-delete-button {
-  min-height: 32px;
+  min-width: 38px;
+  min-height: 38px;
   padding: 0 11px;
   border: 1px solid rgba(216, 74, 64, 0.3);
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: #d84a40;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 560;
   transition: all .14s;
   display: flex;
@@ -2184,21 +2187,28 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
   border-color: #d84a40;
   background: rgba(216, 74, 64, 0.08);
 }
-.ability-delete-cancel {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid #dce2ea;
-  border-radius: 7px;
-  background: #fff;
-  color: #536175;
-  font-size: 10px;
-  font-weight: 560;
-  transition: all .14s;
-}
-.ability-delete-cancel:hover {
-  border-color: #bfc8d6;
-  background: #f8fafc;
-}
+.ability-editor-actions.is-confirming .ability-delete-button { border-color: #d84a40; background: #d84a40; color: #fff; }
+
+/* 长期目标 (P7): the 在推进 chip, the tree badge and the progress timeline */
+.tree-goal { flex: none; max-width: 46%; overflow: hidden; color: var(--muted); font-size: 9px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.tree-goal::before { content: "◎ "; color: var(--accent); }
+.tree-goal.is-stale, .tree-goal.is-stale::before { color: #c2410c; }
+.ability-goal-chip { height: 22px; padding: 0 8px; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 650; white-space: nowrap; cursor: pointer; transition: background .14s, color .14s; }
+.ability-goal-chip:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ability-goal-chip.is-on { border-color: transparent; background: color-mix(in srgb, var(--accent) 11%, transparent); color: var(--accent); }
+.ability-goal-chip.is-ghost { border-style: dashed; }
+.ability-goal-view .ability-meta-line { justify-content: space-between; }
+.ability-goal-off:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.ability-goal-title { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.ability-goal-summary { margin: 0; padding: 7px 10px; border-radius: 8px; background: color-mix(in srgb, var(--muted) 8%, transparent); color: var(--muted); font-size: 11px; }
+.ability-goal-summary b { color: var(--ink); font-weight: 650; }
+.ability-goal-timeline { min-height: 0; flex: 1; margin: 0; padding: 0; list-style: none; overflow: auto; }
+.ability-goal-timeline li { position: relative; padding: 6px 8px 8px 24px; display: grid; gap: 2px; color: var(--ink); font-size: 12px; line-height: 1.5; }
+.ability-goal-timeline li::before { content: ""; position: absolute; left: 8px; top: 11px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.ability-goal-timeline li:not(:last-child)::after { content: ""; position: absolute; left: 11px; top: 21px; bottom: -6px; width: 1px; background: var(--line); }
+.ability-goal-timeline time { color: var(--muted); font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ability-goal-empty { margin: 0; flex: 1; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.ability-goal-hint { margin: 0; color: var(--muted); font-size: 10px; }
 .ability-editor-message, .ability-editor-error { margin: 6px 0 0; color: #28724b; font-size: 9px; line-height: 1.4; }
 .ability-editor-error { color: var(--danger); }
 .ability-empty, .ability-empty-editor { min-height: 180px; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; }
@@ -3569,3 +3579,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 @media (max-width: 1100px) {
   .bebe-schedule-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Settings → 长期目标 (P7) */
+.goal-map-list { display: grid; gap: var(--ui-field-gap); }
+.goal-map-label { color: var(--ink); font-size: 11px; font-weight: 650; }

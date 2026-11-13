@@ -253,6 +253,107 @@ fn checked_month(month: &str) -> Result<(), String> {
     }
 }
 
+/// Replaces the target of every `[[target]]` / `[[target|alias]]` found in `renames`, in one pass so
+/// swapped names do not chain.
+fn replace_links(text: &str, renames: &HashMap<&str, &str>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find("[[") {
+        out.push_str(&rest[..open + 2]);
+        rest = &rest[open + 2..];
+        let Some(close) = rest.find("]]") else { break };
+        let inner = &rest[..close];
+        if inner.contains('\n') || inner.contains("[[") {
+            continue;
+        }
+        let (target, alias) = inner.split_once('|').map_or((inner, None), |(target, alias)| (target, Some(alias)));
+        match renames.get(target.trim()) {
+            Some(new) => {
+                out.push_str(new);
+                if let Some(alias) = alias {
+                    out.push('|');
+                    out.push_str(alias);
+                }
+            }
+            None => out.push_str(inner),
+        }
+        out.push_str("]]");
+        rest = &rest[close + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A renamed 能力森林 node: its old `[[链接]]` in every month file point to the new name (P7).
+/// Returns whether a file changed.
+pub(crate) fn rename_links(root: &Path, renames: &[(String, String)]) -> Result<bool, String> {
+    if renames.is_empty() {
+        return Ok(false);
+    }
+    let renames: HashMap<&str, &str> = renames.iter().map(|(old, new)| (old.as_str(), new.as_str())).collect();
+    let mut changed = false;
+    for month in months(root) {
+        let text = read_month(root, &month)?;
+        let next = replace_links(&text, &renames);
+        if next != text {
+            write_md(&month_path(root, &month), &next)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+/// One `[[目标]]：做了什么` under a day's top-level `- 长期目标` bullet (P7).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GoalMention {
+    /// `YYYY-MM-DD`.
+    pub(crate) date: String,
+    pub(crate) target: String,
+    pub(crate) text: String,
+}
+
+/// The linked children of the `- 长期目标` bullets in one day's body.
+fn day_goals(body: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    let mut inside = false;
+    for (line, fenced) in fenced_lines(body) {
+        if fenced || line.trim().is_empty() {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let item = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* "));
+        if trimmed.len() == line.len() {
+            inside = item.is_some_and(|text| text.trim().trim_end_matches(['：', ':']).trim() == "长期目标");
+            continue;
+        }
+        let Some(rest) = item.filter(|_| inside).and_then(|text| text.trim_start().strip_prefix("[[")) else { continue };
+        let Some(close) = rest.find("]]") else { continue };
+        let target = rest[..close].split('|').next().unwrap_or_default().trim();
+        let text = rest[close + 2..].trim_start_matches([' ', '：', ':', '-', '—']).trim();
+        if !target.is_empty() {
+            result.push((target.to_string(), text.to_string()));
+        }
+    }
+    result
+}
+
+/// Every 长期目标 mention in the diary, oldest month first.
+pub(crate) fn goal_mentions(root: &Path) -> Vec<GoalMention> {
+    let mut mentions = Vec::new();
+    for month in months(root) {
+        let Ok(text) = read_month(root, &month) else { continue };
+        for day in parse(&text) {
+            let Some(date) = day.date.as_deref() else { continue };
+            let number = |range: std::ops::Range<usize>| date.get(range).and_then(|part| part.parse::<u32>().ok());
+            let Some(iso) = (|| NaiveDate::from_ymd_opt(2000 + number(0..2)? as i32, number(2..4)?, number(4..6)?))() else { continue };
+            for (target, text) in day_goals(&day.body) {
+                mentions.push(GoalMention { date: iso.format("%Y-%m-%d").to_string(), target, text });
+            }
+        }
+    }
+    mentions
+}
+
 #[tauri::command]
 pub(crate) fn list_diary_months(app: AppHandle) -> Result<Vec<String>, String> {
     let (_guard, root) = super::open(&app)?;

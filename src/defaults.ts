@@ -163,6 +163,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   diary: { template: DEFAULT_DIARY_TEMPLATE },
   activity: { aiDays: 30, aiTitles: true },
   pet: DEFAULT_PET_SETTINGS,
+  goals: { maps: ["vision"] },
 };
 
 export const DEFAULT_BOARD: BoardFile = {

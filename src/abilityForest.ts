@@ -135,6 +135,17 @@ export function renameAbilityNode(forest: AbilityForest, id: string, name: strin
   };
 }
 
+export function setAbilityNodeActive(forest: AbilityForest, id: string, active: boolean): AbilityForest {
+  return {
+    ...forest,
+    nodes: forest.nodes.map((node) => {
+      if (node.id !== id) return node;
+      const { active: _was, ...rest } = node;
+      return active ? { ...rest, active: true } : rest;
+    }),
+  };
+}
+
 export function updateAbilityMarkdown(forest: AbilityForest, id: string, markdown: string): AbilityForest {
   return {
     ...forest,

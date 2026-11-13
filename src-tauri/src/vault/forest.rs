@@ -21,10 +21,18 @@ fn files() -> std::sync::MutexGuard<'static, HashMap<String, HashMap<String, Pat
     FILES.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Node id -> the name path it was loaded or last saved under, so a save can tell which nodes were renamed.
+static PATHS: LazyLock<Mutex<HashMap<String, HashMap<String, Vec<String>>>>> = LazyLock::new(Default::default);
+
+fn known_paths() -> std::sync::MutexGuard<'static, HashMap<String, HashMap<String, Vec<String>>>> {
+    PATHS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Forgets the files of one vault root (the migration's staging folder).
 pub(crate) fn clear_registry(root: &Path) {
     let prefix = format!("{}\u{1f}", root.display());
     files().retain(|key, _| !key.starts_with(&prefix));
+    known_paths().retain(|key, _| !key.starts_with(&prefix));
 }
 
 fn registry_key(root: &Path, kind: AbilityMapKind) -> String {
@@ -86,6 +94,9 @@ struct MapMeta {
     selected_path: Option<Vec<String>>,
     #[serde(default)]
     positions: Vec<PathPosition>,
+    /// Name paths of the 在推进 nodes (P7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    active: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -255,18 +266,8 @@ pub(crate) fn load(root: &Path, kind: AbilityMapKind) -> Result<AbilityForest, S
         return load(root, kind);
     };
     let dir = tab(root).join(&folder);
-    let mut issues = Vec::new();
-    let mut domains = Vec::new();
-    for path in md_files(&dir, false) {
-        match read_md(&path).and_then(|text| parse_domain(&text, &stem(&path))) {
-            Ok((domain, order)) => domains.push((path, domain, order)),
-            Err(error) => issues.push(issue("forest", root, &path, error)),
-        }
-    }
+    let (mut domains, issues) = read_domains(root, &dir);
     set_issues(&format!("forest/{}", kind.key()), issues);
-    domains.sort_by(|left, right| {
-        left.2.unwrap_or(f64::INFINITY).total_cmp(&right.2.unwrap_or(f64::INFINITY)).then_with(|| left.0.cmp(&right.0))
-    });
     if domains.is_empty() {
         // Every 领域 file was deleted: one empty 领域, written on the next save.
         domains.push((PathBuf::new(), Section { name: "新能力领域".into(), ..Section::default() }, None));
@@ -283,8 +284,13 @@ pub(crate) fn load(root: &Path, kind: AbilityMapKind) -> Result<AbilityForest, S
     files().insert(registry_key(root, kind), registry);
 
     let meta: Option<MapMeta> = crate::read_json(&dir.join(META).join("map.json")).ok();
+    let paths = name_paths(&forest);
     if let Some(meta) = meta {
-        let ids: HashMap<Vec<String>, String> = name_paths(&forest).into_iter().map(|(id, path)| (path, id)).collect();
+        let ids: HashMap<Vec<String>, String> = paths.iter().map(|(id, path)| (path.clone(), id.clone())).collect();
+        let active: HashSet<&String> = meta.active.iter().filter_map(|path| ids.get(path)).collect();
+        for node in forest.nodes.iter_mut() {
+            node.active = node.level > 0 && active.contains(&node.id);
+        }
         forest.name = meta.name;
         let positions: HashMap<String, AbilityMapPosition> = meta
             .positions
@@ -304,7 +310,95 @@ pub(crate) fn load(root: &Path, kind: AbilityMapKind) -> Result<AbilityForest, S
         forest.map_state = None;
     }
     validate_ability_forest(&forest)?;
+    known_paths().insert(registry_key(root, kind), paths);
     Ok(forest)
+}
+
+/// The 领域 files of a map folder, in map order, with the files that could not be read.
+fn read_domains(root: &Path, dir: &Path) -> (Vec<(PathBuf, Section, Option<f64>)>, Vec<super::Issue>) {
+    let mut issues = Vec::new();
+    let mut domains = Vec::new();
+    for path in md_files(dir, false) {
+        match read_md(&path).and_then(|text| parse_domain(&text, &stem(&path))) {
+            Ok((domain, order)) => domains.push((path, domain, order)),
+            Err(error) => issues.push(issue("forest", root, &path, error)),
+        }
+    }
+    domains.sort_by(|left, right| {
+        left.2.unwrap_or(f64::INFINITY).total_cmp(&right.2.unwrap_or(f64::INFINITY)).then_with(|| left.0.cmp(&right.0))
+    });
+    (domains, issues)
+}
+
+/// Heading text as an Obsidian link writes it: characters links cannot hold become spaces.
+pub(crate) fn link_heading(name: &str) -> String {
+    name.replace("%%", " ")
+        .replace(['#', '|', '^', ':', '[', ']'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `领域文件#节点标题` (the 领域 itself: just the file), the target inside `[[…]]`.
+fn link_target(file: &str, name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("{file}#{}", link_heading(name)),
+        None => file.to_string(),
+    }
+}
+
+/// A path segment without the `#2` that tells repeated sibling names apart.
+fn segment_name(segment: &str) -> &str {
+    match segment.rsplit_once('#') {
+        Some((name, number)) if number.parse::<u32>().is_ok_and(|number| number >= 2) => name,
+        _ => segment,
+    }
+}
+
+/// A 能力组 or 能力 as the diary links to it (P7).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GoalTarget {
+    pub(crate) path: Vec<String>,
+    pub(crate) name: String,
+    pub(crate) file: String,
+    pub(crate) link: String,
+    pub(crate) active: bool,
+}
+
+/// Every 中 / 小节点 of a map as it is on disk, without touching the save registries.
+pub(crate) fn goal_targets(root: &Path, kind: AbilityMapKind) -> Vec<GoalTarget> {
+    let Some(folder) = folder(root, kind) else { return Vec::new() };
+    let dir = tab(root).join(&folder);
+    let meta: Option<MapMeta> = crate::read_json(&dir.join(META).join("map.json")).ok();
+    let active: HashSet<Vec<String>> = meta.map(|meta| meta.active.into_iter().collect()).unwrap_or_default();
+    let mut targets = Vec::new();
+    let numbered = |sections: &[Section]| -> Vec<String> {
+        let mut seen: HashMap<&str, usize> = HashMap::new();
+        sections
+            .iter()
+            .map(|section| {
+                let count = seen.entry(section.name.as_str()).or_default();
+                *count += 1;
+                if *count == 1 { section.name.clone() } else { format!("{}#{count}", section.name) }
+            })
+            .collect()
+    };
+    let (domains, _) = read_domains(root, &dir);
+    let domain_sections: Vec<Section> = domains.iter().map(|(_, domain, _)| Section { name: domain.name.clone(), ..Section::default() }).collect();
+    for ((path, domain, _), domain_segment) in domains.iter().zip(numbered(&domain_sections)) {
+        let file = stem(path).to_string();
+        let mut push = |segments: Vec<String>, name: &str| {
+            let active = active.contains(&segments);
+            targets.push(GoalTarget { link: link_target(&file, Some(name)), path: segments, name: name.to_string(), file: file.clone(), active });
+        };
+        for (group, group_segment) in domain.children.iter().zip(numbered(&domain.children)) {
+            push(vec![domain_segment.clone(), group_segment.clone()], &group.name);
+            for (ability, ability_segment) in group.children.iter().zip(numbered(&group.children)) {
+                push(vec![domain_segment.clone(), group_segment.clone(), ability_segment], &ability.name);
+            }
+        }
+    }
+    targets
 }
 
 fn push_node(forest: &mut AbilityForest, kind: AbilityMapKind, parent: Option<&str>, prefix: &[String], order: usize, section: &Section, level: u8) -> String {
@@ -324,6 +418,7 @@ fn push_node(forest: &mut AbilityForest, kind: AbilityMapKind, parent: Option<&s
         order,
         color: section.color.clone(),
         markdown: section.note.clone(),
+        active: false,
     });
     for (index, child) in section.children.iter().enumerate().filter(|_| level < 2) {
         push_node(forest, kind, Some(&id), &path, index, child, level + 1);
@@ -349,14 +444,17 @@ fn sections(forest: &AbilityForest, parent: Option<&str>) -> Vec<(String, Sectio
 }
 
 /// Caller validates. 领域 files are matched to nodes through the ids `load` handed out, so a renamed
-/// 领域 renames its file; a 领域 removed in beta-life deletes its file.
-pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) -> Result<(), String> {
+/// 领域 renames its file; a 领域 removed in beta-life deletes its file. Returns the diary link targets
+/// that changed (renamed nodes and 领域), old -> new.
+pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) -> Result<Vec<(String, String)>, String> {
     let tab = tab(root);
     fs::create_dir_all(&tab).map_err(|error| format!("无法创建能力森林目录：{error}"))?;
     let mut maps: MapsMeta = crate::read_json(&maps_path(root)).unwrap_or_default();
     let desired = file_stem(forest.name.as_deref().unwrap_or(kind.default_name()), kind.default_name());
     let current = folder(root, kind);
     let mut registry = files().remove(&registry_key(root, kind)).unwrap_or_default();
+    let old_paths = known_paths().remove(&registry_key(root, kind)).unwrap_or_default();
+    let old_files: HashMap<String, String> = registry.iter().map(|(id, path)| (id.clone(), stem(path).to_string())).collect();
     let folder = match current {
         Some(folder) if fits(&folder, &desired) => folder,
         Some(folder) => {
@@ -413,9 +511,11 @@ pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) ->
     for path in registry.values().filter(|path| !kept.contains(path) && path.parent() == Some(dir.as_path())) {
         remove(path)?;
     }
+    let paths = name_paths(forest);
+    let renames = renamed_links(forest, &paths, &old_paths, &old_files, &saved);
     files().insert(registry_key(root, kind), saved);
 
-    let paths = name_paths(forest);
+    known_paths().insert(registry_key(root, kind), paths.clone());
     let map_state = forest.map_state.as_ref().and_then(|state| serde_json::to_value(state).ok()).map(|mut state| {
         if let Some(object) = state.as_object_mut() {
             object.remove("selectedId");
@@ -435,8 +535,51 @@ pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) ->
         map_state,
         selected_path: forest.map_state.as_ref().and_then(|state| state.selected_id.as_ref()).and_then(|id| paths.get(id)).cloned(),
         positions,
+        active: {
+            let mut active: Vec<Vec<String>> = forest
+                .nodes
+                .iter()
+                .filter(|node| node.active && node.level > 0)
+                .filter_map(|node| paths.get(&node.id).cloned())
+                .collect();
+            active.sort();
+            active
+        },
     };
-    crate::atomic_write(&dir.join(META).join("map.json"), &meta)
+    crate::atomic_write(&dir.join(META).join("map.json"), &meta)?;
+    Ok(renames)
+}
+
+/// Link targets whose 领域 file or heading changed since the node was loaded or last saved.
+fn renamed_links(
+    forest: &AbilityForest,
+    paths: &HashMap<String, Vec<String>>,
+    old_paths: &HashMap<String, Vec<String>>,
+    old_files: &HashMap<String, String>,
+    saved: &HashMap<String, PathBuf>,
+) -> Vec<(String, String)> {
+    let old_domains: HashMap<&String, &String> = old_paths
+        .iter()
+        .filter(|(_, path)| path.len() == 1)
+        .filter_map(|(id, path)| old_files.get(id).map(|file| (&path[0], file)))
+        .collect();
+    let new_domains: HashMap<&String, String> = paths
+        .iter()
+        .filter(|(_, path)| path.len() == 1)
+        .filter_map(|(id, path)| saved.get(id).map(|file| (&path[0], stem(file).to_string())))
+        .collect();
+    let mut renames = Vec::new();
+    for node in &forest.nodes {
+        let (Some(old), Some(new)) = (old_paths.get(&node.id), paths.get(&node.id)) else { continue };
+        let (Some(old_file), Some(new_file)) = (old_domains.get(&old[0]), new_domains.get(&new[0])) else { continue };
+        let heading = |path: &Vec<String>| (path.len() > 1).then(|| segment_name(path.last().unwrap()).to_string());
+        let before = link_target(old_file, heading(old).as_deref());
+        let after = link_target(new_file, heading(new).as_deref());
+        if before != after && !renames.iter().any(|(old, _)| *old == before) {
+            renames.push((before, after));
+        }
+    }
+    renames
 }
 
 /// Migration helper: the template's `# 节点名` first line repeats what the heading already says.

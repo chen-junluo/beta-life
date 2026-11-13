@@ -178,6 +178,12 @@ export interface AppSettings {
   diary: DiarySettings;
   activity: ActivitySettings;
   pet: PetSettings;
+  goals: GoalSettings;
+}
+
+/** 长期目标 (P7): the maps whose 在推进 nodes the evening summary compares against the diary. */
+export interface GoalSettings {
+  maps: AbilityMapKind[];
 }
 
 export interface LoadedAppState {
@@ -196,6 +202,8 @@ export interface AbilityNode {
   order: number;
   color: string | null;
   markdown: string;
+  /** 在推进: a long-term goal compared against the diary (P7); only 中 / 小节点. */
+  active?: boolean;
 }
 
 export interface AbilityMapState {

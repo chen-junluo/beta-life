@@ -137,6 +137,7 @@ User-editable extraction preferences:
 1. Gather, in one response: query_activity with from = to = that day, category "focus", groupBy "title", limit 80 (if window titles are hidden, groupBy "site" instead); and read_diary for that day and the 6 days before it (missing days are fine).
 2. Then call append_diary exactly once, for that day: text = the statistics block exactly as given, followed by the parts the preferences below ask for, as tab-indented bullets under it. Call no other write tool and change no other day.
 Durations come only from tool results: add up the items you group together and never invent time. If there was no focus time, say so in one bullet.
+3. Only when the message lists 长期目标: end the same text with a top-level (not indented) `- 长期目标` bullet. Under it, one tab-indented child per listed goal that this day clearly advanced, written `[[link]]：一句话做了什么` with the link copied exactly as given and the evidence taken from that day's diary or focus record; leave out goals with no evidence. If none advanced, write the single child `今天没看到推进长期目标` without a link. Beta Life reads these lines back as the goals' progress, so keep this exact shape; read_node gives a goal's note when its name alone is unclear.
 
 User-editable preferences for this summary:
 {}"#,

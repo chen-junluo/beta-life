@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { Check, ChevronDown, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
@@ -8,7 +8,7 @@ import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
 import { BebeSettings } from "./BebeSettings";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
-import type { AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
+import type { AbilityMapKind, AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
 type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
 
@@ -24,7 +24,7 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
 ];
 
-type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "bebe" | "slogan" | "provider" | "prompt" | "data";
+type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "bebe" | "goals" | "slogan" | "provider" | "prompt" | "data";
 
 const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "board", label: "时间板" },
@@ -42,7 +42,11 @@ interface SettingsPanelProps {
   onApiKeyCleared: () => void;
   onBoardImported: (board: BoardFile) => void;
   onLifeStagesSaved: () => void;
+  /** 能力森林 maps for the 长期目标 page: current name and how many nodes are 在推进. */
+  goalMaps: Array<{ kind: AbilityMapKind; name: string; active: number }>;
 }
+
+const GOAL_MAP_ORDER: AbilityMapKind[] = ["vision", "research"];
 
 interface SelectOption {
   value: string;
@@ -162,6 +166,7 @@ export function SettingsPanel({
   onApiKeyCleared,
   onBoardImported,
   onLifeStagesSaved,
+  goalMaps,
 }: SettingsPanelProps) {
   const [draft, setDraft] = useState<AppSettings>(() => structuredClone(settings));
   const [apiKey, setApiKey] = useState("");
@@ -376,6 +381,7 @@ export function SettingsPanel({
     { id: "diary", label: "日记", icon: <NotebookPen size={17} /> },
     { id: "categories", label: "分类", icon: <Gauge size={17} /> },
     { id: "bebe", label: "bebe", icon: <PawPrint size={17} /> },
+    { id: "goals", label: "长期目标", icon: <Flag size={17} /> },
     { id: "slogan", label: "Slogan", icon: <Quote size={17} /> },
     { id: "provider", label: "AI Provider", icon: <KeyRound size={17} /> },
     { id: "prompt", label: "AI Prompt", icon: <Sparkles size={17} /> },
@@ -712,6 +718,32 @@ export function SettingsPanel({
                   <div><h3>bebe</h3><p>bebe 什么时候提醒、什么时候安静，以及你让它记住的话。在对话里说一句也能改：「今晚别提醒我」这类临时的马上生效、可以撤销；「以后都……」这类长期的会先出确认卡。</p></div>
                 </div>
                 <BebeSettings pet={draft.pet} onPetChange={(pet) => setDraft((current) => ({ ...current, pet }))} profile={petProfile} profileError={profileError} onProfileChange={setPetProfile} />
+              </div>
+            )}
+
+            {section === "goals" && (
+              <div className="settings-section form-grid goal-settings">
+                <div className="section-heading">
+                  <Flag size={21} />
+                  <div><h3>长期目标</h3><p>能力森林里标为「在推进」的中 / 小节点，会在晚间「写进日记」时对照当天日记：AI 把推进了什么写在【AI总结】的「长期目标」下面，能力森林里显示最近一次推进和时间线。</p></div>
+                </div>
+                <div className="goal-map-list">
+                  <span className="goal-map-label">对哪些地图生效</span>
+                  {goalMaps.map((map) => (
+                    <label className="toggle-row" key={map.kind}>
+                      <input
+                        type="checkbox"
+                        checked={draft.goals.maps.includes(map.kind)}
+                        onChange={(event) => setDraft((current) => ({
+                          ...current,
+                          goals: { maps: GOAL_MAP_ORDER.filter((kind) => kind === map.kind ? event.target.checked : current.goals.maps.includes(kind)) },
+                        }))}
+                      />
+                      <span><strong>{map.name}</strong><small>{map.active > 0 ? `${map.active} 个在推进` : "还没有在推进的节点"}</small></span>
+                    </label>
+                  ))}
+                </div>
+                <div className="settings-note">没勾选的地图里不显示「在推进」，晚间总结也不读它；已标的节点会保留，重新勾选后恢复。</div>
               </div>
             )}
 

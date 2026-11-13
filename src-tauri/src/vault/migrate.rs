@@ -154,6 +154,7 @@ fn legacy_forest(root: &Path, kind: AbilityMapKind) -> Result<AbilityForest, Str
                 parent_id: node.parent_id,
                 order: node.order,
                 color: node.color,
+                active: false,
             }
         })
         .collect();

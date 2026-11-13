@@ -9,6 +9,11 @@ import { SettingsPanel } from "./SettingsPanel";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
+const GOAL_MAPS = [
+  { kind: "vision" as const, name: "Long-term Vision", active: 2 },
+  { kind: "research" as const, name: "Research Agenda", active: 0 },
+];
+
 describe("SettingsPanel selects", () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -31,6 +36,7 @@ describe("SettingsPanel selects", () => {
           onApiKeyCleared={vi.fn()}
           onBoardImported={vi.fn()}
           onLifeStagesSaved={vi.fn()}
+          goalMaps={GOAL_MAPS}
         />,
       );
     });
@@ -55,6 +61,17 @@ describe("SettingsPanel selects", () => {
 
     expect(trigger!.textContent).toContain("08:00");
     expect(host.querySelector('[role="listbox"][aria-label="早上开始时间"]')).toBeNull();
+  });
+
+  it("chooses the maps 长期目标 applies to, Long-term Vision only by default", () => {
+    const nav = Array.from(host.querySelectorAll<HTMLButtonElement>(".settings-nav button")).find((button) => button.textContent?.includes("长期目标"))!;
+    act(() => nav.click());
+    const boxes = Array.from(host.querySelectorAll<HTMLInputElement>(".goal-map-list input[type=checkbox]"));
+    expect(boxes.map((box) => box.checked)).toEqual([true, false]);
+    expect(host.querySelector(".goal-map-list")?.textContent).toContain("2 个在推进");
+    act(() => boxes[1].click());
+    act(() => boxes[0].click());
+    expect(boxes.map((box) => box.checked)).toEqual([false, true]);
   });
 
   it("edits one AI prompt at a time through the prompt tabs", () => {
@@ -138,6 +155,7 @@ describe("SettingsPanel destructive actions", () => {
           onApiKeyCleared={onApiKeyCleared}
           onBoardImported={vi.fn()}
           onLifeStagesSaved={onLifeStagesSaved}
+          goalMaps={GOAL_MAPS}
         />,
       );
     });

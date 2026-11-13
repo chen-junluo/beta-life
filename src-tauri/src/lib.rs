@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -19,6 +19,7 @@ mod ai;
 mod bebe;
 mod categories;
 mod digest;
+mod goals;
 mod habits;
 mod pet;
 mod vault;
@@ -222,6 +223,21 @@ struct AppSettings {
     /// bebe's thresholds, lead times and quiet hours (P5).
     #[serde(default)]
     pet: bebe::PetSettings,
+    #[serde(default)]
+    goals: GoalSettings,
+}
+
+/// 长期目标 (P7): the maps whose 在推进 nodes the evening summary compares against the diary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct GoalSettings {
+    maps: Vec<AbilityMapKind>,
+}
+
+impl Default for GoalSettings {
+    fn default() -> Self {
+        Self { maps: vec![AbilityMapKind::Vision] }
+    }
 }
 
 /// Four areas written by hand, then the 【AI总结】 line; summaries go under it (P6).
@@ -362,7 +378,7 @@ struct LoadedAppState {
 }
 
 /// The ability tab keeps two independent three-level maps, each in its own data directory.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum AbilityMapKind {
     Vision,
@@ -445,6 +461,9 @@ struct AbilityNode {
     color: Option<String>,
     #[serde(default)]
     markdown: String,
+    /// 在推进: a long-term goal compared against the diary (P7); only 中 / 小节点, kept in `map.json`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    active: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -805,6 +824,7 @@ fn default_settings() -> AppSettings {
         diary: DiarySettings::default(),
         activity: ActivitySettings::default(),
         pet: bebe::PetSettings::default(),
+        goals: GoalSettings::default(),
     }
 }
 
@@ -1288,6 +1308,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     if !(1..=3650).contains(&settings.activity.ai_days) {
         return Err("AI 能读的活动记录天数应在 1–3650 之间".into());
     }
+    if settings.goals.maps.len() > 2 || (settings.goals.maps.len() == 2 && settings.goals.maps[0] == settings.goals.maps[1]) {
+        return Err("长期目标的地图不能重复".into());
+    }
     bebe::validate(&settings.pet)?;
     if settings.ai.base_url.trim().is_empty() || settings.ai.model.trim().is_empty() {
         return Err("AI Base URL 和 Model 不能为空".into());
@@ -1413,6 +1436,7 @@ fn save_board(app: AppHandle, board: BoardFile) -> Result<(), String> {
     vault::board::save(&root, &board)
 }
 
+/// A renamed node or 领域 also rewrites its `[[链接]]` in the diary; the diary view then reloads.
 #[tauri::command]
 fn save_ability_forest(
     app: AppHandle,
@@ -1420,8 +1444,14 @@ fn save_ability_forest(
     ability_forest: AbilityForest,
 ) -> Result<(), String> {
     validate_ability_forest(&ability_forest)?;
-    let (_guard, root) = vault::open(&app)?;
-    vault::forest::save(&root, map, &ability_forest)
+    let (guard, root) = vault::open(&app)?;
+    let renames = vault::forest::save(&root, map, &ability_forest)?;
+    let rewritten = vault::diary::rename_links(&root, &renames)?;
+    drop(guard);
+    if rewritten {
+        let _ = app.emit("vault-changed", serde_json::json!({ "panels": ["diary"] }));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2609,6 +2639,7 @@ pub fn run() {
             vault::location::change_data_folder,
             save_board,
             save_ability_forest,
+            goals::load_goal_progress,
             save_settings,
             save_api_key,
             delete_api_key,
