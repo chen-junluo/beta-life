@@ -152,6 +152,15 @@ User-editable preferences for the suggestions:
 {}"#,
             settings.ai.habit_suggestion_prompt
         )),
+        "goal_step" => Ok(format!(
+            r#"[Beta Life task: 长期目标小步骤] bebe reminded the user in the morning that some long-term goals (能力森林 nodes marked 在推进) have not moved for a while, and the user asked for one small step for today. Their message lists those goals with their [[links]], name paths and how long they have been idle.
+1. Gather, in one response: read_node for each listed goal, and read_diary for today and the 6 days before it (missing days are fine).
+2. Then reply with one small step for one goal, as the preferences below ask, and call schedule_reminder once so bebe reminds the user to do it later today: pick a sensible time from the board periods and what the diary says about the day, at least 30 minutes from now and before the sleep period; text = the step, short. Call no write tool.
+
+User-editable preferences for the step:
+{}"#,
+            settings.ai.goal_step_prompt
+        )),
         _ => Err("AI 对话包含未知的 task".into()),
     }
 }

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, ChevronDown, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
@@ -10,7 +10,7 @@ import { BebeSettings } from "./BebeSettings";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AbilityMapKind, AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
-type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
+type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "goalStepPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
 
 const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
   { key: "assistantPrompt", label: "AI 助手", help: "AI 助手的工作方式和语气。工具协议、@ 权限和「写入前先确认」由应用管理，这里改不掉。", fallback: DEFAULT_ASSISTANT_PROMPT },
@@ -18,11 +18,18 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "habitReasonsPrompt", label: "阻挠原因", help: "时段结束前 bebe 问「为什么没完成」，AI 按这里的要求把你的回答分到各个习惯卡片的【阻挠习惯的原因】；这一步直接写入，写错了在卡片里改或删。", fallback: DEFAULT_HABIT_REASONS_PROMPT },
   { key: "habitOfferPrompt", label: "低完成率总结", help: "0 点存档后 bebe 问要不要写建议时，AI 先按这里的要求用一句话总结哪些习惯没做好；下面最多列 3 个完成最少的习惯。", fallback: DEFAULT_HABIT_OFFER_PROMPT },
   { key: "habitSuggestionPrompt", label: "助推建议", help: "0 点存档后，对 7 天完成率偏低的习惯，bebe 问要不要写建议；AI 读阻挠原因和最近的日记，写在日记【AI总结】下面，写入前先确认由应用管理。", fallback: DEFAULT_HABIT_SUGGESTION_PROMPT },
+  { key: "goalStepPrompt", label: "长期目标小步骤", help: "早上 bebe 提醒长期目标太久没推进，点「想个小步骤」后，AI 读目标笔记和最近的日记，按这里的要求给一个今天能做的小步骤，并排一个今天的一次性提醒（可撤销）。", fallback: DEFAULT_GOAL_STEP_PROMPT },
   { key: "extractionPrompt", label: "习惯提取", help: "点时间板的「AI 提取」后，AI 助手按这里的要求从文字或截图里提取习惯；工具协议和「写入前先确认」由应用管理。", fallback: DEFAULT_EXTRACTION_PROMPT },
   { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },
   { key: "recallPointsPrompt", label: "抽查点起草", help: "根据知识正文生成 framework、mechanism、relationship 抽查点。", fallback: DEFAULT_RECALL_POINTS_PROMPT },
   { key: "recallEvaluationPrompt", label: "抽查评价与反馈", help: "按 FSRS 等级评价关键点，并生成待确认反馈。", fallback: DEFAULT_RECALL_EVALUATION_PROMPT },
   { key: "memoryAnalysisPrompt", label: "记忆分析", help: "从回忆正文中建议歌曲、日期、阶段、地点和情绪；结果仍需检查并手动保存。", fallback: DEFAULT_MEMORY_ANALYSIS_PROMPT },
+];
+
+/** Settings → 长期目标: when a goal is stale and how often bebe repeats it. */
+const GOAL_NUMBER_FIELDS: Array<{ key: "staleDays" | "remindEveryDays"; label: string; max: number }> = [
+  { key: "staleDays", label: "多久没推进算太久", max: 365 },
+  { key: "remindEveryDays", label: "同一个目标再次提醒的间隔", max: 30 },
 ];
 
 type SettingsSection = "timeline" | "appearance" | "recall" | "stages" | "diary" | "categories" | "bebe" | "goals" | "slogan" | "provider" | "prompt" | "data";
@@ -737,7 +744,7 @@ export function SettingsPanel({
                         checked={draft.goals.maps.includes(map.kind)}
                         onChange={(event) => setDraft((current) => ({
                           ...current,
-                          goals: { maps: GOAL_MAP_ORDER.filter((kind) => kind === map.kind ? event.target.checked : current.goals.maps.includes(kind)) },
+                          goals: { ...current.goals, maps: GOAL_MAP_ORDER.filter((kind) => kind === map.kind ? event.target.checked : current.goals.maps.includes(kind)) },
                         }))}
                       />
                       <span><strong>{map.name}</strong><small>{map.active > 0 ? `${map.active} 个在推进` : "还没有在推进的节点"}</small></span>
@@ -745,6 +752,25 @@ export function SettingsPanel({
                   ))}
                 </div>
                 <div className="settings-note">没勾选的地图里不显示「在推进」，晚间总结也不读它；已标的节点会保留，重新勾选后恢复。</div>
+                <div className="bebe-number-grid">
+                  {GOAL_NUMBER_FIELDS.map((field) => (
+                    <label className="settings-field-card" key={field.key}>
+                      <span>{field.label}（天）</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={field.max}
+                        step="1"
+                        value={draft.goals[field.key]}
+                        onChange={(event) => {
+                          const value = Math.min(field.max, Math.max(1, Math.round(Number(event.target.value)) || 1));
+                          setDraft((current) => ({ ...current, goals: { ...current.goals, [field.key]: value } }));
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className="settings-note">睡眠时段结束后你第一次在电脑前时，bebe 提醒超过天数没推进的目标（一天最多一次，最多列 3 个）；新标的目标从标记那天开始算。</div>
               </div>
             )}
 

@@ -55,6 +55,10 @@ interface AbilityForestViewProps {
   forest: AbilityForest;
   /** 长期目标 entries by node path when this map takes part in it (Settings), else null (P7). */
   goals?: Map<string, GoalEntry[]> | null;
+  /** When each goal was marked 在推进, by name path; a goal with no progress counts from here. */
+  goalSince?: Map<string, string>;
+  /** Settings → 长期目标: days without progress before a goal shows as stale. */
+  staleDays?: number;
   saveState: ForestSaveState;
   onForestChange: (forest: AbilityForest, immediate?: boolean) => void;
   topbarActions?: HTMLElement | null;
@@ -117,7 +121,7 @@ function orderedTree(forest: AbilityForest, collapsed: Set<string>) {
   return rows;
 }
 
-export function AbilityForestView({ forest, goals = null, saveState, onForestChange, topbarActions, mapTabs }: AbilityForestViewProps) {
+export function AbilityForestView({ forest, goals = null, goalSince, staleDays = 7, saveState, onForestChange, topbarActions, mapTabs }: AbilityForestViewProps) {
   const initialMapState = mapStateFor(forest);
   const [selectedId, setSelectedId] = useState(initialMapState.selectedId ?? "data-literacy");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -152,7 +156,7 @@ export function AbilityForestView({ forest, goals = null, saveState, onForestCha
   const paths = useMemo(() => namePaths(forest), [forest]);
   const now = new Date();
   const goalEntries = (node: AbilityNode) => goals?.get(pathKey(paths.get(node.id) ?? [])) ?? [];
-  const goalOf = (node: AbilityNode) => goals && node.level > 0 && node.active ? goalStatus(goalEntries(node), now) : null;
+  const goalOf = (node: AbilityNode) => goals && node.level > 0 && node.active ? goalStatus(goalEntries(node), now, staleDays, goalSince?.get(pathKey(paths.get(node.id) ?? []))) : null;
   const selectedGoal = selected ? goalOf(selected) : null;
   const siblings = selected ? orderedSiblings(forest, selected.parentId) : [];
   const selectedIndex = selected ? siblings.findIndex((item) => item.id === selected.id) : -1;

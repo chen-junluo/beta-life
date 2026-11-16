@@ -82,6 +82,8 @@ export interface AiSettings {
   habitSuggestionPrompt: string;
   /** The one-line summary that opens bebe's 0:00 suggestion offer. */
   habitOfferPrompt: string;
+  /** The small step bebe suggests for a stale long-term goal. */
+  goalStepPrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -186,6 +188,10 @@ export interface AppSettings {
 /** 长期目标 (P7): the maps whose 在推进 nodes the evening summary compares against the diary. */
 export interface GoalSettings {
   maps: AbilityMapKind[];
+  /** Days without progress before a goal is stale: orange in the tree, and bebe's morning reminder. */
+  staleDays: number;
+  /** bebe reminds about the same stale goal at most once in this many days. */
+  remindEveryDays: number;
 }
 
 export interface LoadedAppState {

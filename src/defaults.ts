@@ -51,6 +51,12 @@ export const DEFAULT_HABIT_OFFER_PROMPT = `用一句话总结最近哪些习惯�
 2. 只陈述事实，语气轻松，不说教、不评价、不给建议。
 3. 语言跟习惯名称一致。`;
 
+/** Same as Rust `goals::DEFAULT_GOAL_STEP_PROMPT`. */
+export const DEFAULT_GOAL_STEP_PROMPT = `从列出的目标里挑一个今天最容易动起来的，给一个小步骤：
+1. 小而具体，10–30 分钟能做完，做完就算推进了一点（比如「打开论文草稿，列出下一节的三个小标题」）。
+2. 参考这个目标节点的笔记和最近日记里相关的内容，接着上次停下的地方往下走；没有线索就从最小的准备动作开始。
+3. 一两句话说完，不说教、不追问为什么没做；语言跟目标名称一致。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -164,13 +170,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
     habitReasonsPrompt: DEFAULT_HABIT_REASONS_PROMPT,
     habitSuggestionPrompt: DEFAULT_HABIT_SUGGESTION_PROMPT,
     habitOfferPrompt: DEFAULT_HABIT_OFFER_PROMPT,
+    goalStepPrompt: DEFAULT_GOAL_STEP_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},
   diary: { template: DEFAULT_DIARY_TEMPLATE },
   activity: { aiDays: 30, aiTitles: true },
   pet: DEFAULT_PET_SETTINGS,
-  goals: { maps: ["vision"] },
+  goals: { maps: ["vision"], staleDays: 7, remindEveryDays: 3 },
 };
 
 export const DEFAULT_BOARD: BoardFile = {

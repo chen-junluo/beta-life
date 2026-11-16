@@ -97,6 +97,15 @@ struct MapMeta {
     /// Name paths of the 在推进 nodes (P7).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     active: Vec<Vec<String>>,
+    /// Local `YYYY-MM-DD` each 在推进 node was marked; a goal with no progress counts from here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    since: Vec<PathSince>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PathSince {
+    path: Vec<String>,
+    date: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -401,6 +410,30 @@ pub(crate) fn goal_targets(root: &Path, kind: AbilityMapKind) -> Vec<GoalTarget>
     targets
 }
 
+/// The date each 在推进 node of a map was marked. Goals marked before dates were kept get `today`,
+/// written back once so they count from the first day this was seen.
+pub(crate) fn goal_since(root: &Path, kind: AbilityMapKind, today: &str) -> Result<HashMap<Vec<String>, String>, String> {
+    let Some(folder) = folder(root, kind) else { return Ok(HashMap::new()) };
+    let path = tab(root).join(&folder).join(META).join("map.json");
+    let Ok(mut meta) = crate::read_json::<MapMeta>(&path) else { return Ok(HashMap::new()) };
+    let mut since: HashMap<Vec<String>, String> = meta.since.iter().map(|entry| (entry.path.clone(), entry.date.clone())).collect();
+    let missing: Vec<Vec<String>> = meta.active.iter().filter(|path| !since.contains_key(*path)).cloned().collect();
+    if !missing.is_empty() {
+        for path in missing {
+            since.insert(path.clone(), today.to_string());
+            meta.since.push(PathSince { path, date: today.to_string() });
+        }
+        meta.since.sort_by(|left, right| left.path.cmp(&right.path));
+        crate::atomic_write(&path, &meta)?;
+    }
+    Ok(since)
+}
+
+#[cfg(test)]
+pub(crate) fn map_meta_path(root: &Path, kind: AbilityMapKind) -> PathBuf {
+    tab(root).join(folder(root, kind).unwrap()).join(META).join("map.json")
+}
+
 fn push_node(forest: &mut AbilityForest, kind: AbilityMapKind, parent: Option<&str>, prefix: &[String], order: usize, section: &Section, level: u8) -> String {
     let same_name_before = forest
         .nodes
@@ -529,6 +562,11 @@ pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) ->
         .filter_map(|(id, position)| paths.get(id).map(|path| PathPosition { path: path.clone(), x: position.x, y: position.y }))
         .collect();
     positions.sort_by(|left, right| left.path.cmp(&right.path));
+    let meta_path = dir.join(META).join("map.json");
+    let old_since: HashMap<Vec<String>, String> = crate::read_json::<MapMeta>(&meta_path)
+        .map(|meta| meta.since.into_iter().map(|entry| (entry.path, entry.date)).collect())
+        .unwrap_or_default();
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
     let meta = MapMeta {
         schema_version: 1,
         name: forest.name.clone(),
@@ -545,8 +583,23 @@ pub(crate) fn save(root: &Path, kind: AbilityMapKind, forest: &AbilityForest) ->
             active.sort();
             active
         },
+        // A renamed goal keeps its date through its old path; a newly marked one starts today.
+        since: {
+            let mut since: Vec<PathSince> = forest
+                .nodes
+                .iter()
+                .filter(|node| node.active && node.level > 0)
+                .filter_map(|node| {
+                    let path = paths.get(&node.id)?;
+                    let date = old_paths.get(&node.id).and_then(|old| old_since.get(old)).or_else(|| old_since.get(path)).cloned().unwrap_or_else(|| today.clone());
+                    Some(PathSince { path: path.clone(), date })
+                })
+                .collect();
+            since.sort_by(|left, right| left.path.cmp(&right.path));
+            since
+        },
     };
-    crate::atomic_write(&dir.join(META).join("map.json"), &meta)?;
+    crate::atomic_write(&meta_path, &meta)?;
     Ok(renames)
 }
 

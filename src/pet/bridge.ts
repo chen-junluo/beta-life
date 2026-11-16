@@ -1,4 +1,5 @@
 import type { AiBatch, AiScope, Conversation } from "../ai/types";
+import type { StaleGoal } from "../goals";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 
 /** The main window owns the board; it pushes snapshots to the pet and applies the pet's requests. */
@@ -26,6 +27,10 @@ export const PET_OPEN_TIMELINE = "pet://open-timeline";
 /** Pet → main: the answer to 「为什么没完成呢？」 (`PetHabitReasons`), and 写建议 on a suggestion offer. */
 export const PET_HABIT_REASONS = "pet://habit-reasons";
 export const PET_HABIT_SUGGEST = "pet://habit-suggest";
+/** Pet → main: 想个小步骤 on the morning reminder about stale long-term goals (`StaleGoal[]`). */
+export const PET_GOAL_STEP = "pet://goal-step";
+/** The 长期目标小步骤 task reads the goals' notes and the week's diary; it only schedules a reminder (a bebe tool). */
+export const PET_GOAL_SCOPE: AiScope = { forest: "read", diary: "read" };
 
 /** A conversation started from bebe can read the panels (not the diary) and the timeline, and change the time board. */
 export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest: "read", memories: "read", timeline: "read" };
@@ -37,6 +42,13 @@ export interface PetBoardSnapshot {
   pet: PetSettings;
   /** Habits with a low rate on the last archived day; bebe offers to write suggestions once. */
   suggest: HabitSuggestOffer | null;
+  /** Long-term goals without progress for Settings' days; bebe reminds once a morning. */
+  goals: PetGoalNudge;
+}
+
+export interface PetGoalNudge {
+  stale: StaleGoal[];
+  remindEveryDays: number;
 }
 
 export interface HabitSuggestOffer {

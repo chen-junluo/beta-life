@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
 import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
@@ -32,7 +32,7 @@ import { MemoriesView } from "./components/MemoriesView";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_ABILITY_MAP_NAMES, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS, DEFAULT_TAB_SLOGANS } from "./defaults";
 import { AbilityForestView } from "./components/AbilityForestView";
 import { AbilityMapTabs } from "./components/AbilityMapTabs";
-import { entriesByPath, goalsMessage, loadGoalProgress, type GoalProgress } from "./goals";
+import { entriesByPath, goalsMessage, loadGoalProgress, pathKey, staleGoals, type GoalProgress, type StaleGoal } from "./goals";
 import {
   PET_BOARD,
   PET_CHAT,
@@ -45,6 +45,8 @@ import {
   PET_HABIT_REASONS,
   PET_HABIT_SUGGEST,
   PET_SUGGEST_SCOPE,
+  PET_GOAL_SCOPE,
+  PET_GOAL_STEP,
   PET_OPEN_TIMELINE,
   PET_SUMMARY_DIARY,
   PET_DOCK_ARRIVED,
@@ -55,6 +57,7 @@ import {
   petChatSnapshot,
   type HabitSuggestOffer,
   type PetBoardSnapshot,
+  type PetGoalNudge,
   type PetChatResolve,
   type PetHabitReasons,
   type PetChatUndo,
@@ -498,6 +501,20 @@ export default function App() {
       .catch(console.error);
     return () => { current = false; };
   }, [page, activeSection, goalMaps, diaryRevision, goalRevision]);
+  // bebe's morning reminder needs the goals on any page: load once a day and after goal changes.
+  const [today, setToday] = useState(() => localDateKey(new Date()));
+  useEffect(() => {
+    const interval = window.setInterval(() => setToday(localDateKey(new Date())), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__ || !goalMaps) return;
+    let current = true;
+    void loadGoalProgress(goalMaps.split(",") as AbilityMapKind[])
+      .then((progress) => { if (current) setGoalProgress(progress); })
+      .catch(console.error);
+    return () => { current = false; };
+  }, [goalMaps, today, goalRevision]);
   const assistant = useAssistant({
     activePanel: dockPanel,
     getState: () => stateRef.current,
@@ -638,6 +655,7 @@ export default function App() {
       // 写进日记 from bebe's evening summary: no model call, just the diff card to confirm.
       listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
       listen<HabitSuggestOffer>(PET_HABIT_SUGGEST, ({ payload }) => void stageHabitSuggestions(payload)),
+      listen<StaleGoal[]>(PET_GOAL_STEP, ({ payload }) => void stageGoalStep(payload)),
       listen(PET_OPEN_TIMELINE, () => {
         setPage("timeline");
         void invoke("show_main_window").catch(console.error);
@@ -690,6 +708,12 @@ export default function App() {
     return assistantRef.current.startTask("suggest_habits", PET_SUGGEST_SCOPE, `给 ${date}（日记 ${day}）这几个完成率偏低的习惯写助推建议：\n${list}`, `${day} 助推建议`);
   }
 
+  /** 想个小步骤 on bebe's morning reminder: the AI reads the goals and the week's diary, then schedules one reminder. */
+  function stageGoalStep(goals: StaleGoal[]) {
+    const list = goals.map((goal) => `- [[${goal.link}]]（${goal.path.join(" › ")}）：${goal.label}`).join("\n");
+    return assistantRef.current.startTask("goal_step", PET_GOAL_SCOPE, `这几个长期目标好一阵没推进了，帮我想一个今天能做的小步骤：\n${list}`, "长期目标小步骤");
+  }
+
   /** The timeline's 写进日记: the round runs in the dock. */
   function writeSummaryToDiary(entry: PetSummaryDiary) {
     setDockHidden(false);
@@ -722,17 +746,24 @@ export default function App() {
   const petSettings = state?.settings.pet;
   const suggestRef = useRef(suggestOffer);
   suggestRef.current = suggestOffer;
+  const goalSettings = state?.settings.goals;
+  const petGoals = useMemo<PetGoalNudge>(() => ({
+    stale: goalProgress && goalSettings?.maps.length ? staleGoals(goalProgress, new Date(), goalSettings.staleDays) : [],
+    remindEveryDays: goalSettings?.remindEveryDays ?? 3,
+  }), [goalProgress, goalSettings, today]); // `today` re-counts the days
+  const petGoalsRef = useRef(petGoals);
+  petGoalsRef.current = petGoals;
   useEffect(() => {
     if (!window.__TAURI_INTERNALS__ || !petItems || !petPeriods || !petSettings) return;
-    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods, pet: petSettings, suggest: suggestOffer }).catch(console.error);
-  }, [petItems, petPeriods, petSettings, suggestOffer]);
+    void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: petItems, periods: petPeriods, pet: petSettings, suggest: suggestOffer, goals: petGoals }).catch(console.error);
+  }, [petItems, petPeriods, petSettings, suggestOffer, petGoals]);
 
   useEffect(() => {
     if (!window.__TAURI_INTERNALS__) return;
     const sendSnapshot = () => {
       const current = stateRef.current;
       if (!current) return;
-      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods, pet: current.settings.pet, suggest: suggestRef.current });
+      void emitTo<PetBoardSnapshot>("pet", PET_BOARD, { items: activeItems(current.board), periods: current.settings.periods, pet: current.settings.pet, suggest: suggestRef.current, goals: petGoalsRef.current });
     };
     const unlisteners = [
       listen(PET_READY, sendSnapshot),
@@ -1056,6 +1087,8 @@ export default function App() {
         key={activeAbilityMap}
         forest={state[ABILITY_MAP_STATE_KEYS[activeAbilityMap]]}
         goals={state.settings.goals.maps.includes(activeAbilityMap) ? entriesByPath(goalProgress, activeAbilityMap) : null}
+        goalSince={new Map((goalProgress?.goals ?? []).filter((goal) => goal.map === activeAbilityMap).map((goal) => [pathKey(goal.path), goal.since]))}
+        staleDays={state.settings.goals.staleDays}
         saveState={forestSaveState}
         onForestChange={changeActiveAbilityForest}
         topbarActions={topbarActions}

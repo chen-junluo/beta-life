@@ -8,6 +8,7 @@ import { DiffCard } from "../components/AiDock";
 import { DEFAULT_PET_SETTINGS } from "../defaults";
 import { renderMarkdown } from "../markdown";
 import { periodCheck, unfinishedIn } from "../habitLogic";
+import { daysSince, type StaleGoal } from "../goals";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
   PET_BOARD,
@@ -19,12 +20,14 @@ import {
   PET_DOCK_ARRIVED,
   PET_HABIT_REASONS,
   PET_HABIT_SUGGEST,
+  PET_GOAL_STEP,
   PET_MARK_DONE,
   PET_OPEN_TIMELINE,
   PET_PRESENCE,
   PET_READY,
   PET_SUMMARY_DIARY,
   type HabitSuggestOffer,
+  type PetGoalNudge,
   type PetBoardSnapshot,
   type PetChatResolve,
   type PetChatSend,
@@ -66,6 +69,10 @@ const DAY_STORAGE_KEY = "bebe:day";
 const SUMMARY_STORAGE_KEY = "bebe:summary";
 /** The last archived day bebe offered habit suggestions for (`YYYY-MM-DD`). */
 const SUGGEST_STORAGE_KEY = "bebe:suggest";
+/** The last day bebe reminded about stale long-term goals (`YYYY-MM-DD`). */
+const GOALS_DAY_STORAGE_KEY = "bebe:goals-day";
+/** When bebe last reminded about each goal: `{ [StaleGoal.key]: "YYYY-MM-DD" }`. */
+const GOALS_REMINDED_STORAGE_KEY = "bebe:goals-reminded";
 /** A day with less activity than this gets no evening summary. */
 const SUMMARY_MIN_MS = 10 * 60_000;
 const isTauri = Boolean(window.__TAURI_INTERNALS__);
@@ -83,6 +90,8 @@ type Bubble =
   | { kind: "why"; date: string; period: PeriodSetting; habits: Habit[] }
   /** After 0:00: offer to write suggestions for habits with a low rate. */
   | { kind: "suggest"; offer: HabitSuggestOffer }
+  /** In the morning: long-term goals that have not moved for a while (at most `OFFER_LIST_MAX`). */
+  | { kind: "goals"; goals: StaleGoal[] }
   | { kind: "chat" };
 
 interface DayMemory {
@@ -126,6 +135,14 @@ const OFFER_LIST_MAX = 3;
 /** The habits with the lowest completion rate; ties keep the board order. */
 function fewestDone(habits: HabitSuggestOffer["habits"]): HabitSuggestOffer["habits"] {
   return [...habits].sort((a, b) => a.done / a.total - b.done / b.total).slice(0, OFFER_LIST_MAX);
+}
+
+function readReminded(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(GOALS_REMINDED_STORAGE_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
 }
 
 /** Dev-only browser preview: `pet.html?state=alert&bubble=reminder` (or `bubble=chat`). */
@@ -183,6 +200,13 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
           { id: "f", title: "练吉他30min", done: 0, total: 3 },
         ],
       },
+    },
+    goals: {
+      kind: "goals",
+      goals: [
+        { key: "a", name: "论文：最低工资与就业", link: "", path: ["研究者", "论文：最低工资与就业"], label: "12 天没推进", days: 12 },
+        { key: "b", name: "每周跑步三次，备战明年春天的半程马拉松", link: "", path: ["健康", "跑步"], label: "标记 9 天还没推进", days: 9 },
+      ].slice(0, Number(params.get("count") ?? 2)),
     },
     chat: { kind: "chat" },
   };
@@ -391,6 +415,7 @@ export function PetApp() {
   /** Settings → bebe, pushed by the main window with the board. */
   const [pet, setPet] = useState<PetSettings>(DEFAULT_PET_SETTINGS);
   const [suggestOffer, setSuggestOffer] = useState<HabitSuggestOffer | null>(null);
+  const [goalNudge, setGoalNudge] = useState<PetGoalNudge | null>(null);
   const rules = useMemo(() => slackRules(pet), [pet]);
   const windowMs = rules.windowMs;
   /** Pause and one-off reminders, set from a chat (Rust keeps them on this Mac). */
@@ -458,6 +483,7 @@ export function PetApp() {
       setPeriods(payload.periods);
       setPet(payload.pet ?? DEFAULT_PET_SETTINGS);
       setSuggestOffer(payload.suggest ?? null);
+      setGoalNudge(payload.goals ?? null);
     });
     void unlisten.then(() => emitTo("main", PET_READY));
     return () => void unlisten.then((stop) => stop());
@@ -634,6 +660,21 @@ export function PetApp() {
     play("alert");
   }, [suggestOffer, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
 
+  // The first time the user is around after the sleep period: stale long-term goals, once a day,
+  // each goal again only after Settings' interval.
+  useEffect(() => {
+    if (!isTauri || preview.bubble || !goalNudge?.stale.length || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    const today = localDateKey(new Date(now));
+    if (localStorage.getItem(GOALS_DAY_STORAGE_KEY) === today) return;
+    const reminded = readReminded();
+    const due = goalNudge.stale.filter((goal) => !reminded[goal.key] || daysSince(reminded[goal.key], new Date(now)) >= goalNudge.remindEveryDays).slice(0, OFFER_LIST_MAX);
+    if (due.length === 0) return;
+    localStorage.setItem(GOALS_DAY_STORAGE_KEY, today);
+    localStorage.setItem(GOALS_REMINDED_STORAGE_KEY, JSON.stringify({ ...reminded, ...Object.fromEntries(due.map((goal) => [goal.key, today])) }));
+    raise({ kind: "goals", goals: due });
+    play("alert");
+  }, [now, goalNudge, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
+
   // The light reminder goes away by itself.
   useEffect(() => {
     if (bubble?.kind !== "nudge" || bubble.level !== 1 || preview.bubble) return;
@@ -733,6 +774,12 @@ export function PetApp() {
   /** The main window starts the 助推建议 task; bebe's chat shows the diff card. */
   function writeSuggestions(offer: HabitSuggestOffer) {
     if (isTauri) void emitTo<HabitSuggestOffer>("main", PET_HABIT_SUGGEST, offer);
+    setBubble({ kind: "chat" });
+  }
+
+  /** The main window starts the 长期目标小步骤 task; bebe's chat shows the step and the reminder's undo. */
+  function goalStep(goals: StaleGoal[]) {
+    if (isTauri) void emitTo<StaleGoal[]>("main", PET_GOAL_STEP, goals);
     setBubble({ kind: "chat" });
   }
 
@@ -871,6 +918,24 @@ export function PetApp() {
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => writeSuggestions(bubble.offer)}>写建议</button>
                 <button type="button" className="secondary-button" onClick={() => setBubble(null)}>不用了</button>
+              </div>
+            </>
+          )}
+          {bubble.kind === "goals" && (
+            <>
+              <span className="pet-bubble-meta">长期目标</span>
+              <p className="pet-bubble-text is-full">
+                {bubble.goals.length === 1 ? "这个长期目标好一阵没推进了" : `有 ${bubble.goals.length} 个长期目标好一阵没推进了`}
+              </p>
+              <ul className="pet-bubble-list">
+                {bubble.goals.map((goal) => (
+                  <li key={goal.key} title={goal.path.join(" › ")}><span>{goal.name}</span><small>{goal.label}</small></li>
+                ))}
+              </ul>
+              <p className="pet-bubble-ask">要 bebe 帮你想一个今天能做的小步骤吗？</p>
+              <div className="pet-bubble-actions">
+                <button type="button" className="primary-button" onClick={() => goalStep(bubble.goals)}>想个小步骤</button>
+                <button type="button" className="secondary-button" onClick={() => setBubble(null)}>知道啦</button>
               </div>
             </>
           )}

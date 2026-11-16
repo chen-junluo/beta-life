@@ -84,11 +84,12 @@
 .pet-bubble-text.is-full {
   -webkit-line-clamp: unset;
 }
-/* The suggestion offer: a few habits, one line each, with the count on the right. */
-.pet-bubble-list { min-width: 0; margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12px; line-height: 1.45; }
-.pet-bubble-list li { min-width: 0; color: var(--ink); }
-.pet-bubble-list li > span { display: inline-block; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-.pet-bubble-list small { margin-left: 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* The suggestion and goal offers: a few items, one line each; the name shrinks, the count stays whole. */
+.pet-bubble-list { min-width: 0; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 12px; line-height: 1.45; }
+.pet-bubble-list li { min-width: 0; display: flex; align-items: baseline; gap: 6px; color: var(--ink); }
+.pet-bubble-list li::before { content: "•"; flex: none; }
+.pet-bubble-list li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pet-bubble-list small { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .pet-bubble-ask { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .pet-countdown { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent); }
 

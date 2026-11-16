@@ -8,6 +8,8 @@ export interface Goal {
   path: string[];
   name: string;
   link: string;
+  /** `YYYY-MM-DD` it was marked 在推进; without progress it counts from here. */
+  since: string;
 }
 
 /** One diary line `[[目标]]：做了什么` under a day's `- 长期目标`. */
@@ -24,8 +26,6 @@ export interface GoalProgress {
   entries: GoalEntry[];
 }
 
-/** Days without progress before the tree shows the goal as stale. */
-export const STALE_DAYS = 7;
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 export function loadGoalProgress(maps: AbilityMapKind[]): Promise<GoalProgress> {
@@ -81,16 +81,51 @@ export interface GoalStatus {
   monthDays: number;
 }
 
-/** `entries` newest first. */
-export function goalStatus(entries: GoalEntry[], now: Date): GoalStatus {
+/** Whole days from `date` (`YYYY-MM-DD`) to today. */
+export function daysSince(date: string, now: Date): number {
+  return Math.max(0, Math.round((dayStart(now).getTime() - localDate(date).getTime()) / 86_400_000));
+}
+
+/** `entries` newest first; `since` is when the goal was marked (today when unknown). */
+export function goalStatus(entries: GoalEntry[], now: Date, staleDays: number, since?: string): GoalStatus {
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const monthDays = new Set(entries.filter((entry) => entry.date.startsWith(month)).map((entry) => entry.date)).size;
   const latest = entries[0];
-  if (!latest) return { label: "还没推进", stale: true, monthDays };
-  const days = Math.max(0, Math.round((dayStart(now).getTime() - localDate(latest.date).getTime()) / 86_400_000));
+  if (!latest) {
+    const days = since ? daysSince(since, now) : 0;
+    return days >= staleDays ? { label: `标记 ${days} 天还没推进`, stale: true, monthDays } : { label: "还没推进", stale: false, monthDays };
+  }
+  const days = daysSince(latest.date, now);
   if (days === 0) return { label: "今天", stale: false, monthDays };
-  if (days >= STALE_DAYS) return { label: `${days} 天没推进`, stale: true, monthDays };
+  if (days >= staleDays) return { label: `${days} 天没推进`, stale: true, monthDays };
   return { label: `${days} 天前`, stale: false, monthDays };
+}
+
+/** A 在推进 goal with no progress for `staleDays` or more, for bebe's morning reminder. */
+export interface StaleGoal {
+  /** `map` + name path, for remembering when bebe last reminded about it. */
+  key: string;
+  name: string;
+  link: string;
+  path: string[];
+  /** 「12 天没推进」 / 「标记 9 天还没推进」. */
+  label: string;
+  days: number;
+}
+
+/** Stale goals, longest idle first. */
+export function staleGoals(progress: GoalProgress, now: Date, staleDays: number): StaleGoal[] {
+  return progress.goals
+    .map((goal) => {
+      const entries = progress.entries.filter((entry) => entry.map === goal.map && pathKey(entry.path) === pathKey(goal.path));
+      entries.sort((left, right) => right.date.localeCompare(left.date));
+      const status = goalStatus(entries, now, staleDays, goal.since);
+      const days = daysSince(entries[0]?.date ?? goal.since, now);
+      return { status, goal: { key: `${goal.map}:${pathKey(goal.path)}`, name: goal.name, link: goal.link, path: goal.path, label: status.label, days } };
+    })
+    .filter(({ status }) => status.stale)
+    .map(({ goal }) => goal)
+    .sort((left, right) => right.days - left.days);
 }
 
 /** `11-13 周五`. */

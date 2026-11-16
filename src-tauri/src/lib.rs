@@ -232,11 +232,15 @@ struct AppSettings {
 #[serde(rename_all = "camelCase", default)]
 struct GoalSettings {
     maps: Vec<AbilityMapKind>,
+    /// Days without progress before a goal is stale (orange in the tree, bebe's morning reminder).
+    stale_days: u32,
+    /// bebe reminds about the same stale goal at most once in this many days.
+    remind_every_days: u32,
 }
 
 impl Default for GoalSettings {
     fn default() -> Self {
-        Self { maps: vec![AbilityMapKind::Vision] }
+        Self { maps: vec![AbilityMapKind::Vision], stale_days: 7, remind_every_days: 3 }
     }
 }
 
@@ -360,6 +364,8 @@ struct AiSettings {
     habit_suggestion_prompt: String,
     #[serde(default = "habits::default_habit_offer_prompt")]
     habit_offer_prompt: String,
+    #[serde(default = "goals::default_goal_step_prompt")]
+    goal_step_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -821,6 +827,7 @@ fn default_settings() -> AppSettings {
             habit_reasons_prompt: habits::default_habit_reasons_prompt(),
             habit_suggestion_prompt: habits::default_habit_suggestion_prompt(),
             habit_offer_prompt: habits::default_habit_offer_prompt(),
+            goal_step_prompt: goals::default_goal_step_prompt(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -1313,6 +1320,9 @@ fn validate_settings(settings: &AppSettings) -> Result<(), String> {
     }
     if settings.goals.maps.len() > 2 || (settings.goals.maps.len() == 2 && settings.goals.maps[0] == settings.goals.maps[1]) {
         return Err("长期目标的地图不能重复".into());
+    }
+    if !(1..=365).contains(&settings.goals.stale_days) || !(1..=30).contains(&settings.goals.remind_every_days) {
+        return Err("长期目标：没推进的天数应在 1–365 之间，再次提醒的间隔应在 1–30 天之间".into());
     }
     bebe::validate(&settings.pet)?;
     if settings.ai.base_url.trim().is_empty() || settings.ai.model.trim().is_empty() {
