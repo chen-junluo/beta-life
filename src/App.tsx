@@ -413,7 +413,12 @@ export default function App() {
         const code = dayCode(new Date(year, month - 1, date));
         if (text && await appendDiarySummary(code, text, "- 习惯：", diary.template)) setDiaryRevision((revision) => revision + 1);
         const low = dayHabits.filter((item) => isLowRate(rates[item.id], pet.habitLowPercent));
-        const offer = low.length > 0 ? { date: rolled, day: code, habits: low.map((item) => ({ id: item.id, title: item.title, ...rates[item.id] })) } : null;
+        let offer: HabitSuggestOffer | null = null;
+        if (low.length > 0) {
+          const offerHabits = low.map((item) => ({ id: item.id, title: item.title, ...rates[item.id] }));
+          const summary = await invoke<string>("ai_habit_offer_summary", { habits: offerHabits }).catch((error) => (console.error(error), undefined));
+          offer = { date: rolled, day: code, habits: offerHabits, summary };
+        }
         localStorage.setItem(SUGGEST_STORAGE_KEY, JSON.stringify(offer));
         setSuggestOffer(offer);
       }

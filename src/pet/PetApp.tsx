@@ -120,6 +120,14 @@ function formatCountdown(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/** The suggestion offer lists at most this many habits, so it reads as a nudge rather than a report. */
+const OFFER_LIST_MAX = 3;
+
+/** The habits with the lowest completion rate; ties keep the board order. */
+function fewestDone(habits: HabitSuggestOffer["habits"]): HabitSuggestOffer["habits"] {
+  return [...habits].sort((a, b) => a.done / a.total - b.done / b.total).slice(0, OFFER_LIST_MAX);
+}
+
 /** Dev-only browser preview: `pet.html?state=alert&bubble=reminder` (or `bubble=chat`). */
 function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetChatSnapshot | null } {
   if (!import.meta.env.DEV || isTauri) return { state: null, bubble: null, chat: null };
@@ -160,7 +168,22 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
       period: { id: "morning", label: "早上", startHour: 7, color: "#F59E0B", slogan: "" },
       habits: [{ ...habit, id: "a", title: "晨跑 5 公里" }, { ...habit, id: "b", title: "背 30 个 GRE 单词" }, { ...habit, id: "c", title: "写 RQ2 文献综述" }],
     },
-    suggest: { kind: "suggest", offer: { date: "2026-11-11", day: "261111", habits: [{ id: "a", title: "晨跑 5 公里", done: 2, total: 7 }, { id: "b", title: "背 30 个 GRE 单词", done: 1, total: 5 }] } },
+    suggest: {
+      kind: "suggest",
+      offer: {
+        date: "2026-11-11",
+        day: "261111",
+        summary: params.get("summary") === "none" ? undefined : "睡前放松和补充营养这几天都没跟上",
+        habits: [
+          { id: "a", title: "晨跑 5 公里", done: 1, total: 3 },
+          { id: "b", title: "饭后补充钙", done: 0, total: 3 },
+          { id: "c", title: "- 睡前双脚放松（按摩热敷） - 睡前唱歌放松/呼吸法、避免刷手机 - 不吃高糖食物", done: 0, total: 3 },
+          { id: "d", title: "补充锌、维b", done: 1, total: 3 },
+          { id: "e", title: "睡前冥想，日常调控心情", done: 0, total: 3 },
+          { id: "f", title: "练吉他30min", done: 0, total: 3 },
+        ],
+      },
+    },
     chat: { kind: "chat" },
   };
   // `chat=bebe`: an instant action with its undo and two offered choices.
@@ -838,10 +861,13 @@ export function PetApp() {
           {bubble.kind === "suggest" && (
             <>
               <span className="pet-bubble-meta">完成率偏低 · {bubble.offer.day}</span>
-              <p className="pet-bubble-text is-full">
-                {bubble.offer.habits.map((habit) => `「${habit.title}」${habit.done}/${habit.total}`).join("、")}
-                ，最近做得不太顺，要 bebe 想几条小建议写进日记吗？
-              </p>
+              <p className="pet-bubble-text is-full">{bubble.offer.summary ?? `最近有 ${bubble.offer.habits.length} 个习惯做得不太顺`}</p>
+              <ul className="pet-bubble-list">
+                {fewestDone(bubble.offer.habits).map((habit) => (
+                  <li key={habit.id} title={habit.title}><span>{habit.title}</span><small>{habit.done}/{habit.total}</small></li>
+                ))}
+              </ul>
+              <p className="pet-bubble-ask">要 bebe 想几条小建议写进日记吗？</p>
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => writeSuggestions(bubble.offer)}>写建议</button>
                 <button type="button" className="secondary-button" onClick={() => setBubble(null)}>不用了</button>

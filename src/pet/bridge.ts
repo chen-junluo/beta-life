@@ -45,6 +45,8 @@ export interface HabitSuggestOffer {
   /** `YYMMDD`. */
   day: string;
   habits: Array<{ id: string; title: string; done: number; total: number }>;
+  /** AI's one-line summary of what has not gone well; missing when the AI call failed. */
+  summary?: string;
 }
 
 export interface PetHabitReasons {

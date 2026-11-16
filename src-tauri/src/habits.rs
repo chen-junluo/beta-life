@@ -37,8 +37,19 @@ pub(crate) fn default_habit_suggestion_prompt() -> String {
     DEFAULT_HABIT_SUGGESTION_PROMPT.into()
 }
 
+const DEFAULT_HABIT_OFFER_PROMPT: &str = r#"用一句话总结最近哪些习惯或事情没做好：
+1. 不超过 30 个字，把相近的习惯归成一类说（比如「睡前放松和补充营养」），不要逐个点名。
+2. 只陈述事实，语气轻松，不说教、不评价、不给建议。
+3. 语言跟习惯名称一致。"#;
+
+pub(crate) fn default_habit_offer_prompt() -> String {
+    DEFAULT_HABIT_OFFER_PROMPT.into()
+}
+
 /// A reason line is at most this many characters.
 const REASON_MAX_CHARS: usize = 80;
+/// The offer summary asks for 30 characters; a little over is still one bubble line or two.
+const OFFER_SUMMARY_MAX_CHARS: usize = 40;
 
 fn history_dir(root: &Path) -> PathBuf {
     root.join(vault::BOARD).join(vault::META).join("history")
@@ -238,6 +249,57 @@ pub(crate) async fn ai_habit_reasons(app: AppHandle, request: ReasonsRequest) ->
     validate_reasons(reply.reasons, &request.habits)
 }
 
+// ---------- offer summary ----------
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct OfferHabit {
+    title: String,
+    done: u32,
+    total: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct OfferSummaryReply {
+    summary: String,
+}
+
+fn offer_system_prompt(settings: &AppSettings) -> String {
+    let prompt = if settings.ai.habit_offer_prompt.trim().is_empty() { DEFAULT_HABIT_OFFER_PROMPT } else { settings.ai.habit_offer_prompt.trim() };
+    format!(
+        "{prompt}\n\n用户消息列出最近几天完成率偏低的习惯和完成次数。\n\nJSON 输出协议：只返回一个有效 JSON object，不要附加 Markdown 代码块或解释：{{\"summary\": \"一句话\"}}。"
+    )
+}
+
+/// One non-empty line of at most `OFFER_SUMMARY_MAX_CHARS`.
+fn validate_offer_summary(summary: &str) -> Result<String, String> {
+    let text = summary.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() || text.chars().count() > OFFER_SUMMARY_MAX_CHARS {
+        return Err(format!("AI 返回的总结应为 1–{OFFER_SUMMARY_MAX_CHARS} 个字"));
+    }
+    Ok(text)
+}
+
+/// bebe's 0:00 offer opens with this line instead of listing every low-rate habit.
+#[tauri::command]
+pub(crate) async fn ai_habit_offer_summary(app: AppHandle, habits: Vec<OfferHabit>) -> Result<String, String> {
+    if habits.is_empty() {
+        return Err("没有习惯".into());
+    }
+    let settings = load_settings(&app)?;
+    let key = read_api_key(&app)?.ok_or_else(|| "请先在 Settings 中保存 API key".to_string())?;
+    let base = settings.ai.base_url.trim().trim_end_matches('/');
+    let endpoint = if base.ends_with("/chat/completions") { base.to_string() } else { format!("{base}/chat/completions") };
+    let list = habits.iter().map(|habit| format!("- {}：{}/{}", habit.title, habit.done, habit.total)).collect::<Vec<_>>().join("\n");
+    let messages = vec![
+        json!({ "role": "system", "content": offer_system_prompt(&settings) }),
+        json!({ "role": "user", "content": list }),
+    ];
+    let client = Client::builder().timeout(Duration::from_secs(60)).build().map_err(|error| format!("无法初始化 AI 客户端：{error}"))?;
+    let (content, _) = call_provider(&client, &endpoint, &key, &settings.ai, messages).await?;
+    let reply: OfferSummaryReply = serde_json::from_str(&content).map_err(|error| format!("AI 没有返回有效的总结 JSON：{error}"))?;
+    validate_offer_summary(&reply.summary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +347,13 @@ mod tests {
         assert!(validate_reasons(vec![reason("b", &"长".repeat(81))], &habits).is_err());
         let prompt = reasons_system_prompt(&crate::default_settings(), &habits);
         assert!(prompt.contains("- id: a · 晨跑") && prompt.contains("\"reasons\""));
+    }
+
+    #[test]
+    fn offer_summary_is_one_short_line() {
+        assert_eq!(validate_offer_summary(" 睡前放松和\n补充营养都没跟上 ").unwrap(), "睡前放松和 补充营养都没跟上");
+        assert!(validate_offer_summary("  ").is_err());
+        assert!(validate_offer_summary(&"长".repeat(41)).is_err());
+        assert!(offer_system_prompt(&crate::default_settings()).contains("\"summary\""));
     }
 }

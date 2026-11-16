@@ -45,6 +45,12 @@ export const DEFAULT_HABIT_SUGGESTION_PROMPT = `给每个完成率偏低的习�
 2. 建议要小而具体、今天就能做：缩小到 2 分钟版本、换到更合适的时段或整点、绑定在已经稳定的习惯后面、提前准备好环境。
 3. 一个习惯一条，不超过 50 个字；不说教、不评价；语言跟日记一致。`;
 
+/** Same as Rust `habits::DEFAULT_HABIT_OFFER_PROMPT`. */
+export const DEFAULT_HABIT_OFFER_PROMPT = `用一句话总结最近哪些习惯或事情没做好：
+1. 不超过 30 个字，把相近的习惯归成一类说（比如「睡前放松和补充营养」），不要逐个点名。
+2. 只陈述事实，语气轻松，不说教、不评价、不给建议。
+3. 语言跟习惯名称一致。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -157,6 +163,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     daySummaryPrompt: DEFAULT_DAY_SUMMARY_PROMPT,
     habitReasonsPrompt: DEFAULT_HABIT_REASONS_PROMPT,
     habitSuggestionPrompt: DEFAULT_HABIT_SUGGESTION_PROMPT,
+    habitOfferPrompt: DEFAULT_HABIT_OFFER_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},

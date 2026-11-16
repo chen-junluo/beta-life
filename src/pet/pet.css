@@ -84,6 +84,12 @@
 .pet-bubble-text.is-full {
   -webkit-line-clamp: unset;
 }
+/* The suggestion offer: a few habits, one line each, with the count on the right. */
+.pet-bubble-list { min-width: 0; margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12px; line-height: 1.45; }
+.pet-bubble-list li { min-width: 0; color: var(--ink); }
+.pet-bubble-list li > span { display: inline-block; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.pet-bubble-list small { margin-left: 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pet-bubble-ask { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .pet-countdown { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent); }
 
 .pet-bubble-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pet-gap); }

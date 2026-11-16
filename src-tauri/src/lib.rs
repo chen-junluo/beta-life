@@ -358,6 +358,8 @@ struct AiSettings {
     habit_reasons_prompt: String,
     #[serde(default = "habits::default_habit_suggestion_prompt")]
     habit_suggestion_prompt: String,
+    #[serde(default = "habits::default_habit_offer_prompt")]
+    habit_offer_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -818,6 +820,7 @@ fn default_settings() -> AppSettings {
             day_summary_prompt: DEFAULT_DAY_SUMMARY_PROMPT.into(),
             habit_reasons_prompt: habits::default_habit_reasons_prompt(),
             habit_suggestion_prompt: habits::default_habit_suggestion_prompt(),
+            habit_offer_prompt: habits::default_habit_offer_prompt(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -2684,6 +2687,7 @@ pub fn run() {
             habits::roll_habit_day,
             habits::load_habit_history,
             habits::ai_habit_reasons,
+            habits::ai_habit_offer_summary,
             bebe::load_pet_profile,
             bebe::save_pet_profile,
             bebe::load_pet_plan,

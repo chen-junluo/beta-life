@@ -80,6 +80,8 @@ export interface AiSettings {
   daySummaryPrompt: string;
   habitReasonsPrompt: string;
   habitSuggestionPrompt: string;
+  /** The one-line summary that opens bebe's 0:00 suggestion offer. */
+  habitOfferPrompt: string;
 }
 
 export interface AppearanceSettings {
