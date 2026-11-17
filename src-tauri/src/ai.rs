@@ -144,8 +144,8 @@ User-editable preferences for this summary:
             settings.ai.day_summary_prompt
         )),
         "suggest_habits" => Ok(format!(
-            r#"[Beta Life task: 助推建议] At 0:00 Beta Life archived one day of habits and wrote its statistics into that day's diary. The user accepted bebe's offer of nudge suggestions for the habits with a low completion rate. Their message gives the day (YYYY-MM-DD and its diary id YYMMDD) and those habits with their ids and rates.
-1. The board index in the context has each habit's note and its 【阻挠习惯的原因】 (`obstacles`). Read the diary for that day and the 6 days before it with read_diary (missing days are fine).
+            r#"[Beta Life task: 助推建议] At 0:00 Beta Life archived one day of habits and wrote its statistics into that day's diary. The user accepted bebe's offer of nudge suggestions for the habits with a low completion rate. Their message gives the day (YYYY-MM-DD and its diary id YYMMDD), those habits by title with their rates, and sometimes the reason the user just gave in their own words; write suggestions for exactly these habits.
+1. The board index in the context has each habit's note and its 【阻挠习惯的原因】 (`obstacles`); a reason in the message is the newest one and matters most. Read the diary for that day and the 6 days before it with read_diary (missing days are fine).
 2. Then call append_diary exactly once, for that day: text = a `- 助推建议：` bullet with one tab-indented child bullet per habit, written as the preferences below ask. Call no other write tool and change no other day; Beta Life puts it under the day's 【AI总结】 line.
 
 User-editable preferences for the suggestions:

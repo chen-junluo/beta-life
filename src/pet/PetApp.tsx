@@ -7,7 +7,7 @@ import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { DEFAULT_PET_SETTINGS } from "../defaults";
 import { renderMarkdown } from "../markdown";
-import { periodCheck, unfinishedIn } from "../habitLogic";
+import { fewestDone, periodCheck, unfinishedIn } from "../habitLogic";
 import { daysSince, type StaleGoal } from "../goals";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
@@ -27,6 +27,7 @@ import {
   PET_READY,
   PET_SUMMARY_DIARY,
   type HabitSuggestOffer,
+  type HabitSuggestRequest,
   type PetGoalNudge,
   type PetBoardSnapshot,
   type PetChatResolve,
@@ -129,13 +130,8 @@ function formatCountdown(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** The suggestion offer lists at most this many habits, so it reads as a nudge rather than a report. */
+/** bebe's offer lists at most this many habits or goals, so it reads as a nudge rather than a report. */
 const OFFER_LIST_MAX = 3;
-
-/** The habits with the lowest completion rate; ties keep the board order. */
-function fewestDone(habits: HabitSuggestOffer["habits"]): HabitSuggestOffer["habits"] {
-  return [...habits].sort((a, b) => a.done / a.total - b.done / b.total).slice(0, OFFER_LIST_MAX);
-}
 
 function readReminded(): Record<string, string> {
   try {
@@ -285,6 +281,51 @@ function WhyBubble({ bubble, onAnswer, onSkip }: { bubble: Extract<Bubble, { kin
       </form>
       <div className="pet-bubble-actions">
         <button type="button" className="secondary-button" onClick={onSkip}>跳过</button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * 完成率偏低 after 0:00: the user may say why first; the reason is filed like 「为什么没完成」 and
+ * 写建议 hands it to the AI too.
+ */
+function SuggestBubble({ offer, onSuggest, onReason, onClose }: { offer: HabitSuggestOffer; onSuggest: (reason: string) => void; onReason: (reason: string) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const reason = draft.trim();
+  // The pet window is created unfocused; take focus only when the user reaches for the box.
+  const focusInput = () => {
+    if (isTauri) void invoke("focus_pet_window").catch(console.error).finally(() => input.current?.focus());
+  };
+  return (
+    <section className="pet-bubble" role="dialog" aria-label="完成率偏低" onKeyDown={(event) => event.key === "Escape" && onClose()}>
+      <span className="pet-bubble-meta">完成率偏低 · {offer.day}</span>
+      <p className="pet-bubble-text is-full">{offer.summary ?? `最近有 ${offer.habits.length} 个习惯做得不太顺`}</p>
+      <ul className="pet-bubble-list">
+        {fewestDone(offer.habits, OFFER_LIST_MAX).map((habit) => (
+          <li key={habit.id} title={habit.title}><span>{habit.title}</span><small>{habit.done}/{habit.total}</small></li>
+        ))}
+      </ul>
+      <div className="pet-chat-composer">
+        <textarea
+          ref={input}
+          rows={2}
+          value={draft}
+          placeholder="为什么没做成？说说的话，bebe 会记到对应的习惯下面（可不填）"
+          aria-label="没完成的原因"
+          onPointerDown={focusInput}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </div>
+      <p className="pet-bubble-ask">要 bebe 想几条小建议写进日记吗？</p>
+      <div className="pet-bubble-actions">
+        <button type="button" className="primary-button" onClick={() => onSuggest(reason)}>写建议</button>
+        {reason ? (
+          <button type="button" className="secondary-button" onClick={() => onReason(reason)}>只记原因</button>
+        ) : (
+          <button type="button" className="secondary-button" onClick={onClose}>不用了</button>
+        )}
       </div>
     </section>
   );
@@ -637,7 +678,7 @@ export function PetApp() {
   // 「为什么没完成呢？」 15 min before morning, noon and evening end: like the other reminders, not
   // while asleep, quiet, paused or in beta-life; a question missed until the period ends is skipped.
   useEffect(() => {
-    if (!isTauri || preview.bubble || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    if (!isTauri || preview.bubble || pet.habitNudge === "off" || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
     const date = new Date(now);
     const check = periodCheck(date, periods);
     if (!check) return;
@@ -649,16 +690,16 @@ export function PetApp() {
     if (habits.length === 0) return;
     raise({ kind: "why", date: localDateKey(date), period: check.period, habits });
     play("alert");
-  }, [now, pulse, items, periods, sleeping, away, quiet, raise, play, preview.bubble]);
+  }, [now, pulse, items, periods, pet.habitNudge, sleeping, away, quiet, raise, play, preview.bubble]);
 
   // The next time the user is around after 0:00, offer suggestions for habits with a low rate, once.
   useEffect(() => {
-    if (!isTauri || preview.bubble || !suggestOffer || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    if (!isTauri || preview.bubble || !suggestOffer || pet.habitNudge === "off" || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
     if (localStorage.getItem(SUGGEST_STORAGE_KEY) === suggestOffer.date) return;
     localStorage.setItem(SUGGEST_STORAGE_KEY, suggestOffer.date);
     raise({ kind: "suggest", offer: suggestOffer });
     play("alert");
-  }, [suggestOffer, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
+  }, [suggestOffer, pet.habitNudge, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
 
   // The first time the user is around after the sleep period: stale long-term goals, once a day,
   // each goal again only after Settings' interval.
@@ -771,10 +812,17 @@ export function PetApp() {
     setBubble(null);
   }
 
-  /** The main window starts the 助推建议 task; bebe's chat shows the diff card. */
-  function writeSuggestions(offer: HabitSuggestOffer) {
-    if (isTauri) void emitTo<HabitSuggestOffer>("main", PET_HABIT_SUGGEST, offer);
+  /** The main window files the reason (if any), then starts the 助推建议 task; bebe's chat shows the diff card. */
+  function writeSuggestions(offer: HabitSuggestOffer, reason: string) {
+    if (isTauri) void emitTo<HabitSuggestRequest>("main", PET_HABIT_SUGGEST, reason ? { ...offer, reason } : offer);
     setBubble({ kind: "chat" });
+  }
+
+  /** 只记原因 on the offer: filed under the offered habits like 「为什么没完成」, no suggestions. */
+  function answerOffer(offer: HabitSuggestOffer, text: string) {
+    if (isTauri) void emitTo<PetHabitReasons>("main", PET_HABIT_REASONS, { date: localDateKey(new Date()), habitIds: offer.habits.map((habit) => habit.id), text });
+    play("happy");
+    setBubble(null);
   }
 
   /** The main window starts the 长期目标小步骤 task; bebe's chat shows the step and the reminder's undo. */
@@ -823,7 +871,15 @@ export function PetApp() {
     <div className={`pet-stage ${away ? "is-away" : ""}`} ref={stageRef} aria-hidden={away}>
       {bubble?.kind === "chat" && <PetChat chat={chat} onClose={() => setBubble(null)} />}
       {bubble?.kind === "why" && <WhyBubble bubble={bubble} onAnswer={(text) => answerWhy(bubble, text)} onSkip={() => setBubble(null)} />}
-      {bubble && bubble.kind !== "chat" && bubble.kind !== "why" && (
+      {bubble?.kind === "suggest" && (
+        <SuggestBubble
+          offer={bubble.offer}
+          onSuggest={(reason) => writeSuggestions(bubble.offer, reason)}
+          onReason={(reason) => answerOffer(bubble.offer, reason)}
+          onClose={() => setBubble(null)}
+        />
+      )}
+      {bubble && bubble.kind !== "chat" && bubble.kind !== "why" && bubble.kind !== "suggest" && (
         <section className="pet-bubble" role="dialog" aria-live="polite" aria-label="bebe 提醒">
           {bubble.kind === "reminder" && (
             <>
@@ -902,22 +958,6 @@ export function PetApp() {
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>知道啦</button>
                 <button type="button" className="secondary-button" onClick={() => remindLater(bubble.reminder)}>10 分钟后</button>
-              </div>
-            </>
-          )}
-          {bubble.kind === "suggest" && (
-            <>
-              <span className="pet-bubble-meta">完成率偏低 · {bubble.offer.day}</span>
-              <p className="pet-bubble-text is-full">{bubble.offer.summary ?? `最近有 ${bubble.offer.habits.length} 个习惯做得不太顺`}</p>
-              <ul className="pet-bubble-list">
-                {fewestDone(bubble.offer.habits).map((habit) => (
-                  <li key={habit.id} title={habit.title}><span>{habit.title}</span><small>{habit.done}/{habit.total}</small></li>
-                ))}
-              </ul>
-              <p className="pet-bubble-ask">要 bebe 想几条小建议写进日记吗？</p>
-              <div className="pet-bubble-actions">
-                <button type="button" className="primary-button" onClick={() => writeSuggestions(bubble.offer)}>写建议</button>
-                <button type="button" className="secondary-button" onClick={() => setBubble(null)}>不用了</button>
               </div>
             </>
           )}

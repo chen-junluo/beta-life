@@ -2,7 +2,14 @@ import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { PET_NUMBER_FIELDS, PROFILE_SECTIONS, type PetProfile, type ProfileSection } from "../ai/bebeTools";
 import { WEEKDAYS } from "../pet/reminders";
-import type { PetSettings, QuietHours, Weekday } from "../types";
+import { SettingsSelect } from "./SettingsSelect";
+import type { HabitNudge, PetSettings, QuietHours, Weekday } from "../types";
+
+const HABIT_NUDGES: Array<{ value: HabitNudge; label: string }> = [
+  { value: "light", label: "轻轻（最低 3 个）" },
+  { value: "full", label: "全面（所有偏低的）" },
+  { value: "off", label: "关闭" },
+];
 
 type BebeTab = "reminders" | "quiet" | ProfileSection;
 
@@ -92,8 +99,12 @@ export function BebeSettings({ pet, onPetChange, profile, profileError, onProfil
 
       {tab === "reminders" && (
         <>
-          <p className="rule-help">摸鱼提醒要同时满足「占比」和「连续」两个条件；晚间总结跟着睡眠时段算。</p>
+          <p className="rule-help">摸鱼提醒要同时满足「占比」和「连续」两个条件；晚间总结跟着睡眠时段算。习惯助推关闭后，时段结束前不问「为什么没完成」，0 点后也不提建议。</p>
           <div className="bebe-number-grid">
+            <label className="settings-field-card">
+              <span>习惯助推</span>
+              <SettingsSelect value={pet.habitNudge} options={HABIT_NUDGES} label="习惯助推" onChange={(value) => onPetChange({ ...pet, habitNudge: value as HabitNudge })} />
+            </label>
             {PET_NUMBER_FIELDS.map((field) => (
               <label className="settings-field-card" key={field.key}>
                 <span>{field.label}（{field.unit}）</span>

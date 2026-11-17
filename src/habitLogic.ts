@@ -39,6 +39,14 @@ export function isLowRate(rate: HabitRate | undefined, lowPercent: number): bool
   return rate !== undefined && rate.total >= LOW_RATE_MIN_DAYS && (rate.done / rate.total) * 100 < lowPercent;
 }
 
+/** Light nudges and bebe's offer list cover at most this many habits. */
+export const LIGHT_NUDGE_MAX = 3;
+
+/** The habits with the lowest completion rate; ties keep the given order. */
+export function fewestDone<T extends HabitRate>(habits: T[], max = LIGHT_NUDGE_MAX): T[] {
+  return [...habits].sort((a, b) => a.done / a.total - b.done / b.total).slice(0, max);
+}
+
 /** The period's end: the start of the next period around the clock. */
 export function periodEndHour(period: PeriodSetting, periods: PeriodSetting[]): number {
   const next = periods

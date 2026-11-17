@@ -40,6 +40,16 @@ impl Weekday {
     }
 }
 
+/// Habit nudges: off (no period questions, no 0:00 offer), light (the 3 lowest habits) or full.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum HabitNudge {
+    Off,
+    #[default]
+    Light,
+    Full,
+}
+
 /// Days and a local `HH:MM` range; `end` before `start` runs past midnight.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +76,7 @@ pub(crate) struct PetSettings {
     habit_snooze_minutes: u16,
     /// A habit done on fewer than this share of its recorded days (last 7) gets a nudge suggestion.
     habit_low_percent: u8,
+    habit_nudge: HabitNudge,
     /// No slack reminders, questions or habit reminders inside these.
     quiet_hours: Vec<QuietHours>,
 }
@@ -81,6 +92,7 @@ impl Default for PetSettings {
             summary_lead_minutes: 10,
             habit_snooze_minutes: 15,
             habit_low_percent: 50,
+            habit_nudge: HabitNudge::Light,
             quiet_hours: Vec::new(),
         }
     }
@@ -414,8 +426,16 @@ fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let nudge = match pet.habit_nudge {
+        HabitNudge::Off => "Habit nudges are off in Settings: bebe does not ask why habits were not done and offers no suggestions.".to_string(),
+        nudge => format!(
+            "15 min before the morning, noon and evening periods end, bebe asks why that period's unfinished habits were not done and files the answer under each habit's 【阻挠习惯的原因】. After the 0:00 archive, bebe offers nudge suggestions for {} habits done on fewer than {}% of their recorded days in the last 7.",
+            if nudge == HabitNudge::Light { "the 3 lowest" } else { "all" },
+            pet.habit_low_percent
+        ),
+    };
     format!(
-        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. 15 min before the morning, noon and evening periods end, bebe asks why that period's unfinished habits were not done and files the answer under each habit's 【阻挠习惯的原因】. At 0:00 the day's habit checks are archived and cleared, and habits done on fewer than {low}% of their recorded days in the last 7 get a nudge suggestion.
+        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. At 0:00 the day's habit checks are archived and cleared. {nudge}
 Quiet hours (no slack reminders, questions or habit reminders): {quiet}.
 Right now bebe is {paused}.
 One-off reminders:
@@ -435,7 +455,6 @@ About the user:
         summary_hour = summary_at / 60,
         summary_minute = summary_at % 60,
         habit = pet.habit_snooze_minutes,
-        low = pet.habit_low_percent,
         style = list(&profile.style),
         about = list(&profile.about),
     )
@@ -456,6 +475,17 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "# bebe 偏好\n\n## 说话风格\n- 少用感叹号\n- 叫我小陈\n\n## 我说过的\n- 周三下午要上课\n\t- 14:00–16:00\n\n## 我自己的笔记\n- 不归 bebe 管\n";
+
+    #[test]
+    fn habit_nudges_default_to_light_and_off_is_described() {
+        let old: PetSettings = serde_json::from_str(r#"{"habitLowPercent":40}"#).unwrap();
+        assert_eq!(old.habit_nudge, HabitNudge::Light);
+        let mut settings = super::super::default_settings();
+        settings.pet = serde_json::from_str(r#"{"habitNudge":"off"}"#).unwrap();
+        let text = prompt_section(&settings, &Profile { style: vec![], about: vec![] }, &PetPlan::default(), 0);
+        assert!(text.contains("Habit nudges are off"), "{text}");
+        assert!(!text.contains("bebe asks why"), "{text}");
+    }
 
     #[test]
     fn the_p5_summary_lead_migrates_once() {

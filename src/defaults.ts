@@ -130,6 +130,7 @@ export const DEFAULT_PET_SETTINGS: PetSettings = {
   summaryLeadMinutes: 10,
   habitSnoozeMinutes: 15,
   habitLowPercent: 50,
+  habitNudge: "light",
   quietHours: [],
 };
 

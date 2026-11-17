@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Check, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
 import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
 import { BebeSettings } from "./BebeSettings";
+import { SettingsSelect, type SelectOption } from "./SettingsSelect";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AbilityMapKind, AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
@@ -55,116 +56,6 @@ interface SettingsPanelProps {
 }
 
 const GOAL_MAP_ORDER: AbilityMapKind[] = ["vision", "research"];
-
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-function SettingsSelect({
-  value,
-  options,
-  label,
-  onChange,
-}: {
-  value: string;
-  options: SelectOption[];
-  label: string;
-  onChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [dropUp, setDropUp] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const listboxId = useId();
-  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
-  const selected = options[selectedIndex];
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open || !rootRef.current) return;
-    const triggerBounds = rootRef.current.getBoundingClientRect();
-    const scrollBounds = rootRef.current.closest(".settings-content")?.getBoundingClientRect();
-    const lowerBoundary = Math.min(window.innerHeight, scrollBounds?.bottom ?? window.innerHeight);
-    const spaceBelow = lowerBoundary - triggerBounds.bottom;
-    setDropUp(spaceBelow < 238 && triggerBounds.top > spaceBelow);
-  }, [open]);
-
-  function moveSelection(direction: 1 | -1) {
-    const nextIndex = (selectedIndex + direction + options.length) % options.length;
-    onChange(options[nextIndex].value);
-    setOpen(true);
-  }
-
-  return (
-    <div
-      className={`settings-select ${open ? "is-open" : ""} ${dropUp ? "opens-up" : ""}`}
-      ref={rootRef}
-      onKeyDown={(event) => {
-        if (open && event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          setOpen(false);
-          rootRef.current?.querySelector<HTMLButtonElement>(".settings-select-trigger")?.focus();
-        }
-      }}
-    >
-      <button
-        type="button"
-        className="settings-select-trigger"
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listboxId}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            moveSelection(event.key === "ArrowDown" ? 1 : -1);
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(false);
-          } else if (event.key === "Home" || event.key === "End") {
-            event.preventDefault();
-            onChange(options[event.key === "Home" ? 0 : options.length - 1].value);
-            setOpen(true);
-          }
-        }}
-      >
-        <span>{selected?.label}</span>
-        <ChevronDown size={15} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="settings-select-menu" id={listboxId} role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              className={`settings-select-option ${option.value === value ? "is-selected" : ""}`}
-              key={option.value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              <span>{option.label}</span>
-              {option.value === value && <Check size={14} aria-hidden="true" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function SettingsPanel({
   settings,

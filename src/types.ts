@@ -124,6 +124,8 @@ export interface QuietHours {
   end: string;
 }
 
+export type HabitNudge = "off" | "light" | "full";
+
 /** bebe's thresholds, lead times and quiet hours (Rust `bebe::PetSettings`). */
 export interface PetSettings {
   /** Slack reminder: slack above `slackSharePercent` of the last `slackWindowMinutes`… */
@@ -140,6 +142,8 @@ export interface PetSettings {
   habitSnoozeMinutes: number;
   /** A habit done on fewer than this share of its recorded days (last 7) gets a nudge suggestion. */
   habitLowPercent: number;
+  /** off: no period questions and no 0:00 offer; light: the 3 lowest habits; full: every low one. */
+  habitNudge: HabitNudge;
   /** No slack reminders, questions or habit reminders inside these. */
   quietHours: QuietHours[];
 }

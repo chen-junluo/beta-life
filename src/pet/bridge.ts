@@ -61,6 +61,11 @@ export interface HabitSuggestOffer {
   summary?: string;
 }
 
+/** 写建议 from bebe's offer, with the reason the user typed in the bubble (if any). */
+export interface HabitSuggestRequest extends HabitSuggestOffer {
+  reason?: string;
+}
+
 export interface PetHabitReasons {
   /** `YYYY-MM-DD` the question was asked. */
   date: string;

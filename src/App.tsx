@@ -12,7 +12,7 @@ import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
 import { appendDiarySummary, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
 import { dayCode } from "./diaryLogic";
-import { addObstacles, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
+import { addObstacles, fewestDone, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
 import { localDateKey } from "./pet/reminders";
 import { useAssistant } from "./ai/useAssistant";
 import type { AiPanelId } from "./ai/types";
@@ -56,6 +56,7 @@ import {
   PET_USER_HIDDEN,
   petChatSnapshot,
   type HabitSuggestOffer,
+  type HabitSuggestRequest,
   type PetBoardSnapshot,
   type PetGoalNudge,
   type PetChatResolve,
@@ -415,10 +416,11 @@ export default function App() {
         const [year, month, date] = rolled.split("-").map(Number);
         const code = dayCode(new Date(year, month - 1, date));
         if (text && await appendDiarySummary(code, text, "- 习惯：", diary.template)) setDiaryRevision((revision) => revision + 1);
-        const low = dayHabits.filter((item) => isLowRate(rates[item.id], pet.habitLowPercent));
+        const low = pet.habitNudge === "off" ? [] : dayHabits.filter((item) => isLowRate(rates[item.id], pet.habitLowPercent));
         let offer: HabitSuggestOffer | null = null;
         if (low.length > 0) {
-          const offerHabits = low.map((item) => ({ id: item.id, title: item.title, ...rates[item.id] }));
+          const lowHabits = low.map((item) => ({ id: item.id, title: item.title, ...rates[item.id] }));
+          const offerHabits = pet.habitNudge === "light" ? fewestDone(lowHabits) : lowHabits;
           const summary = await invoke<string>("ai_habit_offer_summary", { habits: offerHabits }).catch((error) => (console.error(error), undefined));
           offer = { date: rolled, day: code, habits: offerHabits, summary };
         }
@@ -654,7 +656,7 @@ export default function App() {
       listen<PetChatUndo>(PET_CHAT_UNDO, ({ payload }) => void assistantRef.current.undoAction(payload.messageId)),
       // 写进日记 from bebe's evening summary: no model call, just the diff card to confirm.
       listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
-      listen<HabitSuggestOffer>(PET_HABIT_SUGGEST, ({ payload }) => void stageHabitSuggestions(payload)),
+      listen<HabitSuggestRequest>(PET_HABIT_SUGGEST, ({ payload }) => void stageHabitSuggestions(payload)),
       listen<StaleGoal[]>(PET_GOAL_STEP, ({ payload }) => void stageGoalStep(payload)),
       listen(PET_OPEN_TIMELINE, () => {
         setPage("timeline");
@@ -702,10 +704,15 @@ export default function App() {
     return assistantRef.current.startTask("summarize_day", PET_DIARY_SCOPE, `把 ${date}（日记 ${day}）的活动总结写进日记。\n\nBeta Life 统计（原样放在最前面）：\n${text}${goalsMessage(goals)}`, `${day} 日记总结`);
   }
 
-  /** 写建议 on bebe's offer after 0:00: the AI reads the reasons and the week's diary; the diff card waits for the user. */
-  function stageHabitSuggestions({ date, day, habits }: HabitSuggestOffer) {
-    const list = habits.map((habit) => `- ${habit.title}（id ${habit.id}）：近 ${RATE_DAYS} 天完成 ${habit.done}/${habit.total}`).join("\n");
-    return assistantRef.current.startTask("suggest_habits", PET_SUGGEST_SCOPE, `给 ${date}（日记 ${day}）这几个完成率偏低的习惯写助推建议：\n${list}`, `${day} 助推建议`);
+  /**
+   * 写建议 on bebe's offer after 0:00: a reason typed in the bubble is filed like 「为什么没完成」 first;
+   * the AI reads the reasons and the week's diary; the diff card waits for the user.
+   */
+  async function stageHabitSuggestions({ date, day, habits, reason }: HabitSuggestRequest) {
+    if (reason) await recordHabitReasons({ date: localDateKey(new Date()), habitIds: habits.map((habit) => habit.id), text: reason });
+    const list = habits.map((habit) => `- ${habit.title}：近 ${RATE_DAYS} 天完成 ${habit.done}/${habit.total}`).join("\n");
+    const said = reason ? `\n\n我说的原因：${reason}` : "";
+    return assistantRef.current.startTask("suggest_habits", PET_SUGGEST_SCOPE, `给 ${date}（日记 ${day}）这几个完成率偏低的习惯写助推建议：\n${list}${said}`, `${day} 助推建议`);
   }
 
   /** 想个小步骤 on bebe's morning reminder: the AI reads the goals and the week's diary, then schedules one reminder. */

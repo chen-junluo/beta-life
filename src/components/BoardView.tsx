@@ -172,47 +172,20 @@ function HabitTags({ value }: { value: string }) {
   );
 }
 
-/** 「7 天 3/5」 and, under it, 【阻挠习惯的原因】 folded behind a count (edited in the habit sheet). */
+/** 「7 天 3/5」; 【阻挠习惯的原因】 show only in the habit sheet. */
 function HabitStats({ habit }: { habit: Habit }) {
   const { rates, lowPercent } = useContext(HabitStatsContext);
-  const [open, setOpen] = useState(false);
   const rate = rates[habit.id];
-  const obstacles = habit.obstacles ?? [];
   const low = isLowRate(rate, lowPercent);
   return (
-    <>
-      <div className="habit-stats">
-        <span
-          className={`habit-rate ${low ? "is-low" : ""}`}
-          title={rate?.total ? `最近 ${RATE_DAYS} 天里有记录的 ${rate.total} 天，完成 ${rate.done} 天${low ? `，低于 ${lowPercent}%` : ""}` : `还没有存档的天；每天 0 点存档后开始算`}
-        >
-          {rate?.total ? `${RATE_DAYS} 天 ${rate.done}/${rate.total}` : "新习惯"}
-        </span>
-        {obstacles.length > 0 && (
-          <button
-            type="button"
-            className="habit-obstacle-toggle"
-            aria-expanded={open}
-            onClick={(event) => {
-              event.stopPropagation();
-              setOpen((value) => !value);
-            }}
-          >
-            阻挠原因 {obstacles.length}
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="habit-obstacles" onClick={(event) => event.stopPropagation()}>
-          <strong>【阻挠习惯的原因】</strong>
-          <ul>
-            {obstacles.map((obstacle, index) => ({ obstacle, index })).reverse().map(({ obstacle, index }) => (
-              <li key={index}>{obstacle.date && <time>{obstacle.date.slice(5)}</time>}{obstacle.text}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </>
+    <div className="habit-stats">
+      <span
+        className={`habit-rate ${low ? "is-low" : ""}`}
+        title={rate?.total ? `最近 ${RATE_DAYS} 天里有记录的 ${rate.total} 天，完成 ${rate.done} 天${low ? `，低于 ${lowPercent}%` : ""}` : `还没有存档的天；每天 0 点存档后开始算`}
+      >
+        {rate?.total ? `${RATE_DAYS} 天 ${rate.done}/${rate.total}` : "新习惯"}
+      </span>
+    </div>
   );
 }
 

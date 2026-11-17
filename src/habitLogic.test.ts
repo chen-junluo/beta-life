@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "./defaults";
-import { addObstacles, habitRates, habitStatsText, isLowRate, periodCheck, shiftDate, unfinishedIn } from "./habitLogic";
+import { addObstacles, fewestDone, habitRates, habitStatsText, isLowRate, periodCheck, shiftDate, unfinishedIn } from "./habitLogic";
 import type { Habit, HabitRecord, PeriodSetting } from "./types";
 
 const periods = DEFAULT_SETTINGS.periods;
@@ -51,5 +51,15 @@ describe("habit logic", () => {
     const rates = { b: { done: 2, total: 7 }, c: { done: 1, total: 2 }, d: { done: 7, total: 7 } };
     expect(habitStatsText(items, rates, 50, periods)).toBe("- 习惯：完成 2/4（50%）\n\t- 没完成：习惯b（中午）、习惯c（21:00）\n\t- 7 天完成率低于 50%：习惯b 2/7");
     expect(habitStatsText([], {}, 50, periods)).toBeNull();
+  });
+  it("light nudges keep the lowest rates, ties in the given order", () => {
+    const habits = [
+      { id: "a", done: 2, total: 5 },
+      { id: "b", done: 0, total: 4 },
+      { id: "c", done: 1, total: 5 },
+      { id: "d", done: 0, total: 3 },
+    ];
+    expect(fewestDone(habits).map((habit) => habit.id)).toEqual(["b", "d", "c"]);
+    expect(fewestDone(habits, 1).map((habit) => habit.id)).toEqual(["b"]);
   });
 });
