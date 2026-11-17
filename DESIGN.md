@@ -9,7 +9,10 @@
 - Spacing 只用 `src/styles.css` 的 shared tokens：字段之后用 `--ui-field-gap`，section 之间用 `--ui-section-gap`
   - 不用一次性像素值或负 margin 修补布局；新组件需要不同节奏时，加 named token 或 component rule
   - 标准 sheet content padding 为 `20px 21px 22px`；two-column row 与单列 row 到下一个 section 的间距一致
-- Type 对齐 Settings 与 AI Provider：field label 用 compact semibold，control 用 shared input height 和 12–13px body，helper text 小一级且 muted
+- Type scale（以 Settings 为准）：section 标题 17/700、条目标题 12/650、字段 label 10/720、control 12px、helper 10px muted、tab 与按钮 11px
+  - 每个 input、textarea 都要从 shared rule 拿到明确字号，不能落回浏览器默认的 16px
+- Settings section 是 vertical stack：子块只靠 `--settings-stack-gap`（12px）分隔，自身不带 margin；heading 后 20px，结尾 note 与分组边界 18px
+  - 字段放进卡片（`padding 12px 13px`、radius 12、`--panel-soft`）；卡片内 control 高 36px，行内工具（添加行、列表行）32px
 - 复用 shared button、input、select、panel、focus 样式，不发明第二套 radius、shadow、font scale；颜色只做强化，状态必须有文字或 `aria-label`
 - CSS specificity 规则：generic 默认样式用 `:where()` 保持 0 specificity，不压过 context rule
   - shared input selector（`input:not([type="range"])…`）specificity 约为 `(0,4,1)`；需要覆盖时沿用 `.sheet-title-input` 重复 `:not()` 列表的写法，不用 `!important`
