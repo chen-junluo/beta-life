@@ -10,8 +10,8 @@ import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
 import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
-import { appendDiarySummary, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
-import { dayCode } from "./diaryLogic";
+import { appendDiarySummary, loadDiaryMonth, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
+import { dayCode, newDayBody } from "./diaryLogic";
 import { addObstacles, checksIn, fewestDone, habitOn, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
 import { localDateKey } from "./pet/reminders";
 import { useAssistant } from "./ai/useAssistant";
@@ -47,6 +47,9 @@ import {
   PET_SUGGEST_SCOPE,
   PET_GOAL_SCOPE,
   PET_GOAL_STEP,
+  PET_CARRY_TODOS,
+  PET_TODOS_SCOPE,
+  type TodoOffer,
   PET_OPEN_TIMELINE,
   PET_SUMMARY_DIARY,
   PET_DOCK_ARRIVED,
@@ -661,6 +664,7 @@ export default function App() {
       listen<PetSummaryDiary>(PET_SUMMARY_DIARY, ({ payload }) => void stageSummaryDiary(payload)),
       listen<HabitSuggestRequest>(PET_HABIT_SUGGEST, ({ payload }) => void stageHabitSuggestions(payload)),
       listen<StaleGoal[]>(PET_GOAL_STEP, ({ payload }) => void stageGoalStep(payload)),
+      listen<TodoOffer>(PET_CARRY_TODOS, ({ payload }) => void stageCarryTodos(payload)),
       listen(PET_OPEN_TIMELINE, () => {
         setPage("timeline");
         void invoke("show_main_window").catch(console.error);
@@ -722,6 +726,18 @@ export default function App() {
   function stageGoalStep(goals: StaleGoal[]) {
     const list = goals.map((goal) => `- [[${goal.link}]]（${goal.path.join(" › ")}）：${goal.label}`).join("\n");
     return assistantRef.current.startTask("goal_step", PET_GOAL_SCOPE, `这几个长期目标好一阵没推进了，帮我想一个今天能做的小步骤：\n${list}`, "长期目标小步骤");
+  }
+
+  /**
+   * 聊一下 on bebe's morning list: the AI asks about every to-do, then marks that day ✅ / ❎ and moves
+   * the rest to today; a today not written yet starts from the template. The diff card waits for the user.
+   */
+  async function stageCarryTodos({ day, todos }: TodoOffer) {
+    const today = dayCode(new Date());
+    const written = (await loadDiaryMonth(today.slice(0, 4))).days.some((item) => item.id === today);
+    const template = written ? "" : `\n\n今天的日记还没写，按这个模板新建：\n\`\`\`\n${newDayBody(stateRef.current?.settings.diary.template ?? "", today)}\n\`\`\``;
+    const list = todos.map((todo, index) => `${index + 1}. ${todo}`).join("\n");
+    return assistantRef.current.startTask("carry_todos", PET_TODOS_SCOPE, `上一天（日记 ${day}）还没做完的 to-do：\n${list}\n\n今天是日记 ${today}。${template}`, `${day} 的 to-do`);
   }
 
   /** The timeline's 写进日记: the round runs in the dock. */

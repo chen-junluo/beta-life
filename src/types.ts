@@ -88,6 +88,8 @@ export interface AiSettings {
   habitOfferPrompt: string;
   /** The small step bebe suggests for a stale long-term goal. */
   goalStepPrompt: string;
+  /** 昨天的 to-do: what counts as one (bebe's morning list and the 聊一下 task). */
+  diaryTodosPrompt: string;
 }
 
 export interface AppearanceSettings {

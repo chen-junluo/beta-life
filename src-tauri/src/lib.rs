@@ -22,6 +22,7 @@ mod digest;
 mod goals;
 mod habits;
 mod pet;
+mod todos;
 mod vault;
 #[allow(dead_code)]
 mod windows_secure_storage;
@@ -380,6 +381,9 @@ struct AiSettings {
     habit_offer_prompt: String,
     #[serde(default = "goals::default_goal_step_prompt")]
     goal_step_prompt: String,
+    /// 昨天的 to-do: what counts as one, for bebe's morning list and the 聊一下 task.
+    #[serde(default = "todos::default_diary_todos_prompt")]
+    diary_todos_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -842,6 +846,7 @@ fn default_settings() -> AppSettings {
             habit_suggestion_prompt: habits::default_habit_suggestion_prompt(),
             habit_offer_prompt: habits::default_habit_offer_prompt(),
             goal_step_prompt: goals::default_goal_step_prompt(),
+            diary_todos_prompt: todos::default_diary_todos_prompt(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -2726,6 +2731,7 @@ pub fn run() {
             habits::load_habit_history,
             habits::ai_habit_reasons,
             habits::ai_habit_offer_summary,
+            todos::ai_diary_todos,
             bebe::load_pet_profile,
             bebe::save_pet_profile,
             bebe::load_pet_plan,
@@ -2757,6 +2763,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// Real NSPasteboard read; run with `--ignored` on a Mac (it replaces the clipboard).
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn reads_the_clipboard_as_text_on_macos() {
+        use std::io::Write;
+        let mut copy = Command::new("/usr/bin/pbcopy").env("LANG", "en_US.UTF-8").stdin(std::process::Stdio::piped()).spawn().unwrap();
+        copy.stdin.take().unwrap().write_all("纯文本 **paste**\n第二行".as_bytes()).unwrap();
+        copy.wait().unwrap();
+        assert_eq!(super::read_clipboard_text().as_deref(), Some("纯文本 **paste**\n第二行"));
+    }
+
     use super::*;
 
     #[test]

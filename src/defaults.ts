@@ -57,6 +57,12 @@ export const DEFAULT_GOAL_STEP_PROMPT = `从列出的目标里挑一个今天最
 2. 参考这个目标节点的笔记和最近日记里相关的内容，接着上次停下的地方往下走；没有线索就从最小的准备动作开始。
 3. 一两句话说完，不说教、不追问为什么没做；语言跟目标名称一致。`;
 
+/** Same as Rust `todos::DEFAULT_DIARY_TODOS_PROMPT`. */
+export const DEFAULT_DIARY_TODOS_PROMPT = `从日记里找出还没做完的 to-do：
+1. 算 to-do：写了要做、打算做、还需要做，但这一天的日记里没写已经做完的事；一句话里列了好几件就拆开，一件一条。
+2. 不算：已经做完的事、感想和记录、习惯统计，以及后面已经标了 ✅ 或 ❎ 的。
+3. 每条用日记原话里最短又能看懂的说法，不超过 30 个字，不改意思；语言跟日记一致。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -173,6 +179,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     habitSuggestionPrompt: DEFAULT_HABIT_SUGGESTION_PROMPT,
     habitOfferPrompt: DEFAULT_HABIT_OFFER_PROMPT,
     goalStepPrompt: DEFAULT_GOAL_STEP_PROMPT,
+    diaryTodosPrompt: DEFAULT_DIARY_TODOS_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},

@@ -236,7 +236,7 @@ pub(crate) fn months(root: &Path) -> Vec<String> {
     months
 }
 
-fn read_month(root: &Path, month: &str) -> Result<String, String> {
+pub(crate) fn read_month(root: &Path, month: &str) -> Result<String, String> {
     let path = month_path(root, month);
     if path.exists() {
         read_md(&path)

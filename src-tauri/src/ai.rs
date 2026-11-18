@@ -161,6 +161,18 @@ User-editable preferences for the step:
 {}"#,
             settings.ai.goal_step_prompt
         )),
+        "carry_todos" => Ok(format!(
+            r#"[Beta Life task: 昨天的 to-do] In the morning bebe listed the to-dos the user's last diary day left undone, and the user wants to go through them. Their message gives that day's id (YYMMDD), today's id, the to-dos Beta Life found, and today's template when today is not written yet. The list may miss some or include a finished one; the diary is what counts, read with the rules below.
+1. First, in one response: read_diary for that day and today (today may not exist yet). Then ask, in one short numbered message, about every to-do: done, dropped, or still to do. Write nothing yet.
+2. When the user answers, ask again only about to-dos they left unclear. Then stage everything in one response:
+   - rewrite_diary_day for that day: put ` ✅` right after the words of each done to-do and ` ❎` after each dropped one; delete the words of each to-do still to do, keeping the rest of its sentence or bullet readable and removing a bullet left empty. Change nothing else, including the 【AI总结】 line and everything under it.
+   - rewrite_diary_day for today: add each to-do still to do as a tab-indented child bullet under the bullet of the same area as on that day (e.g. `- 工作：`), adding that area's bullet if today has none, all above the 【AI总结】 line. If today is not written yet, start from the template in the message (rewrite_diary_day creates the day).
+   Call no other write tool. If nothing is left to move, only that day changes.
+
+What counts as a to-do (user-editable):
+{}"#,
+            crate::todos::todos_prompt(settings)
+        )),
         _ => Err("AI 对话包含未知的 task".into()),
     }
 }

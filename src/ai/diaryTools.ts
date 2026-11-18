@@ -80,11 +80,15 @@ export function applyDiaryChange(months: DiaryMonths, change: ChangeInput, templ
       return { ...months, [month]: [...days, { id: code, date: code, title: dayLabel(code), body: add(ai ? newDayBody(template, code) : "") }] };
     }
     case "rewrite_diary_day": {
-      const day = findDay(months, args.day);
       const body = settled(text(args.text));
       const problem = bodyProblem(body);
       if (problem) throw new Error(problem);
-      return replace(day.id, { ...day, body });
+      const code = String(args.day);
+      const existing = days.find((day) => day.id === code);
+      if (existing) return replace(code, { ...existing, body });
+      // A day not written yet (e.g. today in 昨天的 to-do) is created; YYMMDD-2 ids must exist.
+      if (!codeDate(code)) throw new Error(`No diary day "${code}"`);
+      return { ...months, [month]: [...days, { id: code, date: code, title: dayLabel(code), body }] };
     }
     case "delete_diary_day":
       return replace(findDay(months, args.day).id, null);
@@ -104,7 +108,13 @@ export function describeDiaryChange(months: DiaryMonths, change: ChangeInput): {
       return { kind: existing ? "edit" : "add", title: existing ? dayTitle(existing) : dayLabel(code), detail: `${inAiSection(args) ? "追加到【AI总结】" : "追加"}：${short(lines[0] ?? "")}${more}` };
     }
     case "rewrite_diary_day": {
-      const day = findDay(months, args.day);
+      const code = String(args.day);
+      const day = months[monthOfDay(code)]?.find((item) => item.id === code);
+      if (!day) {
+        if (!codeDate(code)) throw new Error(`No diary day "${code}"`);
+        const lines = settled(text(args.text)).split("\n").map(clean).filter(Boolean);
+        return { kind: "add", title: dayLabel(code), detail: `新建：${short(lines[0] ?? "")}${lines.length > 1 ? ` 等 ${lines.length} 行` : ""}` };
+      }
       const before = day.body.split("\n");
       const after = settled(text(args.text)).split("\n");
       const first = after.findIndex((line, index) => line !== before[index]);
