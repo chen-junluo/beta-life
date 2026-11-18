@@ -119,6 +119,10 @@ export function BebeSettings({ pet, onPetChange, profile, profileError, onProfil
               </label>
             ))}
           </div>
+          <label className="toggle-row">
+            <input type="checkbox" checked={pet.habitWeekends} onChange={(event) => onPetChange({ ...pet, habitWeekends: event.target.checked })} />
+            <span><strong>周末也记录习惯</strong><small>关掉后周六、周日不提醒习惯、不问为什么没完成，0 点不存档、不写日记统计、不提助推建议；标了「只在周末」的习惯照常。</small></span>
+          </label>
         </>
       )}
 

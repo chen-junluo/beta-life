@@ -55,6 +55,17 @@ describe("diary tools", () => {
     expect(() => applyDiaryChange(months, change("delete_diary_day", { day: "261101" }))).toThrow("No diary day");
   });
 
+  it("creates a day not written yet when rewriting it (today in 昨天的 to-do), and commits it as new", async () => {
+    const created = applyDiaryChange(months, change("rewrite_diary_day", { day: "261112", text: "- 工作：\n\t- 改 reference\n" }));
+    expect(created["2611"].at(-1)).toEqual({ id: "261112", date: "261112", title: "261112周四", body: "- 工作：\n\t- 改 reference" });
+    expect(describeDiaryChange(months, change("rewrite_diary_day", { day: "261112", text: "- 工作：\n\t- 改 reference" }))).toEqual({ kind: "add", title: "261112周四", detail: "新建：工作： 等 2 行" });
+    expect(() => applyDiaryChange(months, change("rewrite_diary_day", { day: "261110-2", text: "x" }))).toThrow("No diary day");
+    expect(() => applyDiaryChange(months, change("rewrite_diary_day", { day: "261131", text: "x" }))).toThrow("No diary day");
+    const result = await commitDiaryChanges([{ id: "c1", panel: "diary", toolCallId: "t", name: "rewrite_diary_day", arguments: { day: "261112", text: "- 工作：" }, kind: "add", title: "", detail: "", selected: true } as AiChange]);
+    expect(result.failed).toEqual([]);
+    expect(store.saves).toEqual([expect.objectContaining({ month: "2611", id: null, date: "261112", body: "- 工作：" })]);
+  });
+
   it("indexes the current month and reads other months on demand", async () => {
     const diary = { files: ["2610", "2611"], current: "2611", months };
     expect(diaryIndex(diary, new Date(2026, 10, 11)).current.days[0]).toEqual({ id: "261110", title: "261110周二", preview: "读书", lines: 1 });

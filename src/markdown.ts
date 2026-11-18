@@ -8,6 +8,7 @@ import {
   schema as baseSchema,
 } from "prosemirror-markdown";
 import { Fragment, Schema, Slice, type Node as ProseMirrorNode, type NodeSpec } from "prosemirror-model";
+import { normalizeAiDivider } from "./diaryLogic";
 
 function tightByDefault(name: string): NodeSpec {
   const spec = baseSchema.spec.nodes.get(name)!;
@@ -22,7 +23,10 @@ export const markdownSchema = new Schema({
   marks: baseSchema.spec.marks,
 });
 
-/** `diary`: nested lists are indented with tabs, `text\n-` is never a setext heading, empty bullets are not saved. */
+/**
+ * `diary`: nested lists are indented with tabs, `text\n-` is never a setext heading, empty bullets are
+ * not saved, and the 【AI总结】 line always stands on its own.
+ */
 export type MarkdownFlavor = "default" | "diary";
 
 // Single newlines in existing plain-text values stay visible line breaks.
@@ -78,7 +82,7 @@ const makeSerializer = (indent: string, keepEmpty: boolean) => new MarkdownSeria
 const serializers: Record<MarkdownFlavor, MarkdownSerializer> = { default: makeSerializer("  ", true), diary: makeSerializer("\t", false) };
 
 export function parseMarkdown(value: string, flavor: MarkdownFlavor = "default"): ProseMirrorNode {
-  return parsers[flavor].parse(value);
+  return parsers[flavor].parse(flavor === "diary" ? normalizeAiDivider(value) : value);
 }
 
 export function serializeMarkdown(doc: ProseMirrorNode, flavor: MarkdownFlavor = "default"): string {

@@ -157,4 +157,21 @@ describe("HabitEditor", () => {
     act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "tea", done: true }));
   });
+
+  it("sets weekend-only and check-in from the chip, saving them only when not the default", () => {
+    const onSave = renderEditor(habit);
+    const chip = host.querySelector<HTMLButtonElement>('[aria-label="生效时间与打卡"]')!;
+    expect(chip.textContent).toContain("每天 · 打卡");
+    act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty("weekendOnly");
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty("checkIn");
+
+    act(() => chip.click());
+    const boxes = [...host.querySelectorAll<HTMLInputElement>(".habit-options-popover input[type=checkbox]")];
+    act(() => boxes[0].click());
+    act(() => boxes[1].click());
+    expect(chip.textContent).toContain("只在周末 · 不打卡");
+    act(() => host.querySelector<HTMLFormElement>("form")!.requestSubmit());
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ weekendOnly: true, checkIn: false }));
+  });
 });

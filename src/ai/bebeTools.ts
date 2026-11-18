@@ -41,7 +41,7 @@ export async function undoInstant(undo: PlanUndo): Promise<void> {
 
 // ---------- staged: settings ----------
 
-type NumberKey = Exclude<keyof PetSettings, "quietHours" | "habitNudge">;
+type NumberKey = Exclude<keyof PetSettings, "quietHours" | "habitNudge" | "habitWeekends">;
 export const PET_NUMBER_FIELDS: Array<{ key: NumberKey; label: string; unit: string; min: number; max: number }> = [
   { key: "slackWindowMinutes", label: "摸鱼统计窗口", unit: "分钟", min: 3, max: 60 },
   { key: "slackSharePercent", label: "摸鱼占比超过", unit: "%", min: 10, max: 100 },

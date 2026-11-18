@@ -69,7 +69,38 @@ export function bodyProblem(body: string): string | null {
 
 /** Above it the user's own writing, below it what Beta Life and the AI add (P6). */
 export const AI_DIVIDER = "=============================================【AI总结】=============================================";
-const isDivider = (line: string) => line.trim() === AI_DIVIDER;
+const isDivider = (line: string) => line === AI_DIVIDER;
+/** The divider as edits have left it: indented under a bullet, or behind one or more `- `. */
+const DIVIDER_LINE = /^[\s>*+-]*=+【AI总结】=+\s*$/;
+
+/**
+ * Puts the 【AI总结】 line back on its own, with blank lines around it: without the blank line above,
+ * Markdown reads it as part of the bullet above it (a template ending `\t- \n====` did this), and
+ * the editor then indents it into that bullet. A second line with nothing but blanks since the first
+ * (written next to a broken one) is dropped.
+ */
+export function normalizeAiDivider(body: string): string {
+  if (!body.includes("【AI总结】")) return body;
+  const out: string[] = [];
+  let divider = -1;
+  let afterDivider = false;
+  for (const line of body.split("\n")) {
+    if (!DIVIDER_LINE.test(line)) {
+      if (afterDivider && !line.trim()) continue;
+      afterDivider = false;
+      out.push(line);
+      continue;
+    }
+    if (divider !== -1 && out.slice(divider + 1).every((kept) => !kept.trim())) continue;
+    while (out.length > 0 && !out.at(-1)!.trim()) out.pop();
+    if (out.length > 0) out.push("");
+    divider = out.length;
+    out.push(AI_DIVIDER, "");
+    afterDivider = true;
+  }
+  if (afterDivider) out.pop();
+  return out.join("\n");
+}
 
 const listLine = (line: string) => /^\s*(?:[-*+]|\d+\.)\s/.test(line);
 
@@ -86,6 +117,7 @@ export function appendToBody(body: string, addition: string): string {
 
 /** Adds the user's kind of text: at the end of the hand-written part, above the 【AI总结】 line. */
 export function appendToNotes(body: string, addition: string): string {
+  body = normalizeAiDivider(body);
   const lines = body.split("\n");
   const divider = lines.findIndex(isDivider);
   if (divider === -1) return appendToBody(body, addition);
@@ -95,6 +127,7 @@ export function appendToNotes(body: string, addition: string): string {
 
 /** Adds a summary under the 【AI总结】 line, adding the line first when the day has none. */
 export function appendToAiSection(body: string, addition: string): string {
+  body = normalizeAiDivider(body);
   const added = addition.replace(/^\n+/, "").replace(/\s+$/, "");
   const lines = body.replace(/\s+$/, "").split("\n");
   const divider = lines.findIndex(isDivider);

@@ -23,6 +23,10 @@ export interface Habit {
   done?: boolean;
   /** 【阻挠习惯的原因】: one line each, oldest first; written by the AI from bebe's question. */
   obstacles?: HabitObstacle[];
+  /** Only on Saturdays and Sundays: reminded, asked about and archived only then. */
+  weekendOnly?: boolean;
+  /** `false`: a reminder only, never checked off, archived, counted or asked about. */
+  checkIn?: boolean;
 }
 
 export interface HabitObstacle {
@@ -84,6 +88,8 @@ export interface AiSettings {
   habitOfferPrompt: string;
   /** The small step bebe suggests for a stale long-term goal. */
   goalStepPrompt: string;
+  /** 昨天的 to-do: what counts as one (bebe's morning list and the 聊一下 task). */
+  diaryTodosPrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -144,6 +150,8 @@ export interface PetSettings {
   habitLowPercent: number;
   /** off: no period questions and no 0:00 offer; light: the 3 lowest habits; full: every low one. */
   habitNudge: HabitNudge;
+  /** false: Saturdays and Sundays have no habit reminders, questions, archive or nudges, except for weekend-only habits. */
+  habitWeekends: boolean;
   /** No slack reminders, questions or habit reminders inside these. */
   quietHours: QuietHours[];
 }

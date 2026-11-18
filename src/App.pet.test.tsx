@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import type { Conversation } from "./ai/types";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS } from "./defaults";
-import { PET_SUMMON_DOCK } from "./pet/bridge";
+import { PET_CARRY_TODOS, PET_SUMMON_DOCK } from "./pet/bridge";
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -48,6 +48,8 @@ describe("App and bebe", () => {
         pet_hidden_by_user: false,
         ai_chat_step: { content: "需要每天几点？", toolCalls: [] },
         ai_generate_title: "晨间习惯",
+        load_diary_month: { month: "2611", days: [] },
+        list_diary_months: ["2611"],
       };
       return Promise.resolve(replies[command]) as never;
     });
@@ -112,4 +114,17 @@ describe("App and bebe", () => {
     await act(async () => handlers.get(PET_SUMMON_DOCK)?.({ payload: null }));
     expect(visibility().at(-1)).toBe(true);
   });
+
+  it("聊一下 on the morning to-do list starts the 昨天的 to-do task with every to-do and today's template", async () => {
+    const todos = ["改 reference", "看 response letter", "跑 consistency checker", "整理 replication"];
+    await act(async () => handlers.get(PET_CARRY_TODOS)?.({ payload: { day: "261117", todos } }));
+    const step = mockedInvoke.mock.calls.find(([command]) => command === "ai_chat_step")?.[1] as { request: { messages: Array<{ task?: string; content: string }>; scope: unknown } };
+    expect(step.request.messages[0].task).toBe("carry_todos");
+    expect(step.request.scope).toEqual({ diary: "write" });
+    const message = step.request.messages[0].content;
+    expect(message).toContain("日记 261117");
+    expect(message).toContain("4. 整理 replication");
+    expect(message).toContain("今天的日记还没写，按这个模板新建");
+  });
 });
+

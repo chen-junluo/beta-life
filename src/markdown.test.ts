@@ -42,6 +42,13 @@ describe("markdown round trip", () => {
     expect(serializeMarkdown(parseMarkdown("- a\n- \n- b", "diary"), "diary")).toBe("- a\n- b");
   });
 
+  it("keeps the diary's 【AI总结】 line out of the bullet above it and the lists on both sides tight", () => {
+    const divider = "=====【AI总结】=====";
+    const full = "=============================================【AI总结】=============================================";
+    const body = `- 生活：\n\t- 散步\n${divider}\n\n- 习惯：完成 1/2\n\t- 没完成：读书`;
+    expect(serializeMarkdown(parseMarkdown(body, "diary"), "diary")).toBe(`- 生活：\n\t- 散步\n\n${full}\n\n- 习惯：完成 1/2\n\t- 没完成：读书`);
+  });
+
   it("keeps Obsidian links, embeds and strikethrough unescaped", () => {
     for (const value of ["见 [[读书笔记]] 和 [[a_b|别名]]", "![[Pasted image 20260727124420.png]]", "~~划掉~~ 但 \\[普通\\] 括号仍转义"]) {
       expect(roundTrip(value)).toBe(value);

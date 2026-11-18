@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "./defaults";
-import { addObstacles, fewestDone, habitRates, habitStatsText, isLowRate, periodCheck, shiftDate, unfinishedIn } from "./habitLogic";
+import { addObstacles, checksIn, fewestDone, habitOn, habitRates, habitStatsText, isLowRate, periodCheck, shiftDate, unfinishedIn } from "./habitLogic";
 import type { Habit, HabitRecord, PeriodSetting } from "./types";
 
 const periods = DEFAULT_SETTINGS.periods;
@@ -52,6 +52,34 @@ describe("habit logic", () => {
     expect(habitStatsText(items, rates, 50, periods)).toBe("- 习惯：完成 2/4（50%）\n\t- 没完成：习惯b（中午）、习惯c（21:00）\n\t- 7 天完成率低于 50%：习惯b 2/7");
     expect(habitStatsText([], {}, 50, periods)).toBeNull();
   });
+
+  it("keeps a day with many unfinished habits short: counts per period, the three lowest rates", () => {
+    const named = (id: string, title: string, placement: Habit["placement"]) => ({ ...habit(id, placement), title });
+    const items = [
+      named("a", "生姜艾叶花椒泡脚15分钟，微微出汗即可", { kind: "hour", hour: 22 }),
+      named("b", "写自传！（周末的下午）", { kind: "hour", hour: 17 }),
+      named("c", "**跟读《焦点访谈》短节目 15 分钟**", { kind: "hour", hour: 9 }),
+      named("d", "练吉他30min", { kind: "hour", hour: 21 }),
+      habit("e", { kind: "period", period: "evening" }, true),
+    ];
+    const rates = { a: { done: 0, total: 4 }, b: { done: 1, total: 4 }, c: { done: 0, total: 3 }, d: { done: 1, total: 3 }, e: { done: 4, total: 4 } };
+    // Defaults: morning 7, noon 12, evening 18, sleep 23.
+    expect(habitStatsText(items, rates, 50, periods)).toBe(
+      "- 习惯：完成 1/5（20%）\n\t- 没完成：晚上 2 个、早上 1 个、中午 1 个\n\t- 7 天完成率低于 50%：4 个，最低的是 生姜艾叶花椒泡脚15分钟 0/4、跟读《焦点访谈》短节目… 0/3、写自传！ 1/4",
+    );
+  });
+  it("weekend-only habits are on at weekends, the others on weekdays and at weekends unless turned off", () => {
+    const daily = habit("a", { kind: "hour", hour: 9 });
+    const weekend = { ...habit("b", { kind: "hour", hour: 17 }), weekendOnly: true };
+    const friday = new Date(2026, 10, 13, 9);
+    const saturday = new Date(2026, 10, 14, 9);
+    const sunday = new Date(2026, 10, 15, 9);
+    expect([habitOn(daily, friday, true), habitOn(weekend, friday, true)]).toEqual([true, false]);
+    expect([habitOn(daily, saturday, true), habitOn(weekend, saturday, true)]).toEqual([true, true]);
+    expect([habitOn(daily, sunday, false), habitOn(weekend, sunday, false)]).toEqual([false, true]);
+    expect([checksIn(daily), checksIn({ ...daily, checkIn: false }), checksIn({ ...daily, checkIn: true })]).toEqual([true, false, true]);
+  });
+
   it("light nudges keep the lowest rates, ties in the given order", () => {
     const habits = [
       { id: "a", done: 2, total: 5 },

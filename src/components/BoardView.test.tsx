@@ -144,6 +144,29 @@ describe("BoardView tag focus", () => {
     host.remove();
   });
 
+  it("shows no check box or rate without check-in, and 周末 on weekend-only cards", () => {
+    act(() => {
+      root.render(
+        <BoardView
+          items={[{ ...habit("tea", 8, ""), checkIn: false }, { ...habit("read", 9, ""), weekendOnly: true, done: true }, habit("calcium", 10, "")]}
+          settings={structuredClone(DEFAULT_SETTINGS)}
+          viewMode="global"
+          onItemsChange={vi.fn()}
+          onCreate={vi.fn()}
+          onEdit={vi.fn()}
+          onSloganChange={vi.fn()}
+          onTagIconChange={vi.fn()}
+        />,
+      );
+    });
+    expect(card("tea").querySelector(".habit-done-toggle, .habit-stats")).toBeNull();
+    expect(card("read").querySelector(".habit-weekend")?.textContent).toBe("周末");
+    expect(card("read").querySelector(".habit-done-toggle")).not.toBeNull();
+    expect(card("calcium").querySelector(".habit-weekend")).toBeNull();
+    // Morning (7–12) counts read and calcium, not tea.
+    expect(host.querySelector('[data-period-id="morning"] .period-done-count')?.textContent).toBe("1/2");
+  });
+
   it("lists tags by usage with icons, falling back to # when a tag has no icon", () => {
     render();
     expect([...host.querySelectorAll(".tag-pill")].map((item) => item.textContent)).toEqual(["🍵饮食0/2", "#口才突破0/1", "#睡前0/1"]);

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_DIARY_TODOS_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
@@ -11,7 +11,7 @@ import { SettingsSelect, type SelectOption } from "./SettingsSelect";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AbilityMapKind, AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
-type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "goalStepPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
+type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "goalStepPrompt" | "diaryTodosPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
 
 const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
   { key: "assistantPrompt", label: "AI 助手", help: "AI 助手的工作方式和语气。工具协议、@ 权限和「写入前先确认」由应用管理，这里改不掉。", fallback: DEFAULT_ASSISTANT_PROMPT },
@@ -19,6 +19,7 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "habitReasonsPrompt", label: "阻挠原因", help: "时段结束前 bebe 问「为什么没完成」，AI 按这里的要求把你的回答分到各个习惯卡片的【阻挠习惯的原因】；这一步直接写入，写错了在卡片里改或删。", fallback: DEFAULT_HABIT_REASONS_PROMPT },
   { key: "habitOfferPrompt", label: "低完成率总结", help: "0 点存档后 bebe 问要不要写建议时，AI 先按这里的要求用一句话总结哪些习惯没做好；下面最多列 3 个完成最少的习惯。", fallback: DEFAULT_HABIT_OFFER_PROMPT },
   { key: "habitSuggestionPrompt", label: "助推建议", help: "0 点存档后，对 7 天完成率偏低的习惯，bebe 问要不要写建议；AI 读阻挠原因和最近的日记，写在日记【AI总结】下面，写入前先确认由应用管理。", fallback: DEFAULT_HABIT_SUGGESTION_PROMPT },
+  { key: "diaryTodosPrompt", label: "昨天的 to-do", help: "早上第一次在电脑前时，AI 按这里的要求从上一天的日记里找出没做完的 to-do，bebe 列出来；点「聊一下」后逐条问你，做完的标 ✅、不做的标 ❎、还要做的挪到今天的日记，写入前先出确认卡。", fallback: DEFAULT_DIARY_TODOS_PROMPT },
   { key: "goalStepPrompt", label: "长期目标小步骤", help: "早上 bebe 提醒长期目标太久没推进，点「想个小步骤」后，AI 读目标笔记和最近的日记，按这里的要求给一个今天能做的小步骤，并排一个今天的一次性提醒（可撤销）。", fallback: DEFAULT_GOAL_STEP_PROMPT },
   { key: "extractionPrompt", label: "习惯提取", help: "点时间板的「AI 提取」后，AI 助手按这里的要求从文字或截图里提取习惯；工具协议和「写入前先确认」由应用管理。", fallback: DEFAULT_EXTRACTION_PROMPT },
   { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },

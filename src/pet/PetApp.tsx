@@ -7,7 +7,7 @@ import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { DEFAULT_PET_SETTINGS } from "../defaults";
 import { renderMarkdown } from "../markdown";
-import { fewestDone, periodCheck, unfinishedIn } from "../habitLogic";
+import { checksIn, fewestDone, habitOn, periodCheck, unfinishedIn } from "../habitLogic";
 import { daysSince, type StaleGoal } from "../goals";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
@@ -21,6 +21,8 @@ import {
   PET_HABIT_REASONS,
   PET_HABIT_SUGGEST,
   PET_GOAL_STEP,
+  PET_CARRY_TODOS,
+  type TodoOffer,
   PET_MARK_DONE,
   PET_OPEN_TIMELINE,
   PET_PRESENCE,
@@ -72,6 +74,8 @@ const SUMMARY_STORAGE_KEY = "bebe:summary";
 const SUGGEST_STORAGE_KEY = "bebe:suggest";
 /** The last day bebe reminded about stale long-term goals (`YYYY-MM-DD`). */
 const GOALS_DAY_STORAGE_KEY = "bebe:goals-day";
+/** The day bebe last looked for the last diary day's to-dos (`YYYY-MM-DD`). */
+const TODOS_DAY_STORAGE_KEY = "bebe:todos-day";
 /** When bebe last reminded about each goal: `{ [StaleGoal.key]: "YYYY-MM-DD" }`. */
 const GOALS_REMINDED_STORAGE_KEY = "bebe:goals-reminded";
 /** A day with less activity than this gets no evening summary. */
@@ -93,6 +97,8 @@ type Bubble =
   | { kind: "suggest"; offer: HabitSuggestOffer }
   /** In the morning: long-term goals that have not moved for a while (at most `OFFER_LIST_MAX`). */
   | { kind: "goals"; goals: StaleGoal[] }
+  /** In the morning: what the last diary day left undone; the bubble shows `OFFER_LIST_MAX`, the chat all. */
+  | { kind: "todos"; offer: TodoOffer }
   | { kind: "chat" };
 
 interface DayMemory {
@@ -203,6 +209,10 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
         { key: "a", name: "论文：最低工资与就业", link: "", path: ["研究者", "论文：最低工资与就业"], label: "12 天没推进", days: 12 },
         { key: "b", name: "每周跑步三次，备战明年春天的半程马拉松", link: "", path: ["健康", "跑步"], label: "标记 9 天还没推进", days: 9 },
       ].slice(0, Number(params.get("count") ?? 2)),
+    },
+    todos: {
+      kind: "todos",
+      offer: { day: "261117", todos: ["manuscript 增加 reference", "response letter 从头到尾看一遍", "consistency checker 看一遍", "整理好 replication、复现要交上去的结果"].slice(0, Number(params.get("count") ?? 4)) },
     },
     chat: { kind: "chat" },
   };
@@ -595,7 +605,7 @@ export function PetApp() {
       play("alert");
       return;
     }
-    const slot = reminderSlot(date, items, periods);
+    const slot = reminderSlot(date, items.filter((item) => habitOn(item, date, pet.habitWeekends)), periods);
     if (!slot || dayRef.current.reminded.includes(slot.key)) return;
     dayRef.current = { ...dayRef.current, reminded: [...dayRef.current.reminded, slot.key] };
     saveDay(dayRef.current);
@@ -603,7 +613,7 @@ export function PetApp() {
     if (queue.length === 0) return;
     raise({ kind: "reminder", hour: date.getHours(), queue });
     play("alert");
-  }, [now, items, periods, bubble, sleeping, away, quiet, snoozed, pendingOnly, play, raise, preview.bubble]);
+  }, [now, items, periods, pet.habitWeekends, bubble, sleeping, away, quiet, snoozed, pendingOnly, play, raise, preview.bubble]);
 
   // One-off reminders the user asked for show even while asleep or quiet; they wait for a free bubble.
   useEffect(() => {
@@ -686,11 +696,11 @@ export function PetApp() {
     if (dayRef.current.asked?.includes(check.key)) return;
     dayRef.current = { ...dayRef.current, asked: [...(dayRef.current.asked ?? []), check.key] };
     saveDay(dayRef.current);
-    const habits = unfinishedIn(items, check.period.id, periods);
+    const habits = unfinishedIn(items.filter((item) => checksIn(item) && habitOn(item, date, pet.habitWeekends)), check.period.id, periods);
     if (habits.length === 0) return;
     raise({ kind: "why", date: localDateKey(date), period: check.period, habits });
     play("alert");
-  }, [now, pulse, items, periods, pet.habitNudge, sleeping, away, quiet, raise, play, preview.bubble]);
+  }, [now, pulse, items, periods, pet.habitNudge, pet.habitWeekends, sleeping, away, quiet, raise, play, preview.bubble]);
 
   // The next time the user is around after 0:00, offer suggestions for habits with a low rate, once.
   useEffect(() => {
@@ -701,10 +711,31 @@ export function PetApp() {
     play("alert");
   }, [suggestOffer, pet.habitNudge, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
 
+  // The first time the user is around after the sleep period: the last diary day's to-dos, once a
+  // day, before the goals below. The AI reads them out of the diary; nothing found, no bubble.
+  const todosLoading = useRef(false);
+  useEffect(() => {
+    if (!isTauri || preview.bubble || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    const today = localDateKey(new Date(now));
+    if (localStorage.getItem(TODOS_DAY_STORAGE_KEY) === today) return;
+    localStorage.setItem(TODOS_DAY_STORAGE_KEY, today);
+    todosLoading.current = true;
+    void invoke<TodoOffer | null>("ai_diary_todos", { today })
+      .then((offer) => {
+        if (!offer || bubbleRef.current) return;
+        raise({ kind: "todos", offer });
+        play("alert");
+      })
+      .catch(console.error)
+      .finally(() => {
+        todosLoading.current = false;
+      });
+  }, [now, pulse, sleeping, away, quiet, raise, play, preview.bubble]);
+
   // The first time the user is around after the sleep period: stale long-term goals, once a day,
   // each goal again only after Settings' interval.
   useEffect(() => {
-    if (!isTauri || preview.bubble || !goalNudge?.stale.length || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current) return;
+    if (!isTauri || preview.bubble || !goalNudge?.stale.length || !pulse?.current || pulse.inBetaLife || sleeping || away || quiet || bubbleRef.current || todosLoading.current) return;
     const today = localDateKey(new Date(now));
     if (localStorage.getItem(GOALS_DAY_STORAGE_KEY) === today) return;
     const reminded = readReminded();
@@ -825,6 +856,12 @@ export function PetApp() {
     setBubble(null);
   }
 
+  /** The main window starts the 昨天的 to-do task; bebe's chat asks about each one and shows the diff card. */
+  function carryTodos(offer: TodoOffer) {
+    if (isTauri) void emitTo<TodoOffer>("main", PET_CARRY_TODOS, offer);
+    setBubble({ kind: "chat" });
+  }
+
   /** The main window starts the 长期目标小步骤 task; bebe's chat shows the step and the reminder's undo. */
   function goalStep(goals: StaleGoal[]) {
     if (isTauri) void emitTo<StaleGoal[]>("main", PET_GOAL_STEP, goals);
@@ -892,9 +929,10 @@ export function PetApp() {
               </p>
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => startFocus(bubble.queue[0])}>开始 5 分钟</button>
-                <button type="button" className="secondary-button" onClick={() => markDone(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>已完成</button>
+                {checksIn(bubble.queue[0]) && <button type="button" className="secondary-button" onClick={() => markDone(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>已完成</button>}
                 <button type="button" className="secondary-button" onClick={() => snooze(bubble.queue, bubble.hour)}>稍后提醒</button>
-                <button type="button" className="secondary-button" onClick={() => skipToday(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>今天跳过</button>
+                {/* Without check-in there is nothing to finish: 知道了 moves on, as 今天跳过 does. */}
+                <button type="button" className="secondary-button" onClick={() => skipToday(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>{checksIn(bubble.queue[0]) ? "今天跳过" : "知道了"}</button>
               </div>
             </>
           )}
@@ -976,6 +1014,24 @@ export function PetApp() {
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => goalStep(bubble.goals)}>想个小步骤</button>
                 <button type="button" className="secondary-button" onClick={() => setBubble(null)}>知道啦</button>
+              </div>
+            </>
+          )}
+          {bubble.kind === "todos" && (
+            <>
+              <span className="pet-bubble-meta">{bubble.offer.day} 的 to-do</span>
+              <p className="pet-bubble-text is-full">
+                {bubble.offer.todos.length === 1 ? "上次的日记里还有 1 件事没写做完" : `上次的日记里还有 ${bubble.offer.todos.length} 件事没写做完`}
+              </p>
+              <ul className="pet-bubble-list">
+                {bubble.offer.todos.slice(0, OFFER_LIST_MAX).map((todo) => (
+                  <li key={todo} title={todo}><span>{todo}</span></li>
+                ))}
+              </ul>
+              {bubble.offer.todos.length > OFFER_LIST_MAX && <p className="pet-bubble-ask">还有 {bubble.offer.todos.length - OFFER_LIST_MAX} 条，聊的时候一起过</p>}
+              <div className="pet-bubble-actions">
+                <button type="button" className="primary-button" onClick={() => carryTodos(bubble.offer)}>聊一下</button>
+                <button type="button" className="secondary-button" onClick={() => setBubble(null)}>今天不了</button>
               </div>
             </>
           )}

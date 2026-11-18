@@ -762,6 +762,7 @@ button:focus-visible, input:focus-visible, :is(textarea, .md-editor):focus-visib
 .habit-rate { padding: 1px 5px; border-radius: 5px; font-size: var(--tag-font-size, 8px); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .habit-rate { color: var(--muted); background: var(--panel-soft); }
 .habit-rate.is-low { color: #b45309; background: rgba(245, 158, 11, 0.12); font-weight: 650; }
+.habit-rate.habit-weekend { margin-left: auto; color: color-mix(in srgb, var(--period-color, var(--accent)) 80%, var(--ink)); background: color-mix(in srgb, var(--period-color, var(--accent)) 12%, transparent); }
 .tag-icon.is-empty { color: var(--muted); font-weight: 700; }
 
 /* Tag focus: hover previews, click pins; cards outside the focused tags fade out. */
@@ -3097,6 +3098,9 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 :where(.md-editor, .md-content) ul { list-style-type: disc; }
 :where(.md-editor, .md-content) ol { list-style-type: decimal; }
 :where(.md-editor, .md-content) li > :is(p, ul, ol) { margin-bottom: 0; }
+/* A selection across items paints each covered bullet and its indent like the selected text. */
+.md-editor li.is-selected-item { position: relative; }
+.md-editor li.is-selected-item::before { content: ""; position: absolute; top: 0; left: -1.45em; width: 1.45em; height: 1lh; background: Highlight; mix-blend-mode: multiply; pointer-events: none; }
 :where(.md-editor, .md-content) :where(h1, h2, h3, h4, h5, h6) { color: var(--ink); line-height: 1.3; font-weight: 720; }
 :where(.md-editor) h1 { font-size: 1.4em; }
 :where(.md-editor) h2 { font-size: 1.25em; }
@@ -3481,6 +3485,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 
 /* P6: 【阻挠习惯的原因】 in the habit sheet's chip row. */
 .obstacle-popover { width: min(420px, 80vw); display: grid; gap: var(--ui-field-gap); }
+.habit-options-popover { width: min(360px, 80vw); display: grid; gap: var(--ui-field-gap); }
 .obstacle-popover-title { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .obstacle-popover-empty { margin: 0; color: var(--muted); font-size: 12px; }
 .obstacle-popover ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }

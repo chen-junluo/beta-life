@@ -31,6 +31,16 @@ export const PET_HABIT_SUGGEST = "pet://habit-suggest";
 export const PET_GOAL_STEP = "pet://goal-step";
 /** The 长期目标小步骤 task reads the goals' notes and the week's diary; it only schedules a reminder (a bebe tool). */
 export const PET_GOAL_SCOPE: AiScope = { forest: "read", diary: "read" };
+/** Pet → main: 聊一下 on the morning list of the last diary day's to-dos (`TodoOffer`). */
+export const PET_CARRY_TODOS = "pet://carry-todos";
+/** The 昨天的 to-do task rewrites that day and today in the diary. */
+export const PET_TODOS_SCOPE: AiScope = { diary: "write" };
+
+/** Rust `todos::TodoOffer`: the to-dos the AI found in the last diary day (`YYMMDD`). */
+export interface TodoOffer {
+  day: string;
+  todos: string[];
+}
 
 /** A conversation started from bebe can read the panels (not the diary) and the timeline, and change the time board. */
 export const PET_CHAT_SCOPE: AiScope = { board: "write", recall: "read", forest: "read", memories: "read", timeline: "read" };

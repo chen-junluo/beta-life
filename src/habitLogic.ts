@@ -79,6 +79,19 @@ export function periodCheck(now: Date, periods: PeriodSetting[], leadMs = ASK_LE
   return null;
 }
 
+export const isWeekend = (date: Date) => date.getDay() === 0 || date.getDay() === 6;
+
+/**
+ * Whether a habit is on for `date`: weekend-only habits on Saturdays and Sundays, the others on
+ * weekdays, and on weekends too unless Settings → bebe turned weekends off (Rust `counts_on`).
+ */
+export function habitOn(habit: Habit, date: Date, weekends: boolean): boolean {
+  return habit.weekendOnly ? isWeekend(date) : !isWeekend(date) || weekends;
+}
+
+/** Check-in off: reminded, but never checked off, archived, counted or asked about. */
+export const checksIn = (habit: Habit) => habit.checkIn !== false;
+
 /** Where a habit sits: its period, or the period of its hour. */
 export function habitPeriod(habit: Habit, periods: PeriodSetting[]): PeriodId {
   return habit.placement.kind === "period" ? habit.placement.period : periodForHour(habit.placement.hour, periods);
@@ -110,14 +123,39 @@ function slotLabel(habit: Habit, periods: PeriodSetting[]): string {
   return periods.find((item) => item.id === period)?.label ?? period;
 }
 
-/** The day's habits under 【AI总结】, or null when the board had none. Written by Beta Life, not the AI. */
+/** Up to this many unfinished habits are named in the diary; more are counted per period. */
+export const MISSED_NAMED_MAX = 3;
+const SHORT_TITLE_MAX = 12;
+
+/** A habit's name for the diary: plain text up to the first comma or bracket, at most 12 characters. */
+export function shortTitle(title: string): string {
+  const plain = title.replace(/[*_`~#>[\]]/g, "").replace(/^\s*[-+]\s+/, "").replace(/\s+/g, " ").trim();
+  const head = plain.split(/[，,（(：:；;。]/)[0].trim() || plain;
+  const chars = [...head];
+  return chars.length > SHORT_TITLE_MAX ? `${chars.slice(0, SHORT_TITLE_MAX).join("").trim()}…` : head;
+}
+
+/**
+ * The day's habits under 【AI总结】, or null when the board had none. Written by Beta Life, not the AI:
+ * a few unfinished habits by name, more as a count per period; low rates name only the lowest three.
+ */
 export function habitStatsText(habits: Habit[], rates: Record<string, HabitRate>, lowPercent: number, periods: PeriodSetting[]): string | null {
   if (habits.length === 0) return null;
   const done = habits.filter((habit) => habit.done).length;
   const lines = [`- 习惯：完成 ${done}/${habits.length}（${Math.round((done / habits.length) * 100)}%）`];
   const missed = habits.filter((habit) => !habit.done);
-  if (missed.length > 0) lines.push(`\t- 没完成：${missed.map((habit) => `${habit.title}（${slotLabel(habit, periods)}）`).join("、")}`);
-  const low = habits.filter((habit) => isLowRate(rates[habit.id], lowPercent));
-  if (low.length > 0) lines.push(`\t- ${RATE_DAYS} 天完成率低于 ${lowPercent}%：${low.map((habit) => `${habit.title} ${rates[habit.id].done}/${rates[habit.id].total}`).join("、")}`);
+  if (missed.length > MISSED_NAMED_MAX) {
+    const counts = new Map<PeriodId, number>();
+    for (const habit of missed) counts.set(habitPeriod(habit, periods), (counts.get(habitPeriod(habit, periods)) ?? 0) + 1);
+    const parts = periods.filter((period) => counts.has(period.id)).sort((a, b) => counts.get(b.id)! - counts.get(a.id)!);
+    lines.push(`\t- 没完成：${parts.map((period) => `${period.label} ${counts.get(period.id)} 个`).join("、")}`);
+  } else if (missed.length > 0) {
+    lines.push(`\t- 没完成：${missed.map((habit) => `${shortTitle(habit.title)}（${slotLabel(habit, periods)}）`).join("、")}`);
+  }
+  const low = habits.filter((habit) => isLowRate(rates[habit.id], lowPercent)).map((habit) => ({ title: habit.title, ...rates[habit.id] }));
+  if (low.length > 0) {
+    const lowest = fewestDone(low).map((habit) => `${shortTitle(habit.title)} ${habit.done}/${habit.total}`).join("、");
+    lines.push(`\t- ${RATE_DAYS} 天完成率低于 ${lowPercent}%：${low.length > LIGHT_NUDGE_MAX ? `${low.length} 个，最低的是 ${lowest}` : lowest}`);
+  }
   return lines.join("\n");
 }

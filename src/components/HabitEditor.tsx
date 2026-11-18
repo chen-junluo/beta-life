@@ -1,4 +1,4 @@
-import { Check, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { splitTags } from "../simpleMarkdown";
 import { obstacleText } from "../habitLogic";
@@ -52,6 +52,8 @@ export function HabitEditor({
   const [tags, setTags] = useState(() => splitTags(habit?.tags ?? ""));
   const [placement, setPlacement] = useState<Placement>(initialPlacement);
   const [obstacles, setObstacles] = useState<HabitObstacle[]>(habit?.obstacles ?? []);
+  const [weekendOnly, setWeekendOnly] = useState(habit?.weekendOnly === true);
+  const [checkIn, setCheckIn] = useState(habit?.checkIn !== false);
   const [deleteArmed, setDeleteArmed] = useState(false);
 
   useEffect(() => {
@@ -79,6 +81,9 @@ export function HabitEditor({
       updatedAt: now,
       done: habit?.done,
       obstacles: obstacles.map((obstacle) => ({ ...obstacle, text: obstacleText(obstacle.text) })).filter((obstacle) => obstacle.text),
+      // Left out when default, as Rust writes them.
+      ...(weekendOnly ? { weekendOnly: true } : {}),
+      ...(checkIn ? {} : { checkIn: false }),
     });
   }
 
@@ -123,6 +128,26 @@ export function HabitEditor({
             <div className="chip-row">
               <TimeChip placement={placement} settings={settings} onChange={setPlacement} />
               <TagChips tags={tags} knownTags={knownTags} settings={settings} onChange={setTags} />
+              <ChipPopover
+                label={`${weekendOnly ? "只在周末" : "每天"} · ${checkIn ? "打卡" : "不打卡"}`}
+                icon={<CalendarDays size={13} aria-hidden="true" />}
+                ariaLabel="生效时间与打卡"
+                popoverLabel="生效时间与打卡"
+                popoverClassName="habit-options-popover"
+              >
+                {() => (
+                  <>
+                    <label className="toggle-row">
+                      <input type="checkbox" checked={weekendOnly} onChange={(event) => setWeekendOnly(event.target.checked)} />
+                      <span><strong>只在周末生效</strong><small>只在周六、周日提醒和统计；卡片右下角显示「周末」。</small></span>
+                    </label>
+                    <label className="toggle-row">
+                      <input type="checkbox" checked={checkIn} onChange={(event) => setCheckIn(event.target.checked)} />
+                      <span><strong>打卡</strong><small>关掉后时间板上没有勾选框，不统计完成情况，bebe 也不问为什么没完成、不提助推建议；整点照常提醒。</small></span>
+                    </label>
+                  </>
+                )}
+              </ChipPopover>
               {(habit?.obstacles?.length ?? 0) > 0 && (
                 <ChipPopover label={`阻挠原因 · ${obstacles.length}`} popoverLabel="阻挠习惯的原因" popoverClassName="obstacle-popover">
                   {() => (

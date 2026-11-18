@@ -50,6 +50,24 @@ describe("MarkdownEditor", () => {
     expect(editor().dataset.empty).toBeUndefined();
   });
 
+  it("marks the bullets a selection across items covers", () => {
+    act(() => root.render(<MarkdownEditor value={"- 工作\n\t- 写论文\n- 学习"} onChange={vi.fn()} flavor="diary" />));
+    expect(editor().querySelectorAll("li.is-selected-item")).toHaveLength(0);
+    act(() => editor().dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true, cancelable: true })));
+    expect(editor().querySelectorAll("li.is-selected-item")).toHaveLength(3);
+  });
+
+  it("pastes plain text with Ctrl+Shift+V: no Markdown, lines as line breaks", async () => {
+    const onChange = vi.fn();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: () => Promise.resolve("- **粗**\r\n第二行") } });
+    act(() => root.render(<MarkdownEditor value="" onChange={onChange} />));
+    await act(async () => {
+      editor().dispatchEvent(new KeyboardEvent("keydown", { key: "V", keyCode: 86, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    });
+    expect(editor().querySelector("li, strong")).toBeNull();
+    expect(onChange).toHaveBeenLastCalledWith("\\- \\*\\*粗\\*\\*\n第二行");
+  });
+
   it("bolds the selection with Ctrl+B", () => {
     const onChange = vi.fn();
     act(() => root.render(<MarkdownEditor value="听息" onChange={onChange} />));

@@ -6,7 +6,7 @@
 //! - Reasons: bebe asks why a period's habits were not done; the AI splits the answer per habit.
 
 use crate::{call_provider, load_settings, read_api_key, vault, AppSettings};
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate, Weekday};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -87,6 +87,9 @@ pub(crate) struct DayHabit {
     done: bool,
     /// Local `YYYY-MM-DD` the habit was created; habits created after the archived day are left out.
     created: String,
+    /// Archived only for a Saturday or Sunday.
+    #[serde(default)]
+    weekend_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,7 +98,18 @@ pub(crate) struct RollRequest {
     /// Local `YYYY-MM-DD` now.
     today: String,
     board_id: String,
+    /// Habits with check-in on (the others are never archived).
     habits: Vec<DayHabit>,
+    /// Settings → bebe: false archives only weekend-only habits on Saturdays and Sundays.
+    #[serde(default = "crate::default_true")]
+    weekends: bool,
+}
+
+/// Whether a habit counts on `day`: weekend-only habits on Saturdays and Sundays, the others on
+/// weekdays, and on weekends too unless Settings turned weekends off (same rule as `habitCountsOn`).
+fn counts_on(habit: &DayHabit, day: NaiveDate, weekends: bool) -> bool {
+    let weekend = matches!(day.weekday(), Weekday::Sat | Weekday::Sun);
+    if habit.weekend_only { weekend } else { !weekend || weekends }
 }
 
 fn read_records(path: &Path) -> Vec<HabitRecord> {
@@ -125,7 +139,7 @@ fn roll(dir: &Path, request: &RollRequest) -> Result<Option<String>, String> {
     let path = month_path(dir, &date);
     if !read_records(&path).iter().any(|record| record.date == date && record.board_id == request.board_id) {
         let mut lines = String::new();
-        for habit in request.habits.iter().filter(|habit| habit.created.as_str() <= date.as_str()) {
+        for habit in request.habits.iter().filter(|habit| habit.created.as_str() <= date.as_str() && counts_on(habit, day, request.weekends)) {
             let record = HabitRecord { date: date.clone(), board_id: request.board_id.clone(), habit_id: habit.habit_id.clone(), title: habit.title.clone(), done: habit.done };
             lines.push_str(&serde_json::to_string(&record).map_err(|error| error.to_string())?);
             lines.push('\n');
@@ -305,11 +319,11 @@ mod tests {
     use super::*;
 
     fn day_habit(id: &str, done: bool, created: &str) -> DayHabit {
-        DayHabit { habit_id: id.into(), title: format!("习惯 {id}"), done, created: created.into() }
+        DayHabit { habit_id: id.into(), title: format!("习惯 {id}"), done, created: created.into(), weekend_only: false }
     }
 
     fn request(today: &str, habits: Vec<DayHabit>) -> RollRequest {
-        RollRequest { today: today.into(), board_id: "b1".into(), habits }
+        RollRequest { today: today.into(), board_id: "b1".into(), habits, weekends: true }
     }
 
     #[test]
@@ -333,6 +347,27 @@ mod tests {
         assert_eq!(roll(&dir, &request("2026-12-03", vec![day_habit("a", true, "2026-11-01")])).unwrap(), Some("2026-11-30".into()));
         assert_eq!(history(&dir, "2026-11-25", "2026-12-03").unwrap().len(), 1);
         assert!(history(&dir, "2026-12-03", "2026-11-25").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn weekends_archive_weekend_habits_and_the_others_only_when_settings_keep_weekends() {
+        let root = vault::test_root("habit-weekends");
+        let dir = history_dir(&root);
+        let habits = || vec![day_habit("daily", false, "2026-11-01"), DayHabit { weekend_only: true, ..day_habit("weekend", true, "2026-11-01") }];
+        let ids = |from: &str| history(&dir, from, from).unwrap().into_iter().map(|record| record.habit_id).collect::<Vec<_>>();
+        // 2026-11-13 is a Friday, 11-14 a Saturday, 11-15 a Sunday.
+        crate::atomic_write(&dir.join("day.json"), &DayMarker { date: "2026-11-13".into() }).unwrap();
+        roll(&dir, &request("2026-11-14", habits())).unwrap();
+        assert_eq!(ids("2026-11-13"), vec!["daily"]);
+        roll(&dir, &request("2026-11-15", habits())).unwrap();
+        assert_eq!(ids("2026-11-14"), vec!["daily", "weekend"]);
+        // Weekends off: the day still rolls (the checks are cleared), only weekend habits are kept.
+        assert_eq!(roll(&dir, &RollRequest { weekends: false, ..request("2026-11-16", habits()) }).unwrap(), Some("2026-11-15".into()));
+        assert_eq!(ids("2026-11-15"), vec!["weekend"]);
+        // An old request without the field keeps weekends.
+        let old: RollRequest = serde_json::from_str(r#"{"today":"2026-11-16","boardId":"b1","habits":[]}"#).unwrap();
+        assert!(old.weekends);
         fs::remove_dir_all(root).unwrap();
     }
 
