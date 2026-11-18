@@ -2,10 +2,11 @@ import { baseKeymap, chainCommands, exitCode, toggleMark } from "prosemirror-com
 import { history, redo, undo } from "prosemirror-history";
 import { InputRule, inputRules, textblockTypeInputRule, undoInputRule, wrappingInputRule } from "prosemirror-inputrules";
 import { keymap } from "prosemirror-keymap";
-import type { MarkType } from "prosemirror-model";
+import { invoke } from "@tauri-apps/api/core";
+import { Fragment, Slice, type MarkType, type Node as ProseMirrorNode } from "prosemirror-model";
 import { liftListItem, sinkListItem, splitListItem } from "prosemirror-schema-list";
-import { EditorState, Selection, type Command } from "prosemirror-state";
-import { EditorView } from "prosemirror-view";
+import { EditorState, Plugin, Selection, type Command } from "prosemirror-state";
+import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import "prosemirror-view/style/prosemirror.css";
 import { useEffect, useRef, type MouseEvent } from "react";
 import { markdownSchema, markdownSlice, parseMarkdown, renderMarkdown, serializeMarkdown, type MarkdownFlavor } from "../markdown";
@@ -47,6 +48,58 @@ const insertHardBreak: Command = (state, dispatch) => {
   return true;
 };
 
+/**
+ * A selection across blocks marks the list items whose bullet it covers (it starts at or before the
+ * item's text), so CSS can paint the bullet and its indent like the selected text.
+ */
+const selectedItems = new Plugin({
+  props: {
+    decorations({ doc, selection }) {
+      if (selection.empty || (selection.$from.parent.isTextblock && selection.$from.sameParent(selection.$to))) return null;
+      const items: Decoration[] = [];
+      doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+        // pos + 2: inside the item and its first paragraph, where the text starts.
+        if (node.type === nodes.list_item && selection.from <= pos + 2 && selection.to > pos + 2) {
+          items.push(Decoration.node(pos, pos + node.nodeSize, { class: "is-selected-item" }));
+        }
+        return true;
+      });
+      return DecorationSet.create(doc, items);
+    },
+  },
+});
+
+async function clipboardText(): Promise<string> {
+  if (window.__TAURI_INTERNALS__) {
+    const text = await invoke<string | null>("read_clipboard_text");
+    if (text !== null) return text;
+  }
+  return navigator.clipboard.readText();
+}
+
+/** Cmd/Ctrl+Shift+V: the clipboard's text as typed, lines as line breaks; no Markdown, no marks. */
+const pastePlainText: Command = (_state, dispatch, view) => {
+  if (!dispatch || !view) return true;
+  void clipboardText()
+    .then((raw) => {
+      const text = raw.replace(/\r\n?/g, "\n");
+      if (!text || view.isDestroyed) return;
+      const { state } = view;
+      if (state.selection.$from.parent.type.spec.code) {
+        view.dispatch(state.tr.insertText(text).scrollIntoView());
+        return;
+      }
+      const inline: ProseMirrorNode[] = [];
+      text.split("\n").forEach((line, index) => {
+        if (index > 0) inline.push(nodes.hard_break.create());
+        if (line) inline.push(markdownSchema.text(line));
+      });
+      view.dispatch(state.tr.replaceSelection(new Slice(Fragment.from(inline), 0, 0)).setStoredMarks([]).scrollIntoView().setMeta("paste", true));
+    })
+    .catch(console.error);
+  return true;
+};
+
 function createState(value: string, onModEnter: () => boolean, flavor?: MarkdownFlavor) {
   return EditorState.create({
     doc: parseMarkdown(value, flavor),
@@ -71,6 +124,7 @@ function createState(value: string, onModEnter: () => boolean, flavor?: Markdown
         ],
       }),
       history(),
+      selectedItems,
       keymap({
         "Mod-z": undo,
         "Shift-Mod-z": redo,
@@ -83,6 +137,7 @@ function createState(value: string, onModEnter: () => boolean, flavor?: Markdown
         "Mod-e": toggleMark(marks.code),
         Enter: splitListItem(nodes.list_item),
         "Shift-Enter": chainCommands(exitCode, insertHardBreak),
+        "Shift-Mod-v": pastePlainText,
         "Mod-Enter": onModEnter,
         Tab: sinkListItem(nodes.list_item),
         "Shift-Tab": liftListItem(nodes.list_item),

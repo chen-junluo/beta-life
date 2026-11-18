@@ -77,6 +77,9 @@ pub(crate) struct PetSettings {
     /// A habit done on fewer than this share of its recorded days (last 7) gets a nudge suggestion.
     habit_low_percent: u8,
     habit_nudge: HabitNudge,
+    /// false: Saturdays and Sundays have no habit reminders, questions, archive or nudges, except for
+    /// weekend-only habits.
+    habit_weekends: bool,
     /// No slack reminders, questions or habit reminders inside these.
     quiet_hours: Vec<QuietHours>,
 }
@@ -93,6 +96,7 @@ impl Default for PetSettings {
             habit_snooze_minutes: 15,
             habit_low_percent: 50,
             habit_nudge: HabitNudge::Light,
+            habit_weekends: true,
             quiet_hours: Vec::new(),
         }
     }
@@ -434,8 +438,13 @@ fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now
             pet.habit_low_percent
         ),
     };
+    let weekends = if pet.habit_weekends {
+        "Habits count every day; habits marked weekend-only count only on Saturdays and Sundays."
+    } else {
+        "Weekends are off in Settings: on Saturdays and Sundays only weekend-only habits are reminded, asked about and archived."
+    };
     format!(
-        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. At 0:00 the day's habit checks are archived and cleared. {nudge}
+        r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. At 0:00 the day's habit checks are archived and cleared. {weekends} {nudge}
 Quiet hours (no slack reminders, questions or habit reminders): {quiet}.
 Right now bebe is {paused}.
 One-off reminders:

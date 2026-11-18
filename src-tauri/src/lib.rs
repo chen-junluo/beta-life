@@ -174,6 +174,20 @@ struct Habit {
     /// 【阻挠习惯的原因】: why it was not done, one line each, written by the AI from bebe's question.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     obstacles: Vec<Obstacle>,
+    /// Only on Saturdays and Sundays.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    weekend_only: bool,
+    /// `false`: a reminder only, never checked off, archived or asked about.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    check_in: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1426,6 +1440,19 @@ fn read_api_key(_app: &AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+/// The clipboard as plain text, for Cmd+Shift+V in the Markdown editor, so it does not depend on a
+/// paste event from WebKit. None when it holds no text; elsewhere the webview reads it itself.
+#[tauri::command]
+fn read_clipboard_text() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+        objc2::rc::autoreleasepool(|_| unsafe { NSPasteboard::generalPasteboard().stringForType(NSPasteboardTypeString) }.map(|text| text.to_string()))
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 #[tauri::command]
 fn load_app_state(app: AppHandle) -> Result<LoadedAppState, String> {
     let settings = load_settings(&app)?;
@@ -2647,6 +2674,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_app_state,
+            read_clipboard_text,
             vault::vault_issues,
             vault::location::data_folder,
             vault::location::change_data_folder,

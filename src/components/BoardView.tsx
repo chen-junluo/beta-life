@@ -40,7 +40,7 @@ import {
   moveHabit,
   orderedPeriods,
 } from "../boardLogic";
-import { isLowRate, RATE_DAYS, type HabitRate } from "../habitLogic";
+import { checksIn, isLowRate, RATE_DAYS, type HabitRate } from "../habitLogic";
 import { splitTags, tagUsage } from "../simpleMarkdown";
 import { tagIcon } from "../tagIcons";
 import { TagBar } from "./TagBar";
@@ -172,19 +172,26 @@ function HabitTags({ value }: { value: string }) {
   );
 }
 
-/** 「7 天 3/5」; 【阻挠习惯的原因】 show only in the habit sheet. */
+/**
+ * 「7 天 3/5」 (not for habits without check-in) and, at the right, 「周末」 for weekend-only habits;
+ * 【阻挠习惯的原因】 show only in the habit sheet.
+ */
 function HabitStats({ habit }: { habit: Habit }) {
   const { rates, lowPercent } = useContext(HabitStatsContext);
   const rate = rates[habit.id];
   const low = isLowRate(rate, lowPercent);
+  if (!checksIn(habit) && !habit.weekendOnly) return null;
   return (
     <div className="habit-stats">
-      <span
-        className={`habit-rate ${low ? "is-low" : ""}`}
-        title={rate?.total ? `最近 ${RATE_DAYS} 天里有记录的 ${rate.total} 天，完成 ${rate.done} 天${low ? `，低于 ${lowPercent}%` : ""}` : `还没有存档的天；每天 0 点存档后开始算`}
-      >
-        {rate?.total ? `${RATE_DAYS} 天 ${rate.done}/${rate.total}` : "新习惯"}
-      </span>
+      {checksIn(habit) && (
+        <span
+          className={`habit-rate ${low ? "is-low" : ""}`}
+          title={rate?.total ? `最近 ${RATE_DAYS} 天里有记录的 ${rate.total} 天，完成 ${rate.done} 天${low ? `，低于 ${lowPercent}%` : ""}` : `还没有存档的天；每天 0 点存档后开始算`}
+        >
+          {rate?.total ? `${RATE_DAYS} 天 ${rate.done}/${rate.total}` : "新习惯"}
+        </span>
+      )}
+      {habit.weekendOnly && <span className="habit-rate habit-weekend" title="只在周六、周日生效">周末</span>}
     </div>
   );
 }
@@ -247,7 +254,7 @@ function SortableHabitCard({
     <article
       ref={setCardRef}
       style={style}
-      className={`habit-card ${habit.done ? "is-done" : ""} ${
+      className={`habit-card ${habit.done && checksIn(habit) ? "is-done" : ""} ${
         focusTags.length === 0 ? "" : hasAnyTag(habit, focusTags) ? "is-tag-hit" : "is-tag-dimmed"
       }`}
       data-droppable-id={habit.id}
@@ -267,31 +274,33 @@ function SortableHabitCard({
         <HabitTags value={habit.tags} />
         <HabitStats habit={habit} />
       </div>
-      <button
-        type="button"
-        className="habit-done-toggle"
-        aria-pressed={habit.done === true}
-        aria-label={habit.done ? `取消完成 ${habit.title}` : `标记完成 ${habit.title}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleDone(habit.id);
-        }}
-      >
-        <DoneMark />
-      </button>
+      {checksIn(habit) && (
+        <button
+          type="button"
+          className="habit-done-toggle"
+          aria-pressed={habit.done === true}
+          aria-label={habit.done ? `取消完成 ${habit.title}` : `标记完成 ${habit.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleDone(habit.id);
+          }}
+        >
+          <DoneMark />
+        </button>
+      )}
     </article>
   );
 }
 
 function HabitCardPreview({ habit, settings }: { habit: Habit; settings: AppSettings }) {
   return (
-    <article className={`habit-card habit-card-preview ${habit.done ? "is-done" : ""}`} style={fontSizeStyles(settings)}>
+    <article className={`habit-card habit-card-preview ${habit.done && checksIn(habit) ? "is-done" : ""}`} style={fontSizeStyles(settings)}>
       <GripVertical size={15} />
       <div className="habit-card-copy">
         <HabitTitle title={habit.title} />
         <HabitTags value={habit.tags} />
       </div>
-      <span className="habit-done-toggle"><DoneMark /></span>
+      {checksIn(habit) && <span className="habit-done-toggle"><DoneMark /></span>}
     </article>
   );
 }
@@ -422,8 +431,10 @@ function PeriodGroup({
   const { tags: focusTags } = useContext(TagFocusContext);
   const periodHabits = [periodItems, ...hours.map((hour) => itemsInContainer(items, `hour:${hour}`))].flat();
   const periodHits = periodHabits.filter((habit) => hasAnyTag(habit, focusTags)).length;
-  const periodDone = periodHabits.filter((habit) => habit.done).length;
-  const allDone = periodHabits.length > 0 && periodDone === periodHabits.length;
+  // Habits without check-in are not part of the done count.
+  const periodTracked = periodHabits.filter(checksIn);
+  const periodDone = periodTracked.filter((habit) => habit.done).length;
+  const allDone = periodTracked.length > 0 && periodDone === periodTracked.length;
 
   return (
     <section
@@ -438,19 +449,19 @@ function PeriodGroup({
     >
       <header
         className="period-heading"
-        style={{ "--done-ratio": periodHabits.length > 0 ? periodDone / periodHabits.length : 0 } as CSSProperties}
+        style={{ "--done-ratio": periodTracked.length > 0 ? periodDone / periodTracked.length : 0 } as CSSProperties}
       >
         <div>
           <span className="period-dot" />
           <strong>{period.label}</strong>
-          {periodHabits.length > 0 && (
+          {periodTracked.length > 0 && (
             <span
               className={`period-done-count ${allDone ? "is-all" : ""}`}
               title="今日完成"
-              aria-label={`今日完成 ${periodDone} / ${periodHabits.length}`}
+              aria-label={`今日完成 ${periodDone} / ${periodTracked.length}`}
             >
               {allDone && <Check size={10} strokeWidth={3.4} />}
-              <b>{periodDone}</b>/{periodHabits.length}
+              <b>{periodDone}</b>/{periodTracked.length}
             </span>
           )}
           {focusTags.length > 0 && (
@@ -583,7 +594,8 @@ export function BoardView({
     toggle: togglePinnedTag,
   };
   const clearPinnedTags = useCallback(() => setPinnedTags([]), []);
-  const doneCount = items.filter((item) => item.done).length;
+  const trackedItems = items.filter(checksIn);
+  const doneCount = trackedItems.filter((item) => item.done).length;
   const toggleDone = (id: string) =>
     onItemsChange(items.map((item) => item.id === id ? { ...item, done: !item.done } : item));
   const resetDone = () => onItemsChange(items.map((item) => item.done ? { ...item, done: false } : item));
@@ -647,7 +659,7 @@ export function BoardView({
         onClear={clearPinnedTags}
         onIconChange={onTagIconChange}
         doneCount={doneCount}
-        totalCount={items.length}
+        totalCount={trackedItems.length}
         onResetDone={resetDone}
       />
       <DndContext

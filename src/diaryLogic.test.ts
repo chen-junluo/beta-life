@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AI_DIVIDER, appendToAiSection, appendToBody, appendToNotes, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, headingDate, monthList, monthTitle, newDayBody } from "./diaryLogic";
+import { AI_DIVIDER, appendToAiSection, appendToBody, appendToNotes, bodyProblem, codeDate, dayCode, dayLabel, dayPreview, dayTitle, headingDate, monthList, monthTitle, newDayBody, normalizeAiDivider } from "./diaryLogic";
 
 describe("diary logic", () => {
   it("names days the way the diary writes them", () => {
@@ -47,5 +47,21 @@ describe("diary logic", () => {
     // The user's kind of text goes above the line.
     expect(appendToNotes(day, "- 晚上散步")).toBe(`- 工作：\n\t- 写论文\n- 晚上散步\n\n${AI_DIVIDER}\n\n- 时间轴：活跃 6h\n\t- 最长 1h`);
     expect(appendToNotes("- 读书", "- 散步")).toBe("- 读书\n- 散步");
+  });
+
+  it("puts a 【AI总结】 line that edits pulled into a bullet back on its own", () => {
+    // A template without a blank line above the divider.
+    expect(normalizeAiDivider(`- ideas：\n\t- \n${AI_DIVIDER}`)).toBe(`- ideas：\n\t- \n\n${AI_DIVIDER}`);
+    // Indented into the bullet above, then a summary below.
+    expect(normalizeAiDivider(`- 生活：\n\t- x\n\t\t${AI_DIVIDER}\n\n- 习惯：完成 1/2`)).toBe(`- 生活：\n\t- x\n\n${AI_DIVIDER}\n\n- 习惯：完成 1/2`);
+    // Turned into a bullet, and a second line added under it by the 0:00 summary.
+    expect(normalizeAiDivider(`- a\n- - ${AI_DIVIDER}\n\n${AI_DIVIDER}\n\n- 习惯：完成 1/2`)).toBe(`- a\n\n${AI_DIVIDER}\n\n- 习惯：完成 1/2`);
+    // Already right: unchanged; a shorter line written by hand is made the full one.
+    const day = `- a\n\n${AI_DIVIDER}\n\n- 习惯：完成 1/2`;
+    expect(normalizeAiDivider(day)).toBe(day);
+    expect(normalizeAiDivider("- a\n=====【AI总结】=====")).toBe(`- a\n\n${AI_DIVIDER}`);
+    expect(normalizeAiDivider("- 没有分隔线")).toBe("- 没有分隔线");
+    // Summaries go under the repaired line instead of adding a second one.
+    expect(appendToAiSection(`- a\n\t\t${AI_DIVIDER}`, "- 习惯：完成 1/2")).toBe(day);
   });
 });

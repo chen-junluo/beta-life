@@ -7,7 +7,7 @@ import { hourLabel } from "../boardLogic";
 import { DiffCard } from "../components/AiDock";
 import { DEFAULT_PET_SETTINGS } from "../defaults";
 import { renderMarkdown } from "../markdown";
-import { fewestDone, periodCheck, unfinishedIn } from "../habitLogic";
+import { checksIn, fewestDone, habitOn, periodCheck, unfinishedIn } from "../habitLogic";
 import { daysSince, type StaleGoal } from "../goals";
 import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
@@ -595,7 +595,7 @@ export function PetApp() {
       play("alert");
       return;
     }
-    const slot = reminderSlot(date, items, periods);
+    const slot = reminderSlot(date, items.filter((item) => habitOn(item, date, pet.habitWeekends)), periods);
     if (!slot || dayRef.current.reminded.includes(slot.key)) return;
     dayRef.current = { ...dayRef.current, reminded: [...dayRef.current.reminded, slot.key] };
     saveDay(dayRef.current);
@@ -603,7 +603,7 @@ export function PetApp() {
     if (queue.length === 0) return;
     raise({ kind: "reminder", hour: date.getHours(), queue });
     play("alert");
-  }, [now, items, periods, bubble, sleeping, away, quiet, snoozed, pendingOnly, play, raise, preview.bubble]);
+  }, [now, items, periods, pet.habitWeekends, bubble, sleeping, away, quiet, snoozed, pendingOnly, play, raise, preview.bubble]);
 
   // One-off reminders the user asked for show even while asleep or quiet; they wait for a free bubble.
   useEffect(() => {
@@ -686,11 +686,11 @@ export function PetApp() {
     if (dayRef.current.asked?.includes(check.key)) return;
     dayRef.current = { ...dayRef.current, asked: [...(dayRef.current.asked ?? []), check.key] };
     saveDay(dayRef.current);
-    const habits = unfinishedIn(items, check.period.id, periods);
+    const habits = unfinishedIn(items.filter((item) => checksIn(item) && habitOn(item, date, pet.habitWeekends)), check.period.id, periods);
     if (habits.length === 0) return;
     raise({ kind: "why", date: localDateKey(date), period: check.period, habits });
     play("alert");
-  }, [now, pulse, items, periods, pet.habitNudge, sleeping, away, quiet, raise, play, preview.bubble]);
+  }, [now, pulse, items, periods, pet.habitNudge, pet.habitWeekends, sleeping, away, quiet, raise, play, preview.bubble]);
 
   // The next time the user is around after 0:00, offer suggestions for habits with a low rate, once.
   useEffect(() => {
@@ -892,9 +892,10 @@ export function PetApp() {
               </p>
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => startFocus(bubble.queue[0])}>开始 5 分钟</button>
-                <button type="button" className="secondary-button" onClick={() => markDone(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>已完成</button>
+                {checksIn(bubble.queue[0]) && <button type="button" className="secondary-button" onClick={() => markDone(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>已完成</button>}
                 <button type="button" className="secondary-button" onClick={() => snooze(bubble.queue, bubble.hour)}>稍后提醒</button>
-                <button type="button" className="secondary-button" onClick={() => skipToday(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>今天跳过</button>
+                {/* Without check-in there is nothing to finish: 知道了 moves on, as 今天跳过 does. */}
+                <button type="button" className="secondary-button" onClick={() => skipToday(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>{checksIn(bubble.queue[0]) ? "今天跳过" : "知道了"}</button>
               </div>
             </>
           )}

@@ -94,6 +94,13 @@ pub(crate) fn serialize_habit(habit: &Habit) -> String {
         ("createdAt", s(&habit.created_at)),
         ("updatedAt", s(&habit.updated_at)),
     ]);
+    // Written only when set, so existing habit files keep their frontmatter.
+    if habit.weekend_only {
+        fields.push(("weekendOnly", raw(true)));
+    }
+    if !habit.check_in {
+        fields.push(("checkIn", raw(false)));
+    }
     let mut body = habit.description.trim_end().to_string();
     // Like the excerpt below: a note that itself contains the heading keeps an (empty) section after it.
     if !habit.obstacles.is_empty() || has_heading(&body, OBSTACLE_HEADING) {
@@ -146,6 +153,8 @@ pub(crate) fn parse_habit(text: &str, fallback_id: &str, fallback_title: &str, m
         created_at,
         done: front.get("done").is_some_and(|done| done.trim().eq_ignore_ascii_case("true")),
         obstacles: obstacles.as_deref().map(parse_obstacles).unwrap_or_default(),
+        weekend_only: front.get("weekendOnly").is_some_and(|value| value.trim().eq_ignore_ascii_case("true")),
+        check_in: !front.get("checkIn").is_some_and(|value| value.trim().eq_ignore_ascii_case("false")),
     })
 }
 
@@ -318,6 +327,8 @@ mod tests {
             updated_at: "2026-11-01T00:00:00.000Z".into(),
             done: false,
             obstacles: Vec::new(),
+            weekend_only: false,
+            check_in: true,
         }
     }
 
@@ -337,6 +348,17 @@ mod tests {
         assert!(text.contains("\n## AI 提取依据\n\n原文：每天静坐\n"));
         let parsed = parse_habit(&text, "x", "x", "").unwrap();
         assert_eq!(serde_json::to_value(&parsed).unwrap(), serde_json::to_value(&item).unwrap());
+        // Defaults are not written, so older habit files are not rewritten with new keys.
+        assert!(!text.contains("weekendOnly") && !text.contains("checkIn"));
+        item.weekend_only = true;
+        item.check_in = false;
+        let text = serialize_habit(&item);
+        assert!(text.contains("\nweekendOnly: true\ncheckIn: false\n"));
+        let parsed = parse_habit(&text, "x", "x", "").unwrap();
+        assert!(parsed.weekend_only && !parsed.check_in);
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), serde_json::to_value(&item).unwrap());
+        item.weekend_only = false;
+        item.check_in = true;
 
         item.source_excerpt = None;
         item.description = "备注\n\n## AI 提取依据\n\n自己写的".into();

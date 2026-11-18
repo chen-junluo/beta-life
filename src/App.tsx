@@ -12,7 +12,7 @@ import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
 import { appendDiarySummary, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
 import { dayCode } from "./diaryLogic";
-import { addObstacles, fewestDone, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
+import { addObstacles, checksIn, fewestDone, habitOn, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
 import { localDateKey } from "./pet/reminders";
 import { useAssistant } from "./ai/useAssistant";
 import type { AiPanelId } from "./ai/types";
@@ -402,19 +402,22 @@ export default function App() {
     rolledDay.current = today;
     const items = activeItems(current.board);
     try {
-      const habits = items.map((item) => ({ habitId: item.id, title: item.title, done: Boolean(item.done), created: createdDay(item) }));
-      const rolled = await invoke<string | null>("roll_habit_day", { request: { today, boardId: current.board.activeBoardId, habits } });
+      // Rust picks the ones that count on the archived day (weekend-only, Settings → bebe weekends).
+      const habits = items.filter(checksIn).map((item) => ({ habitId: item.id, title: item.title, done: Boolean(item.done), created: createdDay(item), weekendOnly: Boolean(item.weekendOnly) }));
+      const weekends = current.settings.pet.habitWeekends;
+      const rolled = await invoke<string | null>("roll_habit_day", { request: { today, boardId: current.board.activeBoardId, habits, weekends } });
       if (rolled) {
         const latest = stateRef.current ?? current;
         const latestItems = activeItems(latest.board);
         if (latestItems.some((item) => item.done)) applyBoard(withActiveItems(latest.board, latestItems.map((item) => (item.done ? { ...item, done: false } : item))));
         const from = shiftDate(rolled, -(RATE_DAYS - 1));
         const rates = habitRates(await invoke<HabitRecord[]>("load_habit_history", { from, to: rolled }), from, rolled);
-        const dayHabits = items.filter((item) => createdDay(item) <= rolled);
         const { pet, periods, diary } = latest.settings;
-        const text = habitStatsText(dayHabits, rates, pet.habitLowPercent, periods);
         const [year, month, date] = rolled.split("-").map(Number);
-        const code = dayCode(new Date(year, month - 1, date));
+        const rolledDate = new Date(year, month - 1, date);
+        const dayHabits = items.filter((item) => checksIn(item) && createdDay(item) <= rolled && habitOn(item, rolledDate, weekends));
+        const text = habitStatsText(dayHabits, rates, pet.habitLowPercent, periods);
+        const code = dayCode(rolledDate);
         if (text && await appendDiarySummary(code, text, "- 习惯：", diary.template)) setDiaryRevision((revision) => revision + 1);
         const low = pet.habitNudge === "off" ? [] : dayHabits.filter((item) => isLowRate(rates[item.id], pet.habitLowPercent));
         let offer: HabitSuggestOffer | null = null;
