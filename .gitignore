@@ -48,3 +48,6 @@ REMOTION_PREFERENCES.md
 *.wav
 *.mp3
 
+# Agent-based tools
+AGENTS.md
+CLAUDE.md
