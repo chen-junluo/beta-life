@@ -6,6 +6,8 @@ interface TagBarProps {
   usage: Array<{ tag: string; count: number }>;
   /** Tag -> number of done habits carrying it; missing means none. */
   doneByTag: Record<string, number>;
+  /** Tag -> habits eligible for check-in today; tag usage still includes every card. */
+  totalByTag: Record<string, number>;
   tagIcons: Record<string, string>;
   pinned: string[];
   pinnedHabitCount: number;
@@ -22,6 +24,7 @@ interface TagBarProps {
 export function TagBar({
   usage,
   doneByTag,
+  totalByTag,
   tagIcons,
   pinned,
   pinnedHabitCount,
@@ -79,17 +82,18 @@ export function TagBar({
   return (
     <div ref={barRef} className={`tag-bar ${editing ? "is-editing" : ""}`} data-view-mode={viewMode} role="toolbar" aria-label="Tags">
       {usage.length > 0 && <span className="tag-bar-label">TAGS</span>}
-      {usage.map(({ tag, count }) => {
+      {usage.map(({ tag }) => {
         const icon = tagIcon(tagIcons, tag);
         const on = pinned.includes(tag);
         const done = doneByTag[tag] ?? 0;
-        const allDone = done === count;
+        const count = totalByTag[tag] ?? 0;
+        const allDone = count > 0 && done === count;
         return (
           <span className="tag-pill-wrap" key={tag}>
             <button
               type="button"
               className={`tag-pill ${on && !editing ? "is-on" : ""} ${allDone ? "is-all-done" : ""}`}
-              style={{ "--done-ratio": done / count } as CSSProperties}
+              style={{ "--done-ratio": count > 0 ? done / count : 0 } as CSSProperties}
               title={editing ? `为「${tag}」选择 icon` : `${tag} · 今日完成 ${done}/${count}`}
               aria-pressed={editing ? undefined : on}
               aria-haspopup={editing ? "listbox" : undefined}

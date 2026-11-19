@@ -145,6 +145,8 @@ describe("BoardView tag focus", () => {
   });
 
   it("shows no check box or rate without check-in, and 周末 on weekend-only cards", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 21, 12));
     act(() => {
       root.render(
         <BoardView
@@ -165,6 +167,7 @@ describe("BoardView tag focus", () => {
     expect(card("calcium").querySelector(".habit-weekend")).toBeNull();
     // Morning (7–12) counts read and calcium, not tea.
     expect(host.querySelector('[data-period-id="morning"] .period-done-count')?.textContent).toBe("1/2");
+    vi.useRealTimers();
   });
 
   it("lists tags by usage with icons, falling back to # when a tag has no icon", () => {
@@ -231,13 +234,13 @@ describe("BoardView daily to-do", () => {
     done,
   });
 
-  function render(items: Habit[], handlers = { onItemsChange: vi.fn(), onEdit: vi.fn() }) {
+  function render(items: Habit[], handlers = { onItemsChange: vi.fn(), onEdit: vi.fn() }, viewMode: "global" | "morning" = "global") {
     act(() => {
       root.render(
         <BoardView
           items={items}
           settings={structuredClone(DEFAULT_SETTINGS)}
-          viewMode="global"
+          viewMode={viewMode}
           onItemsChange={handlers.onItemsChange}
           onCreate={vi.fn()}
           onEdit={handlers.onEdit}
@@ -254,6 +257,8 @@ describe("BoardView daily to-do", () => {
   const resetButton = () => host.querySelector<HTMLButtonElement>(".tag-bar-reset")!;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 18, 12));
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     globalThis.ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
     host = document.createElement("div");
@@ -264,6 +269,58 @@ describe("BoardView daily to-do", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    vi.useRealTimers();
+  });
+
+  it.each([17, 18, 19, 20, 23].flatMap((day) => (["global", "morning"] as const).map((mode) => [day, mode] as const)))(
+    "hides weekend check-ins on weekday November %i in %s mode and excludes them from today's progress",
+    (day, mode) => {
+      vi.setSystemTime(new Date(2026, 10, day, 12));
+      const items = [
+        { ...habit("weekend", 8, true, "阅读"), weekendOnly: true },
+        habit("daily", 9, false, "阅读"),
+        { ...habit("no-check-in", 10, true, "阅读"), checkIn: false },
+      ];
+      const handlers = render(items, undefined, mode);
+
+      expect(card("weekend").querySelector(".habit-done-toggle, .habit-done-stamp")).toBeNull();
+      expect(card("weekend").classList).not.toContain("is-done");
+      expect(card("weekend").querySelector(".habit-weekend")?.textContent).toBe("周末");
+      expect(card("daily").querySelector(".habit-done-toggle")).not.toBeNull();
+      expect(heading("morning").querySelector(".period-done-count")?.textContent).toBe("0/1");
+      expect(host.querySelector(".tag-bar-today")?.textContent).toContain("今日完成 0/1");
+      expect(host.querySelector(".tag-pill small")?.textContent).toBe("0/1");
+      expect(resetButton().disabled).toBe(true);
+      act(() => card("weekend").click());
+      expect(handlers.onEdit).toHaveBeenCalledWith(items[0]);
+    },
+  );
+
+  it.each([21, 22])("allows weekend check-ins on November %i and restores them after a date change", (day) => {
+    const items = [
+      { ...habit("weekend", 8, false, "阅读"), weekendOnly: true },
+      { ...habit("no-check-in", 9), weekendOnly: true, checkIn: false },
+    ];
+    render(items);
+    expect(card("weekend").querySelector(".habit-done-toggle")).toBeNull();
+
+    vi.setSystemTime(new Date(2026, 10, day, 12));
+    const handlers = render(items);
+    expect(card("no-check-in").querySelector(".habit-done-toggle")).toBeNull();
+    expect(host.querySelector(".tag-bar-today")?.textContent).toContain("今日完成 0/1");
+    act(() => toggle("weekend").click());
+    expect(handlers.onItemsChange).toHaveBeenCalledWith([{ ...items[0], done: true }, items[1]]);
+
+    render([{ ...items[0], done: true }, items[1]]);
+    expect(card("weekend").classList).toContain("is-done");
+    expect(host.querySelector(".tag-pill small")?.textContent).toBe("1/1");
+
+    vi.setSystemTime(new Date(2026, 10, 23, 12));
+    render([{ ...items[0], done: true }, items[1]]);
+    expect(card("weekend").querySelector(".habit-done-toggle, .habit-done-stamp")).toBeNull();
+    expect(card("weekend").classList).not.toContain("is-done");
+    expect(host.querySelector(".tag-pill small")?.textContent).toBe("0/0");
+    expect(host.querySelector(".tag-pill")?.classList).not.toContain("is-all-done");
   });
 
   it("toggles a habit done without opening the editor", () => {
