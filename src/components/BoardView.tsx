@@ -40,7 +40,7 @@ import {
   moveHabit,
   orderedPeriods,
 } from "../boardLogic";
-import { checksIn, isLowRate, RATE_DAYS, type HabitRate } from "../habitLogic";
+import { checksIn, habitOn, isLowRate, RATE_DAYS, type HabitRate } from "../habitLogic";
 import { splitTags, tagUsage } from "../simpleMarkdown";
 import { tagIcon } from "../tagIcons";
 import { TagBar } from "./TagBar";
@@ -68,6 +68,9 @@ interface BoardViewProps {
 
 /** Completion rates for the cards, and the share below which a rate counts as low (Settings → bebe). */
 const HabitStatsContext = createContext<{ rates: Record<string, HabitRate>; lowPercent: number }>({ rates: {}, lowPercent: 50 });
+
+/** Today's check-in availability, shared by cards, drag previews and progress counts. */
+const HabitCheckInContext = createContext<(habit: Habit) => boolean>(checksIn);
 
 interface TagFocus {
   /** Tags being previewed (hover) or pinned (click); empty when nothing is focused. */
@@ -219,6 +222,8 @@ function SortableHabitCard({
     id: habit.id,
   });
   const { tags: focusTags } = useContext(TagFocusContext);
+  const checksInToday = useContext(HabitCheckInContext);
+  const checkIn = checksInToday(habit);
   const cardRef = useRef<HTMLElement | null>(null);
   const [rowSpan, setRowSpan] = useState(1);
   const setCardRef = useCallback((node: HTMLElement | null) => {
@@ -254,7 +259,7 @@ function SortableHabitCard({
     <article
       ref={setCardRef}
       style={style}
-      className={`habit-card ${habit.done && checksIn(habit) ? "is-done" : ""} ${
+      className={`habit-card ${habit.done && checkIn ? "is-done" : ""} ${
         focusTags.length === 0 ? "" : hasAnyTag(habit, focusTags) ? "is-tag-hit" : "is-tag-dimmed"
       }`}
       data-droppable-id={habit.id}
@@ -274,7 +279,7 @@ function SortableHabitCard({
         <HabitTags value={habit.tags} />
         <HabitStats habit={habit} />
       </div>
-      {checksIn(habit) && (
+      {checkIn && (
         <button
           type="button"
           className="habit-done-toggle"
@@ -293,14 +298,15 @@ function SortableHabitCard({
 }
 
 function HabitCardPreview({ habit, settings }: { habit: Habit; settings: AppSettings }) {
+  const checkIn = useContext(HabitCheckInContext)(habit);
   return (
-    <article className={`habit-card habit-card-preview ${habit.done && checksIn(habit) ? "is-done" : ""}`} style={fontSizeStyles(settings)}>
+    <article className={`habit-card habit-card-preview ${habit.done && checkIn ? "is-done" : ""}`} style={fontSizeStyles(settings)}>
       <GripVertical size={15} />
       <div className="habit-card-copy">
         <HabitTitle title={habit.title} />
         <HabitTags value={habit.tags} />
       </div>
-      {checksIn(habit) && <span className="habit-done-toggle"><DoneMark /></span>}
+      {checkIn && <span className="habit-done-toggle"><DoneMark /></span>}
     </article>
   );
 }
@@ -431,8 +437,8 @@ function PeriodGroup({
   const { tags: focusTags } = useContext(TagFocusContext);
   const periodHabits = [periodItems, ...hours.map((hour) => itemsInContainer(items, `hour:${hour}`))].flat();
   const periodHits = periodHabits.filter((habit) => hasAnyTag(habit, focusTags)).length;
-  // Habits without check-in are not part of the done count.
-  const periodTracked = periodHabits.filter(checksIn);
+  const checksInToday = useContext(HabitCheckInContext);
+  const periodTracked = periodHabits.filter(checksInToday);
   const periodDone = periodTracked.filter((habit) => habit.done).length;
   const allDone = periodTracked.length > 0 && periodDone === periodTracked.length;
 
@@ -577,12 +583,14 @@ export function BoardView({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pinnedTags, setPinnedTags] = useState<string[]>([]);
   const [previewTag, setPreviewTag] = useState<string | null>(null);
+  // App refreshes the local day every minute, including when the board stays open overnight.
+  // The bebe weekend reminder preference does not disable everyday habits' manual check-ins.
+  const today = new Date();
+  const checksInToday = (habit: Habit) => checksIn(habit) && habitOn(habit, today, true);
+  const trackedItems = items.filter(checksInToday);
   const usage = useMemo(() => tagUsage(items.map((item) => item.tags)), [items]);
-  const doneByTag = useMemo(
-    () => Object.fromEntries(tagUsage(items.filter((item) => item.done).map((item) => item.tags))
-      .map(({ tag, count }) => [tag, count])),
-    [items],
-  );
+  const totalByTag = Object.fromEntries(tagUsage(trackedItems.map((item) => item.tags)).map(({ tag, count }) => [tag, count]));
+  const doneByTag = Object.fromEntries(tagUsage(trackedItems.filter((item) => item.done).map((item) => item.tags)).map(({ tag, count }) => [tag, count]));
   const pinned = pinnedTags.filter((tag) => usage.some((entry) => entry.tag === tag));
   const previewing = previewTag !== null && activeId === null;
   const togglePinnedTag = useCallback((tag: string) => setPinnedTags((current) =>
@@ -594,10 +602,9 @@ export function BoardView({
     toggle: togglePinnedTag,
   };
   const clearPinnedTags = useCallback(() => setPinnedTags([]), []);
-  const trackedItems = items.filter(checksIn);
   const doneCount = trackedItems.filter((item) => item.done).length;
   const toggleDone = (id: string) =>
-    onItemsChange(items.map((item) => item.id === id ? { ...item, done: !item.done } : item));
+    onItemsChange(items.map((item) => item.id === id && checksInToday(item) ? { ...item, done: !item.done } : item));
   const resetDone = () => onItemsChange(items.map((item) => item.done ? { ...item, done: false } : item));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -646,10 +653,12 @@ export function BoardView({
 
   return (
     <HabitStatsContext.Provider value={stats}>
+    <HabitCheckInContext.Provider value={checksInToday}>
     <TagFocusContext.Provider value={tagFocus}>
       <TagBar
         usage={usage}
         doneByTag={doneByTag}
+        totalByTag={totalByTag}
         tagIcons={settings.tagIcons}
         pinned={pinned}
         pinnedHabitCount={items.filter((item) => hasAnyTag(item, pinned)).length}
@@ -698,6 +707,7 @@ export function BoardView({
         </DragOverlay>
       </DndContext>
     </TagFocusContext.Provider>
+    </HabitCheckInContext.Provider>
     </HabitStatsContext.Provider>
   );
 }
