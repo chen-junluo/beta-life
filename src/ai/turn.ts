@@ -1,5 +1,7 @@
 import type { AiBatch, AiImageDraft, AiScope, AiTask, ChatStepReply, ConversationMessage, ToolOutcome, AiToolCall, WireMessage } from "./types";
 
+const MAX_TOOL_STEPS = 12;
+
 export interface TurnDeps {
   step: (request: { messages: WireMessage[]; scope: AiScope; context: string }) => Promise<ChatStepReply>;
   /** Index of every readable panel, taken once at the start of the turn. */
@@ -89,8 +91,7 @@ export class TurnStopped extends Error {
 
 /**
  * One user turn: call the model, run read tools, stage write tools, repeat until the model answers
- * without tools. There is no step limit (the user can stop the turn); a step that stages any write
- * ends the turn and the batch waits for the user.
+ * without tools. A step that stages any write ends the turn and the batch waits for the user.
  */
 export async function runTurn(history: ConversationMessage[], text: string, scope: AiScope, deps: TurnDeps, input: { images?: AiImageDraft[]; task?: AiTask } = {}): Promise<ConversationMessage[]> {
   const images = input.images ?? [];
@@ -114,8 +115,9 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
   const changes: AiBatch["changes"] = [];
   let choicesShown = false;
   const stopped = () => deps.signal?.aborted === true;
+  let finished = false;
 
-  while (!stopped()) {
+  for (let step = 0; step < MAX_TOOL_STEPS && !stopped(); step += 1) {
     const reply = await deps.step({ messages: toWire(messages, { messageId: user.id, images }), scope, context: deps.context });
     if (stopped()) break;
     const results: ConversationMessage[] = [];
@@ -136,8 +138,15 @@ export async function runTurn(history: ConversationMessage[], text: string, scop
     }
     messages = [...messages, { ...stamp(), role: "assistant", content: reply.content, toolCalls: reply.toolCalls }, ...results];
     // Staged writes wait for the diff card; offered choices wait for a tap.
-    if (reply.toolCalls.length === 0 || changes.length > 0 || choicesShown) break;
+    if (reply.toolCalls.length === 0 || changes.length > 0 || choicesShown) {
+      finished = true;
+      break;
+    }
     deps.onMessages(messages);
+  }
+
+  if (!finished && !stopped()) {
+    throw new Error(`AI 连续调用工具超过 ${MAX_TOOL_STEPS} 次，已暂停本轮。请检查工具结果后补充说明，再发送一次。`);
   }
 
   if (changes.length > 0) {

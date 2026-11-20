@@ -80,15 +80,16 @@ describe("assistant turn", () => {
     expect(requests[0][0]).toMatchObject({ role: "note", content: expect.stringContaining("discarded") });
   });
 
-  it("keeps calling tools past the old 8-step limit until the model answers", async () => {
+  it("stops a tool-only loop with a visible error instead of waiting forever", async () => {
     const replies = [
       ...Array.from({ length: 20 }, (_, index) => ({ content: "", toolCalls: [{ id: `c${index}`, name: "list_habits", arguments: {} }] })),
-      { content: "看完了", toolCalls: [] },
     ];
     const { deps: d } = deps(replies);
-    const messages = await runTurn([], "?", { board: "read" }, d);
-    expect(d.step).toHaveBeenCalledTimes(21);
-    expect(messages.at(-1)).toMatchObject({ role: "assistant", content: "看完了" });
+    await expect(runTurn([], "?", { board: "read" }, d)).rejects.toThrow("AI 连续调用工具超过 12 次");
+    expect(d.step).toHaveBeenCalledTimes(12);
+    expect(d.onMessages).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", toolCalls: [expect.objectContaining({ id: "c11" })] }),
+    ]));
   });
 
   it("stops when aborted, dropping the step in flight but keeping finished ones", async () => {
