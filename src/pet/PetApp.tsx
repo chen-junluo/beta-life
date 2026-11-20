@@ -605,7 +605,7 @@ export function PetApp() {
       play("alert");
       return;
     }
-    const slot = reminderSlot(date, items.filter((item) => habitOn(item, date, pet.habitWeekends)), periods);
+    const slot = reminderSlot(date, items.filter((item) => checksIn(item) && habitOn(item, date, pet.habitWeekends)), periods);
     if (!slot || dayRef.current.reminded.includes(slot.key)) return;
     dayRef.current = { ...dayRef.current, reminded: [...dayRef.current.reminded, slot.key] };
     saveDay(dayRef.current);
