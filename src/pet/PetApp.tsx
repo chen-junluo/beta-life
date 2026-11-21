@@ -13,6 +13,8 @@ import type { Habit, PeriodSetting, PetSettings } from "../types";
 import {
   PET_BOARD,
   PET_CHAT,
+  PET_CHAT_HISTORY,
+  PET_CHAT_NEW,
   PET_CHAT_RESOLVE,
   PET_CHAT_SEND,
   PET_CHAT_STOP,
@@ -85,6 +87,8 @@ const isTauri = Boolean(window.__TAURI_INTERNALS__);
 type Bubble =
   | { kind: "reminder"; hour: number; queue: Habit[] }
   | { kind: "focus"; habit: Habit; endsAt: number }
+  | { kind: "focus-duration"; habit: Habit; hour: number; rest: Habit[] }
+  | { kind: "snooze-duration"; hour: number; queue: Habit[] }
   | { kind: "checkin"; habit: Habit }
   | { kind: "nudge"; level: NudgeLevel; label: string; minutes: number; target: RuleTarget | null }
   | { kind: "ask"; target: RuleTarget; minutes: number }
@@ -251,6 +255,32 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
   return { state: params.get("state"), bubble: bubbles[params.get("bubble") ?? ""] ?? null, chat: params.get("bubble") === "chat" ? (params.get("chat") === "bebe" ? bebeChat : chat) : null };
 }
 
+/** Duration picker: a slider to choose focus or snooze duration. */
+function DurationPicker({ title, defaultMinutes, minMinutes, maxMinutes, onConfirm, onCancel }: { title: string; defaultMinutes: number; minMinutes: number; maxMinutes: number; onConfirm: (minutes: number) => void; onCancel: () => void }) {
+  const [minutes, setMinutes] = useState(defaultMinutes);
+  return (
+    <section className="pet-bubble" role="dialog" aria-label={title} onKeyDown={(event) => event.key === "Escape" && onCancel()}>
+      <span className="pet-bubble-meta">{title}</span>
+      <div style={{ padding: "12px 0" }}>
+        <input
+          type="range"
+          min={minMinutes}
+          max={maxMinutes}
+          value={minutes}
+          onChange={(event) => setMinutes(Number(event.target.value))}
+          style={{ width: "100%", cursor: "pointer" }}
+          aria-label="时长（分钟）"
+        />
+        <p style={{ textAlign: "center", fontSize: "24px", fontWeight: "600", margin: "8px 0 0" }}>{minutes} 分钟</p>
+      </div>
+      <div className="pet-bubble-actions">
+        <button type="button" className="primary-button" onClick={() => onConfirm(minutes)}>确定</button>
+        <button type="button" className="secondary-button" onClick={onCancel}>取消</button>
+      </div>
+    </section>
+  );
+}
+
 /** 「为什么没完成呢？」: one box for the period's unfinished habits; the AI files the answer per habit. */
 function WhyBubble({ bubble, onAnswer, onSkip }: { bubble: Extract<Bubble, { kind: "why" }>; onAnswer: (text: string) => void; onSkip: () => void }) {
   const [draft, setDraft] = useState("");
@@ -378,6 +408,10 @@ function PetChat({ chat, onClose }: { chat: PetChatSnapshot | null; onClose: () 
     if (!busy && isTauri) void emitTo<PetChatSend>("main", PET_CHAT_SEND, { text: option });
   }
 
+  function openHistory() {
+    if (isTauri) void emitTo("main", PET_CHAT_HISTORY);
+  }
+
   const blockLinks = (event: MouseEvent) => {
     if ((event.target as HTMLElement).closest("a")) event.preventDefault();
   };
@@ -394,9 +428,14 @@ function PetChat({ chat, onClose }: { chat: PetChatSnapshot | null; onClose: () 
     >
       <header className="pet-chat-head">
         <span className="pet-bubble-meta" title={chat?.title ?? undefined}>{chat?.title ?? "和 bebe 说"}</span>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="关闭对话" title="关闭（Esc）">
-          <X size={14} />
-        </button>
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button type="button" className="icon-button" onClick={openHistory} aria-label="历史对话" title="打开历史对话">
+            <MessageCircle size={13} />
+          </button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭对话" title="关闭（Esc）">
+            <X size={14} />
+          </button>
+        </div>
       </header>
       {hasRound && chat && (
         <div className="pet-chat-body" ref={body}>
@@ -804,6 +843,11 @@ export function PetApp() {
     setBubble(null);
   }
 
+  function snoozeWithDuration(minutes: number, queue: Habit[], hour: number) {
+    setSnoozed({ until: Date.now() + minutes * 60_000, hour, queue });
+    setBubble(null);
+  }
+
   function snoozeSlack() {
     setNudges((memory) => ({ ...memory, quietUntil: Date.now() + rules.snoozeMs }));
     setBubble(null);
@@ -873,9 +917,11 @@ export function PetApp() {
     setBubble(null);
   }
 
-  function startFocus(habit: Habit) {
+  function startFocus(habit: Habit, minutes: number) {
+    const at = Date.now();
+    setNow(at);
     play("happy");
-    setBubble({ kind: "focus", habit, endsAt: Date.now() + FOCUS_MS });
+    setBubble({ kind: "focus", habit, endsAt: at + minutes * 60_000 });
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -916,7 +962,27 @@ export function PetApp() {
           onClose={() => setBubble(null)}
         />
       )}
-      {bubble && bubble.kind !== "chat" && bubble.kind !== "why" && bubble.kind !== "suggest" && (
+      {bubble?.kind === "focus-duration" && (
+        <DurationPicker
+          title="专注多久？"
+          defaultMinutes={5}
+          minMinutes={1}
+          maxMinutes={120}
+          onConfirm={(minutes) => startFocus(bubble.habit, minutes)}
+          onCancel={() => advance(bubble.rest, bubble.hour)}
+        />
+      )}
+      {bubble?.kind === "snooze-duration" && (
+        <DurationPicker
+          title="多久后提醒？"
+          defaultMinutes={pet.habitSnoozeMinutes}
+          minMinutes={1}
+          maxMinutes={120}
+          onConfirm={(minutes) => snoozeWithDuration(minutes, bubble.queue, bubble.hour)}
+          onCancel={() => setBubble(null)}
+        />
+      )}
+      {bubble && bubble.kind !== "chat" && bubble.kind !== "why" && bubble.kind !== "suggest" && bubble.kind !== "focus-duration" && bubble.kind !== "snooze-duration" && (
         <section className="pet-bubble" role="dialog" aria-live="polite" aria-label="bebe 提醒">
           {bubble.kind === "reminder" && (
             <>
@@ -925,12 +991,12 @@ export function PetApp() {
                 {bubble.queue.length > 1 ? ` · 还有 ${bubble.queue.length - 1} 项` : ""}
               </span>
               <p className="pet-bubble-text" title={bubble.queue[0].title}>
-                该做「{bubble.queue[0].title}」了，先做 5 分钟？
+                该做「{bubble.queue[0].title}」了
               </p>
               <div className="pet-bubble-actions">
-                <button type="button" className="primary-button" onClick={() => startFocus(bubble.queue[0])}>开始 5 分钟</button>
+                <button type="button" className="primary-button" onClick={() => setBubble({ kind: "focus-duration", habit: bubble.queue[0], hour: bubble.hour, rest: bubble.queue.slice(1) })}>开始干</button>
                 {checksIn(bubble.queue[0]) && <button type="button" className="secondary-button" onClick={() => markDone(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>已完成</button>}
-                <button type="button" className="secondary-button" onClick={() => snooze(bubble.queue, bubble.hour)}>稍后提醒</button>
+                <button type="button" className="secondary-button" onClick={() => setBubble({ kind: "snooze-duration", hour: bubble.hour, queue: bubble.queue })}>稍等</button>
                 {/* Without check-in there is nothing to finish: 知道了 moves on, as 今天跳过 does. */}
                 <button type="button" className="secondary-button" onClick={() => skipToday(bubble.queue[0], bubble.queue.slice(1), bubble.hour)}>{checksIn(bubble.queue[0]) ? "今天跳过" : "知道了"}</button>
               </div>
@@ -1049,7 +1115,16 @@ export function PetApp() {
       )}
       <div className="pet-row">
         {!bubble && (
-          <button type="button" className="icon-button pet-chat-open" onClick={() => setBubble({ kind: "chat" })} aria-label="和 bebe 对话" title="和 bebe 对话">
+          <button
+            type="button"
+            className="icon-button pet-chat-open"
+            onClick={() => {
+              if (isTauri) void emitTo("main", PET_CHAT_NEW);
+              setBubble({ kind: "chat" });
+            }}
+            aria-label="和 bebe 对话"
+            title="和 bebe 对话"
+          >
             <MessageCircle size={15} />
           </button>
         )}

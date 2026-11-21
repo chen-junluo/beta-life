@@ -21,6 +21,10 @@ export const PET_CHAT_RESOLVE = "pet://chat-resolve";
 export const PET_CHAT_STOP = "pet://chat-stop";
 /** Pet → main: undo one of bebe's instant actions (`PetChatUndo`). */
 export const PET_CHAT_UNDO = "pet://chat-undo";
+/** Pet → main: open a new conversation (clicking the chat icon). */
+export const PET_CHAT_NEW = "pet://chat-new";
+/** Pet → main: show the history picker to select an existing conversation. */
+export const PET_CHAT_HISTORY = "pet://chat-history";
 /** Pet → main: 写进日记 from the evening summary, and 看时间轴. */
 export const PET_SUMMARY_DIARY = "pet://summary-diary";
 export const PET_OPEN_TIMELINE = "pet://open-timeline";
