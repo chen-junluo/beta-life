@@ -36,6 +36,8 @@ import { entriesByPath, goalsMessage, loadGoalProgress, pathKey, staleGoals, typ
 import {
   PET_BOARD,
   PET_CHAT,
+  PET_CHAT_HISTORY,
+  PET_CHAT_NEW,
   PET_CHAT_RESOLVE,
   PET_CHAT_SCOPE,
   PET_CHAT_SEND,
@@ -653,6 +655,16 @@ export default function App() {
         else startNew(dockPanelRef.current);
         setDockHidden(false);
         setDockFlight(null);
+        setDockFocus((count) => count + 1);
+      }),
+      // Clicking bebe's chat icon: start a new conversation.
+      listen(PET_CHAT_NEW, () => {
+        assistantRef.current.startNew(dockPanelRef.current);
+      }),
+      // Clicking the history button in bebe's chat: open the dock to pick a conversation.
+      listen(PET_CHAT_HISTORY, () => {
+        setDockHidden(false);
+        setDockExpand((count) => count + 1);
         setDockFocus((count) => count + 1);
       }),
       listen(PET_READY, () => void emitTo("pet", PET_CHAT, petChatRef.current)),
