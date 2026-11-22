@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { createPortal } from "react-dom";
 import {
   ABILITY_FOREST_COLORS,
+  abilityNodeDisplayName,
   childrenOf,
   createAbilityNode,
   deleteAbilityNode,
@@ -36,6 +37,7 @@ import { entryDateLabel, goalStatus, namePaths, pathKey, type GoalEntry } from "
 import {
   abilityMapCanMove,
   abilityMapHitTest,
+  abilityMapLabelLines,
   abilityMapScreenToGrid,
   DEFAULT_ABILITY_MAP_OPTIONS,
   drawAbilityMap,
@@ -136,6 +138,8 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
   const [collision, setCollision] = useState(false);
   const [collisionPreview, setCollisionPreview] = useState<{ x: number; y: number; size: number } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  useEffect(() => { setEditingTitle(false); }, [selectedId]);
   /** The 在推进 chip was clicked: the editor area shows the node's progress timeline. */
   const [goalView, setGoalView] = useState(false);
   // WKWebView in Tauri does not implement window.confirm, so import confirms in-app before opening the picker.
@@ -355,7 +359,7 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
     const detail = count > 1 ? `及其下属的 ${count - 1} 个节点` : "";
     if (deleteConfirmId !== selected.id) {
       setDeleteConfirmId(selected.id);
-      setMessage(`再次点击确认删除「${selected.name}」${detail}，或点击取消。`);
+      setMessage(`再次点击确认删除「${abilityNodeDisplayName(selected.name)}」${detail}，或点击取消。`);
       return;
     }
     try {
@@ -610,12 +614,12 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
                 const hasChildren = childCount > 0;
                 const color = nodeColor(forest, node);
                 return (
-                  <div className={`ability-tree-row ${depth === 0 ? "is-root" : ""} ${selectedId === node.id ? "is-selected" : ""}`} key={node.id} role="treeitem" aria-level={depth + 1} aria-selected={selectedId === node.id} aria-expanded={hasChildren ? !collapsed.has(node.id) : undefined} title={node.name} style={{ "--tree-depth": depth, "--node-color": color } as CSSProperties}>
+                  <div className={`ability-tree-row ${depth === 0 ? "is-root" : ""} ${selectedId === node.id ? "is-selected" : ""}`} key={node.id} role="treeitem" aria-level={depth + 1} aria-selected={selectedId === node.id} aria-expanded={hasChildren ? !collapsed.has(node.id) : undefined} title={abilityNodeDisplayName(node.name)} style={{ "--tree-depth": depth, "--node-color": color } as CSSProperties}>
                     {hasChildren ? (
-                      <button type="button" className="tree-fold" aria-label={`${collapsed.has(node.id) ? "展开" : "折叠"}${node.name}`} onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}>{collapsed.has(node.id) ? "+" : "−"}</button>
+                      <button type="button" className="tree-fold" aria-label={`${collapsed.has(node.id) ? "展开" : "折叠"}${abilityNodeDisplayName(node.name)}`} onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}>{collapsed.has(node.id) ? "+" : "−"}</button>
                     ) : <span className="tree-fold-spacer" />}
                     <span className="tree-node-dot" aria-hidden="true" style={{ "--node-color": color } as CSSProperties} />
-                    <button type="button" className="tree-node-label" onClick={() => selectNode(node.id)}>{node.name}</button>
+                    <button type="button" className="tree-node-label" onClick={() => selectNode(node.id)}>{abilityNodeDisplayName(node.name)}</button>
                     {(() => {
                       const goal = goalOf(node);
                       return goal && (
@@ -654,7 +658,7 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
                   ◎ 在推进
                 </button>
               </div>
-              <h3 className="ability-goal-title">{selected.name}</h3>
+              <h3 className="ability-goal-title">{abilityNodeDisplayName(selected.name)}</h3>
               {(() => {
                 const entries = goalEntries(selected);
                 const days = new Set(entries.map((entry) => entry.date)).size;
@@ -681,8 +685,8 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
               <div className="ability-meta-line">
                 <span className="ability-level-tag">{levelNames[selected.level]}</span>
                 <span className="ability-meta-sep">·</span>
-                <span className="ability-parent-path" title={selected.parentId ? parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层" : "顶层"}>
-                  {selected.parentId ? parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层" : "顶层"}
+                <span className="ability-parent-path" title={selected.parentId ? abilityNodeDisplayName(parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层") : "顶层"}>
+                  {selected.parentId ? abilityNodeDisplayName(parentOptions.find((n) => n.id === selected.parentId)?.name ?? "顶层") : "顶层"}
                 </span>
                 <span className="ability-meta-sep">·</span>
                 <div className="ability-order-controls-inline">
@@ -723,15 +727,33 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
                 )}
               </div>
 
-              <input
-                className="sheet-title-input"
-                value={selected.name}
-                maxLength={120}
-                placeholder="节点名称"
-                onChange={(event) => updateName(event.target.value)}
-                onBlur={() => onForestChange(forest, true)}
-                aria-label="节点名称"
-              />
+              {editingTitle ? (
+                <textarea
+                  className="sheet-title-input is-label-source"
+                  value={selected.name}
+                  maxLength={120}
+                  rows={Math.min(4, selected.name.split("\n").length)}
+                  placeholder="节点名称"
+                  autoFocus
+                  onChange={(event) => updateName(event.target.value)}
+                  onBlur={() => { setEditingTitle(false); onForestChange(forest, true); }}
+                  aria-label="节点名称"
+                />
+              ) : (
+                <div
+                  className="sheet-title-rendered"
+                  role="button"
+                  tabIndex={0}
+                  title="点击编辑名称"
+                  aria-label={`节点名称：${abilityNodeDisplayName(selected.name)}，点击编辑`}
+                  onClick={() => setEditingTitle(true)}
+                  onFocus={() => setEditingTitle(true)}
+                >
+                  {abilityMapLabelLines(selected.name, selected.level).map((line, index) => (
+                    <span key={index} style={{ fontSize: `${line.fontSize + 2}px` }}>{line.text}</span>
+                  ))}
+                </div>
+              )}
 
               <div className="ability-markdown-field-wrapper">
                 <MarkdownEditor

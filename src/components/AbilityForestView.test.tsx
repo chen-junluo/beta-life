@@ -39,9 +39,10 @@ describe("AbilityForestView", () => {
 
   it("keeps a single expanded editor and saves the selected node's text", () => {
     expect(host.querySelectorAll(".ability-markdown-input")).toHaveLength(1);
-    const name = host.querySelector<HTMLInputElement>('[aria-label="节点名称"]')!;
+    act(() => { host.querySelector<HTMLElement>(".sheet-title-rendered")!.click(); });
+    const name = host.querySelector<HTMLTextAreaElement>('[aria-label="节点名称"]')!;
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(name, "数据洞察");
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(name, "数据洞察");
       name.dispatchEvent(new Event("input", { bubbles: true }));
     });
 

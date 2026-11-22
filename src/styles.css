@@ -1067,8 +1067,24 @@ select {
   letter-spacing: -.01em;
   resize: none;
 }
+/* Ability node name while editing: 2px smaller than the shared title, the raw {px} text is only a draft. */
+.sheet-title-input.is-label-source:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { font-size: 15px; }
 .sheet-title-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):hover { border-color: transparent; background: color-mix(in srgb, var(--panel-muted) 80%, transparent); }
 .sheet-title-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):focus { border-color: rgba(99, 102, 241, 0.45); background: var(--panel); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.11); outline: 0; }
+/* Rendered node name: {px} is stripped and each line uses its own font size. Clicking switches to the raw editor. */
+.sheet-title-rendered {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 5px 0 0 -6px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: text;
+  line-height: 1.35;
+}
+.sheet-title-rendered span { font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
+.sheet-title-rendered:hover { background: color-mix(in srgb, var(--panel-muted) 80%, transparent); }
 .title-sheet-body { flex: 1; display: flex; flex-direction: column; padding-top: var(--ui-field-gap); }
 /* --main-editor-offset: height of everything else in the sheet, so the main editor fills it by default and stays resizable. */
 .sheet-main-editor { flex: none; font-size: 13px; height: max(200px, calc(min(780px, 100vh - 48px) - var(--main-editor-offset, 270px))); min-height: 120px; line-height: 1.65; }
