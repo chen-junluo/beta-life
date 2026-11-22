@@ -1,4 +1,4 @@
-import { createAbilityNode, deleteAbilityNode, moveAbilityNode, orderedSiblings, renameAbilityNode, setAbilityNodeColor, updateAbilityMarkdown } from "../abilityForest";
+import { abilityNodeDisplayName, createAbilityNode, deleteAbilityNode, moveAbilityNode, orderedSiblings, renameAbilityNode, setAbilityNodeColor, updateAbilityMarkdown } from "../abilityForest";
 import { DEFAULT_ABILITY_MAP_NAMES } from "../defaults";
 import type { AbilityForest, AbilityMapKind, AbilityNode } from "../types";
 import type { AiChange, ChangeKind } from "./types";
@@ -119,11 +119,11 @@ export function describeForestChange(forests: Forests, change: ChangeInput): { k
   const map = mapOf(args);
   const forest = forests[map];
   const where = mapName(forest, map);
-  const parentLabel = (parentId: unknown) => (typeof parentId === "string" && parentId ? findNode(forest, parentId).name : "顶层");
+  const parentLabel = (parentId: unknown) => (typeof parentId === "string" && parentId ? abilityNodeDisplayName(findNode(forest, parentId).name) : "顶层");
   switch (change.name) {
     case "add_node": {
       const parent = typeof args.parentId === "string" && args.parentId ? findNode(forest, args.parentId) : null;
-      return { kind: "add", title: String(args.name).trim(), detail: `${where} · ${parent ? `${parent.name} 下的${LEVEL_LABELS[parent.level + 1] ?? "节点"}` : "新领域"}` };
+      return { kind: "add", title: abilityNodeDisplayName(String(args.name)), detail: `${where} · ${parent ? `${abilityNodeDisplayName(parent.name)} 下的${LEVEL_LABELS[parent.level + 1] ?? "节点"}` : "新领域"}` };
     }
     case "update_node": {
       const node = findNode(forest, args.id);
@@ -132,16 +132,16 @@ export function describeForestChange(forests: Forests, change: ChangeInput): { k
         typeof args.markdown === "string" && "笔记已修改",
         typeof args.color === "string" && `颜色 → ${args.color}`,
       ].filter(Boolean);
-      return { kind: "edit", title: node.name, detail: `${where} · ${parts.join(" · ") || "内容不变"}` };
+      return { kind: "edit", title: abilityNodeDisplayName(node.name), detail: `${where} · ${parts.join(" · ") || "内容不变"}` };
     }
     case "move_node": {
       const node = findNode(forest, args.id);
-      return { kind: "move", title: node.name, detail: `${where} · ${parentLabel(node.parentId)} → ${parentLabel(args.parentId)}` };
+      return { kind: "move", title: abilityNodeDisplayName(node.name), detail: `${where} · ${parentLabel(node.parentId)} → ${parentLabel(args.parentId)}` };
     }
     case "delete_node": {
       const node = findNode(forest, args.id);
       const descendants = subtreeSize(forest, node.id) - 1;
-      return { kind: "del", title: node.name, detail: `${where}${descendants > 0 ? ` · 连同下面 ${descendants} 个节点` : ""}` };
+      return { kind: "del", title: abilityNodeDisplayName(node.name), detail: `${where}${descendants > 0 ? ` · 连同下面 ${descendants} 个节点` : ""}` };
     }
     default:
       throw new Error(`Unknown forest tool ${change.name}`);

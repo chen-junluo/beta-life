@@ -421,36 +421,65 @@ export interface AbilityMapCollision {
   size: number;
 }
 
-function nodeLabelInfo(node: AbilityNode, point: Point) {
-  const shown = node.name.trim() || "未命名节点";
-  const fontSize = node.level === 0 ? 12 : node.level === 1 ? 10 : 8;
-  const cjkWidth = node.level === 0 ? 12 : node.level === 1 ? 10 : 8;
-  const latinWidth = node.level === 0 ? 7.4 : node.level === 1 ? 6.2 : 5;
-  const textWidth = Array.from(shown).reduce((width, character) => {
-    return width + (/[^\u0000-ÿ]/u.test(character) ? cjkWidth : latinWidth);
-  }, 0);
-  const padding = node.level === 0 ? 28 : node.level === 1 ? 24 : 20;
-  const minWidth = node.level === 0 ? 70 : node.level === 1 ? 58 : 48;
-  const width = Math.max(minWidth, textWidth + padding);
-  const height = node.level === 0 ? 26 : node.level === 1 ? 22 : 18;
-  const top = point.y - (node.level === 0 ? 91 : node.level === 1 ? 65 : 43);
-  return { shown, width, x: point.x - width / 2, y: top, height, fontSize };
+const LABEL_FONT = "'PingFang SC','Microsoft YaHei',sans-serif";
+const LABEL_LINE_HEIGHT = 1.35;
+const LABEL_INK = "#2a2e28";
+const LABEL_SUB = "#4d5449";
+
+export interface AbilityMapLabelLine {
+  text: string;
+  fontSize: number;
+}
+
+/** Label lines for the map: a leading `{px}` sets that line's font size (6–24), otherwise the level default. */
+export function abilityMapLabelLines(name: string, level: number): AbilityMapLabelLine[] {
+  const base = level === 0 ? 12 : level === 1 ? 10 : 8;
+  const lines = name.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) lines.push("未命名节点");
+  return lines.map((line) => {
+    const match = line.match(/^\{(\d+(?:\.\d+)?)\}\s*(.*)$/);
+    if (!match || !match[2]) return { text: line, fontSize: base };
+    const fontSize = Math.min(24, Math.max(6, Number(match[1])));
+    return { text: match[2], fontSize };
+  });
+}
+
+function nodeLabelInfo(node: AbilityNode, point: Point, ctx: CanvasRenderingContext2D) {
+  const lines = abilityMapLabelLines(node.name, node.level);
+  const lineHeights = lines.map((line) => line.fontSize * LABEL_LINE_HEIGHT);
+  const height = lineHeights.reduce((total, lineHeight) => total + lineHeight, 0) + 4;
+  const bottom = point.y - (node.level === 0 ? 91 : node.level === 1 ? 65 : 43) + (node.level === 0 ? 26 : node.level === 1 ? 22 : 18);
+  let width = 0;
+  for (const line of lines) {
+    ctx.font = `${line.fontSize >= (node.level === 0 ? 12 : node.level === 1 ? 10 : 8) ? 600 : 500} ${line.fontSize}px ${LABEL_FONT}`;
+    width = Math.max(width, ctx.measureText(line.text).width);
+  }
+  return { lines, lineHeights, width, x: point.x - width / 2, y: bottom - height, height };
 }
 
 function drawNodeLabel(ctx: CanvasRenderingContext2D, forest: AbilityForest, node: AbilityNode, point: Point, active: boolean) {
-  const info = nodeLabelInfo(node, point);
+  const info = nodeLabelInfo(node, point, ctx);
   const colors = colorSetFor(forest, node);
-  const bgOpacity = node.level === 0 ? 0.78 : node.level === 1 ? 0.70 : 0.62;
+  const base = node.level === 0 ? 12 : node.level === 1 ? 10 : 8;
   ctx.save();
-  if (active) { ctx.shadowColor = colors.border; ctx.shadowBlur = 12; }
-  roundedPath(ctx, info.x, info.y, info.width, info.height, 3);
-  ctx.globalAlpha = bgOpacity;
-  ctx.fillStyle = colors.label; ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0;
-  ctx.strokeStyle = colors.border; ctx.lineWidth = active ? 2.4 : 1; ctx.stroke();
-  ctx.fillStyle = colors.border; ctx.fillRect(info.x, info.y, 3, info.height);
-  ctx.fillStyle = "#2a2e28"; ctx.font = `600 ${info.fontSize}px 'PingFang SC','Microsoft YaHei',sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(info.shown, point.x, info.y + info.height / 2, info.width - 12);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  let y = info.y;
+  info.lines.forEach((line, index) => {
+    const lineHeight = info.lineHeights[index];
+    const strong = line.fontSize >= base;
+    ctx.font = `${strong ? 600 : 500} ${line.fontSize}px ${LABEL_FONT}`;
+    const textWidth = ctx.measureText(line.text).width;
+    const centerY = y + lineHeight / 2;
+    ctx.lineWidth = Math.max(2.5, line.fontSize * 0.3); ctx.strokeStyle = "rgba(255,253,247,.95)"; ctx.strokeText(line.text, point.x, centerY);
+    ctx.fillStyle = strong ? LABEL_INK : LABEL_SUB; ctx.fillText(line.text, point.x, centerY);
+    if (index === 0) {
+      ctx.save();
+      if (active) { ctx.shadowColor = colors.border; ctx.shadowBlur = 8; }
+      ctx.fillStyle = colors.border; ctx.fillRect(point.x - textWidth / 2, y + lineHeight - 1, textWidth, active ? 2.6 : 1.6);
+      ctx.restore();
+    }
+    y += lineHeight;
+  });
   ctx.restore();
   return info;
 }
@@ -535,7 +564,7 @@ export function drawAbilityMap(
     const related = relatedToSelection(forest, node.id, selectedId) && !(selectedNode?.level === 0 && node.level === 2);
     if (selectedId !== null && !related) return;
     const active = selectedId !== null && node.id === selectedId;
-    const labelInfo = nodeLabelInfo(node, point);
+    const labelInfo = nodeLabelInfo(node, point, ctx);
     ctx.save(); ctx.globalAlpha = related ? 1 : 0.22;
     if (related && selectedId !== null) {
       const colors = colorSetFor(forest, node);

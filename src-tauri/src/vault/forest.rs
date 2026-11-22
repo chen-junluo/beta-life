@@ -118,6 +118,8 @@ struct PathPosition {
 #[derive(Debug, Default, PartialEq)]
 struct Section {
     name: String,
+    /// Raw multi-line label (`{px}` per line) when it differs from the plain `name`, kept out of headings.
+    label: Option<String>,
     color: Option<String>,
     note: String,
     children: Vec<Section>,
@@ -155,27 +157,81 @@ fn folder(root: &Path, kind: AbilityMapKind) -> Option<String> {
     (meta.folder(kind).is_some() && free.len() == 1).then(|| free[0].clone())
 }
 
-fn heading(name: &str, color: Option<&str>) -> String {
-    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
-    match color {
-        Some(color) => format!("{name} %%color:{color}%%"),
-        None => name,
-    }
+/// Plain text of one label line: a leading `{px}` sets the map font size and is not part of the name.
+/// Same rule as the map: `{12}`, `{12.5}`, then the text; `{12}` with nothing after it stays as typed.
+fn label_line_text(line: &str) -> &str {
+    let line = line.trim();
+    let Some(rest) = line.strip_prefix('{') else { return line };
+    let Some(end) = rest.find('}') else { return line };
+    let number = &rest[..end];
+    let mut parts = number.split('.');
+    let digits = |part: Option<&str>| part.is_some_and(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()));
+    let valid = digits(parts.next()) && match parts.next() { None => true, part => digits(part) && parts.next().is_none() };
+    let text = rest[end + 1..].trim();
+    if valid && !text.is_empty() { text } else { line }
 }
 
-fn parse_heading(text: &str) -> (String, Option<String>) {
-    let text = text.trim();
+/// Name as it is stored and linked: every line without its `{px}` prefix, joined by spaces.
+fn plain_name(name: &str) -> String {
+    name.lines().map(label_line_text).filter(|line| !line.is_empty()).collect::<Vec<_>>().join(" ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Name shown outside the map (bebe, goal lists): the label's first line, else the stored name.
+fn display_name(section: &Section) -> String {
+    section.label.as_deref().and_then(|label| label.lines().map(label_line_text).find(|line| !line.is_empty())).map(str::to_string).unwrap_or_else(|| section.name.clone())
+}
+
+/// The raw label, kept only when the stored name alone cannot reproduce it.
+fn label_of(name: &str, plain: &str) -> Option<String> {
+    let raw = name.trim();
+    (raw != plain).then(|| raw.to_string())
+}
+
+/// `%%label:"…"%%` inside a heading, JSON-quoted so line breaks survive in a one-line heading.
+fn label_marker(label: &str) -> String {
+    format!("%%label:{}%%", serde_json::to_string(label).unwrap_or_default())
+}
+
+fn heading(name: &str, label: Option<&str>, color: Option<&str>) -> String {
+    let mut text = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(label) = label {
+        text.push(' ');
+        text.push_str(&label_marker(label));
+    }
+    if let Some(color) = color {
+        text.push(' ');
+        text.push_str(&format!("%%color:{color}%%"));
+    }
+    text
+}
+
+fn parse_heading(text: &str) -> (String, Option<String>, Option<String>) {
+    let mut text = text.trim().to_string();
+    let mut color = None;
     if let Some(start) = text.rfind("%%color:") {
-        let color = text[start + 8..].trim_end_matches('%').trim();
-        if text.ends_with("%%") && valid_color(color) {
-            return (text[..start].trim().to_string(), Some(color.to_string()));
+        let candidate = text[start + 8..].trim_end_matches('%').trim();
+        if text.ends_with("%%") && valid_color(candidate) {
+            color = Some(candidate.to_string());
+            text = text[..start].trim().to_string();
         }
     }
-    (text.to_string(), None)
+    let mut label = None;
+    if let Some(start) = text.rfind("%%label:") {
+        if text.ends_with("%%") {
+            if let Ok(parsed) = serde_json::from_str::<String>(text[start + 8..text.len() - 2].trim()) {
+                label = Some(parsed.trim().to_string()).filter(|parsed| !parsed.is_empty());
+                text = text[..start].trim().to_string();
+            }
+        }
+    }
+    (text, label, color)
 }
 
 fn serialize_domain(domain: &Section, order: usize) -> String {
     let mut fields = vec![("name", s(&domain.name)), ("order", raw(order))];
+    if let Some(label) = &domain.label {
+        fields.push(("label", s(label)));
+    }
     if let Some(color) = &domain.color {
         fields.push(("color", s(color)));
     }
@@ -188,10 +244,10 @@ fn serialize_domain(domain: &Section, order: usize) -> String {
     };
     push_note(&mut parts, &domain.note);
     for group in &domain.children {
-        parts.push(format!("## {}", heading(&group.name, group.color.as_deref())));
+        parts.push(format!("## {}", heading(&group.name, group.label.as_deref(), group.color.as_deref())));
         push_note(&mut parts, &group.note);
         for ability in &group.children {
-            parts.push(format!("### {}", heading(&ability.name, ability.color.as_deref())));
+            parts.push(format!("### {}", heading(&ability.name, ability.label.as_deref(), ability.color.as_deref())));
             push_note(&mut parts, &ability.note);
         }
     }
@@ -203,6 +259,7 @@ fn parse_domain(text: &str, fallback_name: &str) -> Result<(Section, Option<f64>
     let (front, body) = fm::parse(text)?;
     let mut domain = Section {
         name: front.text("name").map(|name| name.trim().to_string()).unwrap_or_else(|| fallback_name.to_string()),
+        label: front.text("label").map(|label| label.trim().to_string()).filter(|label| !label.is_empty()),
         color: front.text("color").map(|color| color.trim().to_string()).filter(|color| valid_color(color)),
         ..Section::default()
     };
@@ -212,16 +269,16 @@ fn parse_domain(text: &str, fallback_name: &str) -> Result<(Section, Option<f64>
     for (line, fenced) in super::fenced_lines(&body) {
         if !fenced {
             if let Some(text) = line.strip_prefix("## ") {
-                let (name, color) = parse_heading(text);
-                domain.children.push(Section { name, color, ..Section::default() });
+                let (name, label, color) = parse_heading(text);
+                domain.children.push(Section { name, label, color, ..Section::default() });
                 targets.push((Some(domain.children.len() - 1), None));
                 notes.push(Vec::new());
                 continue;
             }
             if let (Some(text), Some(index)) = (line.strip_prefix("### "), domain.children.len().checked_sub(1)) {
-                let (name, color) = parse_heading(text);
+                let (name, label, color) = parse_heading(text);
                 let group = &mut domain.children[index];
-                group.children.push(Section { name, color, ..Section::default() });
+                group.children.push(Section { name, label, color, ..Section::default() });
                 targets.push((Some(index), Some(group.children.len() - 1)));
                 notes.push(Vec::new());
                 continue;
@@ -248,11 +305,12 @@ fn name_paths(forest: &AbilityForest) -> HashMap<String, Vec<String>> {
     fn walk(forest: &AbilityForest, parent: Option<&str>, prefix: &[String], paths: &mut HashMap<String, Vec<String>>) {
         let mut siblings: Vec<&AbilityNode> = forest.nodes.iter().filter(|node| node.parent_id.as_deref() == parent).collect();
         siblings.sort_by_key(|node| node.order);
-        let mut counts: HashMap<&str, usize> = HashMap::new();
+        let mut counts: HashMap<String, usize> = HashMap::new();
         for node in siblings {
-            let count = counts.entry(node.name.trim()).or_insert(0);
+            let plain = plain_name(&node.name);
+            let count = counts.entry(plain.clone()).or_insert(0);
             *count += 1;
-            let segment = if *count == 1 { node.name.trim().to_string() } else { format!("{}#{count}", node.name.trim()) };
+            let segment = if *count == 1 { plain } else { format!("{plain}#{count}") };
             let mut path = prefix.to_vec();
             path.push(segment);
             walk(forest, Some(&node.id), &path, paths);
@@ -396,14 +454,14 @@ pub(crate) fn goal_targets(root: &Path, kind: AbilityMapKind) -> Vec<GoalTarget>
     let domain_sections: Vec<Section> = domains.iter().map(|(_, domain, _)| Section { name: domain.name.clone(), ..Section::default() }).collect();
     for ((path, domain, _), domain_segment) in domains.iter().zip(numbered(&domain_sections)) {
         let file = stem(path).to_string();
-        let mut push = |segments: Vec<String>, name: &str| {
+        let mut push = |segments: Vec<String>, section: &Section| {
             let active = active.contains(&segments);
-            targets.push(GoalTarget { link: link_target(&file, Some(name)), path: segments, name: name.to_string(), file: file.clone(), active });
+            targets.push(GoalTarget { link: link_target(&file, Some(&section.name)), path: segments, name: display_name(section), file: file.clone(), active });
         };
         for (group, group_segment) in domain.children.iter().zip(numbered(&domain.children)) {
-            push(vec![domain_segment.clone(), group_segment.clone()], &group.name);
+            push(vec![domain_segment.clone(), group_segment.clone()], group);
             for (ability, ability_segment) in group.children.iter().zip(numbered(&group.children)) {
-                push(vec![domain_segment.clone(), group_segment.clone(), ability_segment], &ability.name);
+                push(vec![domain_segment.clone(), group_segment.clone(), ability_segment], ability);
             }
         }
     }
@@ -435,17 +493,18 @@ pub(crate) fn map_meta_path(root: &Path, kind: AbilityMapKind) -> PathBuf {
 }
 
 fn push_node(forest: &mut AbilityForest, kind: AbilityMapKind, parent: Option<&str>, prefix: &[String], order: usize, section: &Section, level: u8) -> String {
+    let stored = section.label.clone().filter(|label| plain_name(label) == section.name).unwrap_or_else(|| section.name.clone());
     let same_name_before = forest
         .nodes
         .iter()
-        .filter(|node| node.parent_id.as_deref() == parent && node.name == section.name)
+        .filter(|node| node.parent_id.as_deref() == parent && plain_name(&node.name) == section.name)
         .count();
     let mut path = prefix.to_vec();
     path.push(if same_name_before == 0 { section.name.clone() } else { format!("{}#{}", section.name, same_name_before + 1) });
     let id = node_id(kind, &path);
     forest.nodes.push(AbilityNode {
         id: id.clone(),
-        name: section.name.clone(),
+        name: stored,
         level,
         parent_id: parent.map(str::to_string),
         order,
@@ -465,8 +524,10 @@ fn sections(forest: &AbilityForest, parent: Option<&str>) -> Vec<(String, Sectio
     nodes
         .into_iter()
         .map(|node| {
+            let plain = plain_name(&node.name);
             let section = Section {
-                name: node.name.trim().to_string(),
+                name: plain.clone(),
+                label: label_of(&node.name, &plain),
                 color: node.color.clone(),
                 note: node.markdown.clone(),
                 children: sections(forest, Some(&node.id)).into_iter().map(|(_, child)| child).collect(),
@@ -670,13 +731,15 @@ mod tests {
     fn domain_markdown_round_trips_with_escaped_headings() {
         let domain = Section {
             name: "AI native 学者/实践者".into(),
+            label: None,
             color: Some("#7FB77E".into()),
             note: "领域笔记\n\n# 不是结构\n#### 可以".into(),
             children: vec![Section {
                 name: "研究成果".into(),
+                label: None,
                 color: Some("#5A9FD4".into()),
                 note: String::new(),
-                children: vec![Section { name: "当前任务".into(), color: None, note: "```\n## 代码\n```".into(), children: vec![] }],
+                children: vec![Section { name: "当前任务".into(), label: None, color: None, note: "```\n## 代码\n```".into(), children: vec![] }],
             }],
         };
         let text = serialize_domain(&domain, 2);
@@ -685,6 +748,39 @@ mod tests {
         let (parsed, order) = parse_domain(&text, "x").unwrap();
         assert_eq!(parsed, domain);
         assert_eq!(order, Some(2.0));
+    }
+
+    #[test]
+    fn multiline_labels_round_trip_and_link_by_plain_name() {
+        let root = super::super::test_root("forest-labels");
+        let mut forest = load(&root, AbilityMapKind::Vision).unwrap();
+        let group = forest.nodes.iter().position(|node| node.level == 1).unwrap();
+        let old = forest.nodes[group].name.clone();
+
+        // Only font sizes added: the plain name is unchanged, so no diary link moves.
+        forest.nodes[group].name = format!("{{12}} {old}");
+        assert!(save(&root, AbilityMapKind::Vision, &forest).unwrap().is_empty(), "a font size alone is not a rename");
+        assert_eq!(load(&root, AbilityMapKind::Vision).unwrap().nodes[group].name, format!("{{12}} {old}"));
+
+        // A second line joins the plain heading, and links follow it.
+        forest.nodes[group].name = format!("{{12}} {old}\n{{8}} 论文");
+        let renames = save(&root, AbilityMapKind::Vision, &forest).unwrap();
+        assert_eq!(renames.len(), 1);
+        assert!(renames[0].1.ends_with(&format!("#{old} 论文")), "link is the plain heading, got {}", renames[0].1);
+        let reloaded = load(&root, AbilityMapKind::Vision).unwrap();
+        assert_eq!(reloaded.nodes[group].name, format!("{{12}} {old}\n{{8}} 论文"));
+        let target = goal_targets(&root, AbilityMapKind::Vision).into_iter().find(|target| target.link.ends_with(&format!("#{old} 论文"))).unwrap();
+        assert_eq!(target.name, old, "bebe shows only the first line");
+        let dir = tab(&root).join(folder(&root, AbilityMapKind::Vision).unwrap());
+        let text = md_files(&dir, false).into_iter().filter_map(|path| read_md(&path).ok()).find(|text| text.contains(&format!("## {old} 论文"))).unwrap();
+        assert!(text.contains(&format!("## {old} 论文 %%label:\"{{12}} {old}\\n{{8}} 论文\"%%")), "heading keeps the plain name and the label");
+
+        // A 领域 keeps its label in frontmatter.
+        let domain = forest.nodes.iter().position(|node| node.level == 0).unwrap();
+        let domain_old = forest.nodes[domain].name.clone();
+        forest.nodes[domain].name = format!("{{16}} {domain_old}");
+        assert!(save(&root, AbilityMapKind::Vision, &forest).unwrap().is_empty());
+        assert_eq!(load(&root, AbilityMapKind::Vision).unwrap().nodes[domain].name, format!("{{16}} {domain_old}"));
     }
 
     #[test]

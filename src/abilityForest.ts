@@ -2,6 +2,23 @@ import type { AbilityForest, AbilityMapState, AbilityNode } from "./types";
 
 export const ABILITY_FOREST_COLORS = ["#7FB77E", "#5A9FD4", "#E8856F"] as const;
 
+/** The plain text of a map label line: a leading `{px}` sets the font size and is not part of the text. */
+function labelLineText(line: string): string {
+  const match = line.trim().match(/^\{(\d+(?:\.\d+)?)\}\s*(.*)$/);
+  return match && match[2] ? match[2] : line.trim();
+}
+
+/** Name as Obsidian stores and links it (matches Rust `plain_name`): every line without `{px}`, joined by spaces. */
+export function abilityNodePlainName(name: string): string {
+  return name.split("\n").map(labelLineText).filter(Boolean).join(" ").split(/\s+/).filter(Boolean).join(" ");
+}
+
+/** Name as it appears outside the map: the first line, without its `{px}` font-size prefix. */
+export function abilityNodeDisplayName(name: string): string {
+  const first = name.split("\n").map(labelLineText).find(Boolean);
+  return first || name.trim();
+}
+
 export function orderedSiblings(forest: AbilityForest, parentId: string | null): AbilityNode[] {
   return forest.nodes
     .filter((node) => node.parentId === parentId)

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { orderedSiblings } from "./abilityForest";
+import { abilityNodePlainName, orderedSiblings } from "./abilityForest";
 import type { AbilityForest, AbilityMapKind } from "./types";
 
 /** A 在推进 node and the target to write inside `[[…]]` in the diary (P7). */
@@ -40,7 +40,7 @@ export function namePaths(forest: AbilityForest): Map<string, string[]> {
   const walk = (parentId: string | null, prefix: string[]) => {
     const counts = new Map<string, number>();
     for (const node of orderedSiblings(forest, parentId)) {
-      const name = node.name.trim();
+      const name = abilityNodePlainName(node.name);
       const count = (counts.get(name) ?? 0) + 1;
       counts.set(name, count);
       const path = [...prefix, count === 1 ? name : `${name}#${count}`];
