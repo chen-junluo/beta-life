@@ -20,6 +20,7 @@ pub(crate) mod location;
 pub(crate) mod memories;
 pub(crate) mod migrate;
 pub(crate) mod recall;
+pub(crate) mod social;
 pub(crate) mod watch;
 
 pub(crate) const BOARD: &str = "时间板";
@@ -27,17 +28,19 @@ pub(crate) const RECALL: &str = "回想";
 pub(crate) const FOREST: &str = "能力森林";
 pub(crate) const MEMORIES: &str = "记忆星云";
 pub(crate) const DIARY: &str = "日记";
+pub(crate) const SOCIAL: &str = "社交模拟器";
 pub(crate) const AI: &str = "AI";
 pub(crate) const TIMELINE: &str = "时间轴";
 pub(crate) const META: &str = ".beta-life";
 
 /// Tab folders whose md files are watched, with the panel name sent to the frontend.
-pub(crate) const WATCHED: [(&str, &str); 6] = [
+pub(crate) const WATCHED: [(&str, &str); 7] = [
     (BOARD, "board"),
     (RECALL, "recall"),
     (FOREST, "forest"),
     (MEMORIES, "memories"),
     (DIARY, "diary"),
+    (SOCIAL, "social"),
     (AI, "ai"),
 ];
 

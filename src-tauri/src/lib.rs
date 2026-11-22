@@ -22,6 +22,7 @@ mod digest;
 mod goals;
 mod habits;
 mod pet;
+mod social_ai;
 mod todos;
 mod vault;
 #[allow(dead_code)]
@@ -384,6 +385,15 @@ struct AiSettings {
     /// 昨天的 to-do: what counts as one, for bebe's morning list and the 聊一下 task.
     #[serde(default = "todos::default_diary_todos_prompt")]
     diary_todos_prompt: String,
+    /// 社交模拟器: AI 出新问题 / AI 出追问.
+    #[serde(default = "social_ai::default_social_question_prompt")]
+    social_question_prompt: String,
+    /// 社交模拟器: AI 代答.
+    #[serde(default = "social_ai::default_social_answer_prompt")]
+    social_answer_prompt: String,
+    /// 社交模拟器: 评一下 and 结束本轮并评估.
+    #[serde(default = "social_ai::default_social_score_prompt")]
+    social_score_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -847,6 +857,9 @@ fn default_settings() -> AppSettings {
             habit_offer_prompt: habits::default_habit_offer_prompt(),
             goal_step_prompt: goals::default_goal_step_prompt(),
             diary_todos_prompt: todos::default_diary_todos_prompt(),
+            social_question_prompt: social_ai::default_social_question_prompt(),
+            social_answer_prompt: social_ai::default_social_answer_prompt(),
+            social_score_prompt: social_ai::default_social_score_prompt(),
         },
         slogans: TabSlogans::default(),
         tag_icons: HashMap::new(),
@@ -2715,6 +2728,17 @@ pub fn run() {
             vault::diary::list_diary_months,
             vault::diary::load_diary_month,
             vault::diary::save_diary_day,
+            vault::social::list_social_roles,
+            vault::social::load_social_file,
+            vault::social::save_social_file,
+            vault::social::load_social_version,
+            vault::social::save_social_version,
+            vault::social::new_social_version,
+            vault::social::set_social_star,
+            vault::social::new_social_role,
+            vault::social::add_social_question,
+            vault::social::trash_social,
+            vault::social::rename_social_role,
             activity::activity_status,
             activity::request_accessibility,
             activity::open_automation_settings,
@@ -2730,6 +2754,10 @@ pub fn run() {
             habits::roll_habit_day,
             habits::load_habit_history,
             habits::ai_habit_reasons,
+            social_ai::ai_social_questions,
+            social_ai::ai_social_answer,
+            social_ai::ai_social_score,
+            social_ai::ai_social_evaluate,
             habits::ai_habit_offer_summary,
             todos::ai_diary_todos,
             bebe::load_pet_profile,
