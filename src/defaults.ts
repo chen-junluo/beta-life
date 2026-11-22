@@ -63,6 +63,26 @@ export const DEFAULT_DIARY_TODOS_PROMPT = `从日记里找出还没做完的 to-
 2. 不算：已经做完的事、感想和记录、习惯统计，以及后面已经标了 ✅ 或 ❎ 的。
 3. 每条用日记原话里最短又能看懂的说法，不超过 30 个字，不改意思；语言跟日记一致。`;
 
+/** Same as Rust `social_ai::DEFAULT_QUESTION_PROMPT`. */
+export const DEFAULT_SOCIAL_QUESTION_PROMPT = `站在角色的立场，想对方接下来最可能问的问题：
+1. 贴合角色设定里的身份、场景和性格；追问要接着最后一轮回答里的漏洞、含糊处或承诺往下问。
+2. 每个问题一句话，像对方真的会说出口的口吻，不要写成考题。
+3. 候选之间要有差别：一个顺着问、一个质疑、一个换角度。`;
+
+/** Same as Rust `social_ai::DEFAULT_ANSWER_PROMPT`. */
+export const DEFAULT_SOCIAL_ANSWER_PROMPT = `替用户写一条回答：
+1. 先读应对与正样本里的原则和正样本，按同样的风格回答；角色设定决定对方在意什么。
+2. 不长篇大论：先给结论，再给一两条可核对的事实或下一步。
+3. 思路复杂时用嵌套 bullet，最多两层；简单时一两句话。
+4. 不卑不亢，不编造用户没提过的具体数字或事实；不确定的地方写成可以替换的占位。`;
+
+/** Same as Rust `social_ai::DEFAULT_SCORE_PROMPT`. */
+export const DEFAULT_SOCIAL_SCORE_PROMPT = `按这个角色会怎么听来评用户的回答：
+1. 看是否先给结论、是否回应了对方真正在意的点、是否可核对、语气是否得体、是否简短。
+2. 每条回答 1–10 分，点评不超过 30 个字，说具体哪里好或哪里差。
+3. 低于 7 分时给一条改进写法：不长篇大论，复杂时最多两层 bullet。
+4. 结束评估时给最多 3 条整体调整方向，并提议要写进两份 md 的内容：好回答进正样本，反复出现的做法写成原则，对方的新特点写进性格；没有就不提。`;
+
 export const DEFAULT_EXTRACTION_PROMPT = `请从用户提供的文字、对话或图片内容中提取真正可执行、适合作为长期生活安排的习惯。
 
 要求：
@@ -180,6 +200,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     habitOfferPrompt: DEFAULT_HABIT_OFFER_PROMPT,
     goalStepPrompt: DEFAULT_GOAL_STEP_PROMPT,
     diaryTodosPrompt: DEFAULT_DIARY_TODOS_PROMPT,
+    socialQuestionPrompt: DEFAULT_SOCIAL_QUESTION_PROMPT,
+    socialAnswerPrompt: DEFAULT_SOCIAL_ANSWER_PROMPT,
+    socialScorePrompt: DEFAULT_SOCIAL_SCORE_PROMPT,
   },
   slogans: DEFAULT_TAB_SLOGANS,
   tagIcons: {},

@@ -90,6 +90,12 @@ export interface AiSettings {
   goalStepPrompt: string;
   /** 昨天的 to-do: what counts as one (bebe's morning list and the 聊一下 task). */
   diaryTodosPrompt: string;
+  /** 社交模拟器: AI 出新问题 / AI 出追问. */
+  socialQuestionPrompt: string;
+  /** 社交模拟器: AI 代答. */
+  socialAnswerPrompt: string;
+  /** 社交模拟器: 评一下 and 结束本轮并评估. */
+  socialScorePrompt: string;
 }
 
 export interface AppearanceSettings {
@@ -391,3 +397,58 @@ export interface VaultIssue {
   path: string;
   message: string;
 }
+
+/** 社交模拟器 (Rust `vault::social`). One `> 7/10 · 点评` line under an answer. */
+export interface SocialScore {
+  score: number;
+  comment: string;
+}
+
+/** One flat `Q：` / `A：` round; follow-ups are just the next turn. */
+export interface SocialTurn {
+  question: string;
+  answer: string;
+  score: SocialScore | null;
+}
+
+export type SocialStatus = "open" | "done";
+
+/** One practice of a question on one day: `QA记录/<主题><YYMMDD>.md`; `id` is the file stem. */
+export interface SocialVersion {
+  id: string;
+  question: string;
+  topic: string;
+  starred: boolean;
+  status: SocialStatus;
+  turns: SocialTurn[];
+  /** Under `## 评估`. */
+  evaluation: string;
+}
+
+export interface SocialVersionSummary {
+  id: string;
+  /** `YYMMDD` from the file name. */
+  date: string;
+  starred: boolean;
+  status: SocialStatus;
+  /** Mean of the scored turns, one decimal; null before any score. */
+  average: number | null;
+}
+
+/** Versions grouped by their starting question; bank questions never practiced have none. */
+export interface SocialQuestionGroup {
+  question: string;
+  topic: string;
+  versions: SocialVersionSummary[];
+}
+
+export interface SocialRole {
+  name: string;
+  /** First bullet under `## 身份与场景`. */
+  scene: string;
+  favorites: SocialVersionSummary[];
+  questions: SocialQuestionGroup[];
+}
+
+/** `role` = 角色设定.md, `playbook` = 应对与正样本.md. */
+export type SocialFileKind = "role" | "playbook";
