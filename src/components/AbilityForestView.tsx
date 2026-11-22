@@ -37,6 +37,7 @@ import { entryDateLabel, goalStatus, namePaths, pathKey, type GoalEntry } from "
 import {
   abilityMapCanMove,
   abilityMapHitTest,
+  abilityMapLabelLines,
   abilityMapScreenToGrid,
   DEFAULT_ABILITY_MAP_OPTIONS,
   drawAbilityMap,
@@ -137,6 +138,8 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
   const [collision, setCollision] = useState(false);
   const [collisionPreview, setCollisionPreview] = useState<{ x: number; y: number; size: number } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  useEffect(() => { setEditingTitle(false); }, [selectedId]);
   /** The 在推进 chip was clicked: the editor area shows the node's progress timeline. */
   const [goalView, setGoalView] = useState(false);
   // WKWebView in Tauri does not implement window.confirm, so import confirms in-app before opening the picker.
@@ -724,16 +727,33 @@ export function AbilityForestView({ forest, goals = null, goalSince, staleDays =
                 )}
               </div>
 
-              <textarea
-                className="sheet-title-input"
-                value={selected.name}
-                maxLength={120}
-                rows={Math.min(4, selected.name.split("\n").length)}
-                placeholder="节点名称"
-                onChange={(event) => updateName(event.target.value)}
-                onBlur={() => onForestChange(forest, true)}
-                aria-label="节点名称"
-              />
+              {editingTitle ? (
+                <textarea
+                  className="sheet-title-input is-label-source"
+                  value={selected.name}
+                  maxLength={120}
+                  rows={Math.min(4, selected.name.split("\n").length)}
+                  placeholder="节点名称"
+                  autoFocus
+                  onChange={(event) => updateName(event.target.value)}
+                  onBlur={() => { setEditingTitle(false); onForestChange(forest, true); }}
+                  aria-label="节点名称"
+                />
+              ) : (
+                <div
+                  className="sheet-title-rendered"
+                  role="button"
+                  tabIndex={0}
+                  title="点击编辑名称"
+                  aria-label={`节点名称：${abilityNodeDisplayName(selected.name)}，点击编辑`}
+                  onClick={() => setEditingTitle(true)}
+                  onFocus={() => setEditingTitle(true)}
+                >
+                  {abilityMapLabelLines(selected.name, selected.level).map((line, index) => (
+                    <span key={index} style={{ fontSize: `${line.fontSize + 2}px` }}>{line.text}</span>
+                  ))}
+                </div>
+              )}
 
               <div className="ability-markdown-field-wrapper">
                 <MarkdownEditor
