@@ -3665,9 +3665,7 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .social-tag { flex-shrink: 0; max-width: 150px; padding: 2px 9px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--social-accent) 32%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--social-accent) 8%, var(--panel)); color: var(--social-accent); font-size: 11px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
 .social-tag:hover { background: color-mix(in srgb, var(--social-accent) 14%, var(--panel)); }
 .social-tag.empty { border-style: dashed; background: transparent; color: var(--muted); font-weight: 400; }
-.social-tag-input { flex: 0 1 150px; width: 150px; }
 .social-name { cursor: text; }
-.social-name-input { flex: 1 1 auto; height: 24px; font-size: 15px; font-weight: 720; }
 .social-pane-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
 .social-turn { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; position: relative; }
 .social-turn:hover { border-color: color-mix(in srgb, var(--social-accent) 30%, var(--line)); }
@@ -3727,8 +3725,13 @@ body.dragging-horizontal-splitter { cursor: row-resize; user-select: none; }
 .social-kids { margin: 0 0 6px 12px; padding-left: 6px; border-left: 1px solid var(--line); }
 .social-inline-input { flex: 1; min-width: 0; height: 20px; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--social-accent) 50%, var(--line)); border-radius: 5px; background: var(--panel); color: var(--ink); font: inherit; font-size: 11px; outline: 0; }
 .social-role-head .social-inline-input { height: 24px; font-size: 13px; font-weight: 620; }
-.social-inline-field { flex: 1; min-width: 0; height: 20px; margin: 0; padding: 0 2px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--social-accent) 7%, transparent); color: var(--ink); font: inherit; font-size: 12px; font-weight: 650; line-height: 20px; outline: 0; box-shadow: none; }
-.social-inline-field:focus { border: 0; box-shadow: none; outline: 0; }
+/* Inline editors (tag, name, Q) borrow the A editor's quiet surface: a faint tint, no border, no shadow, no focus ring. */
+.social-inline-field:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { flex: 1; width: auto; min-width: 0; height: 20px; margin: 0; padding: 0 2px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--social-accent) 5%, transparent); color: var(--ink); font: inherit; font-size: 12px; font-weight: 650; line-height: 20px; outline: 0; box-shadow: none; }
+.social-inline-field:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):hover,
+.social-inline-field:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):focus { box-shadow: none; outline: 0; }
+/* The tag keeps the pill's text metrics and width, so only the surface quiets down. */
+.social-tag-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { flex: 0 1 auto; max-width: 150px; height: 22px; padding: 2px 9px; color: var(--social-accent); font-size: 11px; font-weight: 620; }
+.social-name-input:not([type="range"]):not([type="checkbox"]):not([type="color"]):not([type="file"]) { flex: 0 1 auto; height: 21px; font-size: 15px; font-weight: 720; }
 .social-inline-input:focus { border-color: color-mix(in srgb, var(--social-accent) 50%, var(--line)); box-shadow: none; }
 .social-a-edit { border-radius: 4px; background: color-mix(in srgb, var(--social-accent) 5%, transparent); }
 .social-a-edit .md-editor, .social-a-edit .md-editor:focus { min-height: 0; padding: 0 2px; border: 0; box-shadow: none; background: transparent; font-size: 12px; line-height: 20px; resize: none; }

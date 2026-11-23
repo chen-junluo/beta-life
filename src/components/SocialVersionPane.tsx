@@ -21,6 +21,11 @@ interface SocialVersionPaneProps {
 type Candidates = { mode: "new" | "follow"; questions: string[]; busy: boolean; error: string | null };
 
 const message = (error: unknown) => (typeof error === "string" ? error : error instanceof Error ? error.message : "出现了未知错误");
+/** Input width in `em` (CJK glyphs are one em, Latin about 0.55), so the field matches the text it replaces. */
+const fieldWidth = (value: string, min: number, pad: number) => {
+  const units = Array.from(value).reduce((width, char) => width + (char.codePointAt(0)! >= 0x2e80 ? 1 : 0.55), 0);
+  return `calc(${Math.max(units, min)}em + ${pad}px)`;
+};
 const tone = (score: number) => (score >= 8 ? "hi" : score >= 6 ? "mid" : "lo");
 const PROPOSAL_LABELS: Record<SocialProposal["kind"], string> = { sample: "+ 正样本", principle: "+ 原则", trait: "+ 性格" };
 const PROPOSAL_FILES: Record<SocialProposal["kind"], string> = { sample: "应对与正样本.md", principle: "应对与正样本.md", trait: "角色设定.md" };
@@ -245,6 +250,7 @@ export function SocialVersionPane({ role, version, hidden, onSave, onRename, onS
             className="social-inline-field social-tag-input"
             autoFocus
             value={tag}
+            style={{ width: fieldWidth(tag || "标签，如 进度询问", 2, 20) }}
             aria-label="标签"
             placeholder="标签，如 进度询问"
             onClick={(e) => e.stopPropagation()}
@@ -262,6 +268,7 @@ export function SocialVersionPane({ role, version, hidden, onSave, onRename, onS
             className="social-inline-field social-name-input"
             autoFocus
             value={name}
+            style={{ width: fieldWidth(name, 4, 2) }}
             aria-label="版本名"
             onFocus={(event) => event.currentTarget.select()}
             onClick={(e) => e.stopPropagation()}
