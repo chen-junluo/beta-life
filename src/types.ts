@@ -117,6 +117,7 @@ export interface TabSlogans {
   forest: string;
   memories: string;
   diary: string;
+  social: string;
 }
 
 /** What the AI may read of the activity record. */
@@ -413,13 +414,17 @@ export interface SocialTurn {
 
 export type SocialStatus = "open" | "done";
 
-/** One practice of a question on one day: `QA记录/<主题><YYMMDD>.md`; `id` is the file stem. */
+/** One practice of a question on one day: `QA记录/<名>.md`; `id` is the file stem. */
 export interface SocialVersion {
   id: string;
+  /** The first turn's question; empty until the version is filled in. */
   question: string;
+  /** The tag next to the question, e.g. `进度询问`; free text. */
   topic: string;
   starred: boolean;
   status: SocialStatus;
+  /** The `C：` line before the first turn: the premise the questions grow out of. */
+  context: string;
   turns: SocialTurn[];
   /** Under `## 评估`. */
   evaluation: string;
@@ -435,7 +440,7 @@ export interface SocialVersionSummary {
   average: number | null;
 }
 
-/** Versions grouped by their starting question; bank questions never practiced have none. */
+/** Versions grouped by their starting question; a blank version sits alone under its id. */
 export interface SocialQuestionGroup {
   question: string;
   topic: string;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type HistoryPanel = "board" | "forest" | "recall" | "memories" | "diary";
+export type HistoryPanel = "board" | "forest" | "recall" | "memories" | "diary" | "social";
 
 /** One undoable change: the value before and after, and how to write either one back. */
 export interface HistoryChange<T> {
@@ -32,6 +32,7 @@ const EMPTY: Stacks = {
   recall: { undo: [], redo: [] },
   memories: { undo: [], redo: [] },
   diary: { undo: [], redo: [] },
+  social: { undo: [], redo: [] },
 };
 
 function errorMessage(error: unknown): string {

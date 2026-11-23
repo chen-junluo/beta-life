@@ -141,6 +141,7 @@ export const DEFAULT_TAB_SLOGANS: TabSlogans = {
   forest: "每一项能力都是一棵树，慢慢长，终会成林。",
   memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。",
   diary: "日子会过去，写下来的会留下。",
+  social: "先在心里排练一遍，真正开口时就不慌。",
 };
 
 /** Four areas written by hand, then the 【AI总结】 line; summaries go under it (Rust `DEFAULT_DIARY_TEMPLATE`). */

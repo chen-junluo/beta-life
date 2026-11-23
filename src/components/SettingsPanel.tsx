@@ -45,6 +45,7 @@ const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "forest", label: "能力森林" },
   { id: "memories", label: "记忆星云" },
   { id: "diary", label: "日记" },
+  { id: "social", label: "社交模拟器" },
 ];
 
 interface SettingsPanelProps {

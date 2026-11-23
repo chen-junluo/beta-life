@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendUnderHeading, applyProposals, pendingTurn, scoreTrend, withEvaluation } from "./socialLogic";
+import { appendUnderHeading, applyProposals, pendingTurn, scoreTrend, splitId, withEvaluation, withQuestion } from "./socialLogic";
 import type { SocialVersion } from "./types";
 
 const version: SocialVersion = {
@@ -8,6 +8,7 @@ const version: SocialVersion = {
   topic: "进度询问",
   starred: false,
   status: "open",
+  context: "",
   turns: [
     { question: "这学期进展怎么样？", answer: "A 已投", score: null },
     { question: "B 呢？", answer: "", score: null },
@@ -19,6 +20,26 @@ describe("socialLogic", () => {
   it("finds the turn waiting for an answer", () => {
     expect(pendingTurn(version.turns)).toBe(1);
     expect(pendingTurn(version.turns.slice(0, 1))).toBeNull();
+  });
+
+  it("does not treat a blank question as waiting for an answer", () => {
+    expect(pendingTurn([{ question: "", answer: "", score: null }])).toBeNull();
+    expect(pendingTurn([{ question: "问？", answer: "", score: null }])).toBe(0);
+  });
+
+  it("fills a blank first question instead of appending a turn", () => {
+    const blank = [{ question: "", answer: "", score: null }];
+    expect(withQuestion(blank, "这学期进展怎么样？")).toEqual([{ question: "这学期进展怎么样？", answer: "", score: null }]);
+    const asked = [{ question: "A？", answer: "", score: null }];
+    expect(withQuestion(asked, "B？")).toEqual([{ question: "A？", answer: "", score: null }, { question: "B？", answer: "", score: null }]);
+    expect(withQuestion([], "首个问题？")).toEqual([{ question: "首个问题？", answer: "", score: null }]);
+  });
+
+  it("reads the tag off a version id", () => {
+    expect(splitId("进度询问261111")).toEqual({ tag: "进度询问", suffix: "261111" });
+    expect(splitId("进度询问261111-2")).toEqual({ tag: "进度询问", suffix: "261111-2" });
+    expect(splitId("261111")).toEqual({ tag: "", suffix: "261111" });
+    expect(splitId("没有日期")).toEqual({ tag: "没有日期", suffix: "" });
   });
 
   it("shows the score trend of scored versions only", () => {

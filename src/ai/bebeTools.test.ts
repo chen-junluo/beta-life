@@ -31,7 +31,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
-const data = (): AssistantData => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: {} as AssistantData["forests"], knowledge: [], memories: [], lifeStages: [], diary: null, timeline: null });
+const data = (): AssistantData => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: {} as AssistantData["forests"], knowledge: [], memories: [], lifeStages: [], diary: null, social: null, timeline: null });
 
 beforeEach(() => {
   store.plan = EMPTY_PLAN;
@@ -78,7 +78,7 @@ describe("bebe tools", () => {
       (await session.run({ id: "5", name: "classify_activity", arguments: { kind: "app", name: "Steam", category: "none" } })).change!,
     ] as AiChange[];
     const state = { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, hasApiKey: true } as LoadedAppState;
-    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn(), recordDiary: vi.fn(), commitPetSettings: vi.fn() };
+    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn(), recordDiary: vi.fn(), recordSocial: vi.fn(), commitPetSettings: vi.fn() };
     expect(await commitChanges(changes, targets)).toEqual([]);
     expect(targets.commitPetSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS.pet, summaryLeadMinutes: 60 });
     expect(store.profile).toEqual({ style: ["叫我小陈"], about: [] });

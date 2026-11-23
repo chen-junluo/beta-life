@@ -844,6 +844,196 @@
     }
   },
   {
+    "name": "read_social_role",
+    "panel": "social",
+    "access": "read",
+    "description": "Read one role in full: the text of 角色设定.md and 应对与正样本.md, and the id, question, status and average score of every version (practice file) of the role.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Role name exactly as in the social index."
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_social_versions",
+    "panel": "social",
+    "access": "read",
+    "description": "Read one or more versions of a role in one call: question, topic, status, starred, every Q/A turn with its score, and the 评估 text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Role name exactly as in the social index."
+        },
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": "Version ids from read_social_role."
+        }
+      },
+      "required": [
+        "role",
+        "ids"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "new_social_role",
+    "panel": "social",
+    "access": "write",
+    "description": "Stage creating a role folder with its two files. role_text becomes 角色设定.md (sections `## 身份与场景`, `## 性格`, `## 可能会问的问题` — background about what this person might ask, not the tab's question list); playbook_text becomes 应对与正样本.md (`## 原则`, `## 正样本`). Draft them from what the user told you; leave a section empty rather than invent.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Role name, e.g. 王老师; the scene belongs in role_text, a new scene is a new role."
+        },
+        "role_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "playbook_text": {
+          "type": "string",
+          "maxLength": 20000
+        }
+      },
+      "required": [
+        "name",
+        "role_text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "rewrite_social_file",
+    "panel": "social",
+    "access": "write",
+    "description": "Stage a full replacement of 角色设定.md or 应对与正样本.md of one role. Read the role first and keep everything the user did not ask to change.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Role name exactly as in the social index."
+        },
+        "file": {
+          "type": "string",
+          "enum": [
+            "role",
+            "playbook"
+          ],
+          "description": "role = 角色设定.md, playbook = 应对与正样本.md."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        }
+      },
+      "required": [
+        "role",
+        "file",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "rewrite_social_version",
+    "panel": "social",
+    "access": "write",
+    "description": "Stage replacing the Q/A turns (and optionally the 评估 text) of one existing version. Read the version first; pass every turn in order, including the ones you keep unchanged, with their scores.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Role name exactly as in the social index."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "turns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 60,
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "answer": {
+                "type": "string",
+                "maxLength": 8000,
+                "description": "Markdown; nested bullets at most two levels. Empty while unanswered."
+              },
+              "score": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "description": "Omit to leave the turn unscored."
+              },
+              "comment": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Score comment, at most 30 characters; only with score."
+              }
+            },
+            "required": [
+              "question",
+              "answer"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "evaluation": {
+          "type": "string",
+          "maxLength": 8000,
+          "description": "Markdown under `## 评估`; omit to keep it as it is."
+        }
+      },
+      "required": [
+        "role",
+        "id",
+        "turns"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "get_daily_summary",
     "panel": "timeline",
     "access": "read",

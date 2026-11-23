@@ -1,10 +1,11 @@
 //! 社交模拟器: `社交模拟器/<角色名>/` with two profile files and one md per practice version.
 //!
-//! - `角色设定.md`: 身份与场景、性格、`## 可能会问的问题` (the question bank).
+//! - `角色设定.md`: 身份与场景、性格、`## 可能会问的问题` (AI 的背景材料，不进左栏).
 //! - `应对与正样本.md`: `## 原则` and `## 正样本`.
-//! - `QA记录/<主题><YYMMDD>.md`: one version. A version for the same topic on the same day gets `-2`.
-//!   Frontmatter holds `question`, `topic`, `starred`, `status`; the body is flat `Q：` / `A：` turns,
-//!   each with an optional `> 7/10 · 点评` line, and an optional trailing `## 评估`.
+//! - `QA记录/<名>.md`: one version; the tree lists versions, grouped by their first question, and the
+//!   tag next to a question is `topic`. Frontmatter holds `question`, `topic`, `starred`, `status`;
+//!   the body is flat `Q：` / `A：` turns, each with an optional `> 7/10 · 点评` line, and an
+//!   optional trailing `## 评估`.
 
 use super::fm::{self, raw, s};
 use super::{claim_name, file_stem, fenced_lines, issue, md_files, name_key, read_md, rename_dir, trash, used_names, write_md, Issue, META, SOCIAL};
@@ -18,7 +19,6 @@ use std::{
 pub(crate) const ROLE: &str = "角色设定.md";
 pub(crate) const PLAYBOOK: &str = "应对与正样本.md";
 const RECORDS: &str = "QA记录";
-const QUESTIONS: &str = "## 可能会问的问题";
 const EVALUATION: &str = "## 评估";
 
 pub(crate) fn tab(root: &Path) -> PathBuf {
@@ -47,9 +47,8 @@ pub(crate) fn today_code() -> String {
     format!("{:02}{:02}{:02}", today.year() % 100, today.month(), today.day())
 }
 
-/// The file name of a new version: `<topic><YYMMDD>`, or `-2`, `-3`… when that day already has one.
-fn version_name(topic: &str, date: &str, used: &mut HashSet<String>) -> String {
-    let stem = format!("{}{date}", file_stem(topic, "练习"));
+/// `stem`, or `stem-2`, `stem-3`… when it is taken.
+fn unique_name(stem: String, used: &mut HashSet<String>) -> String {
     let mut candidate = stem.clone();
     let mut number = 2;
     while used.contains(&name_key(&candidate)) {
@@ -58,6 +57,41 @@ fn version_name(topic: &str, date: &str, used: &mut HashSet<String>) -> String {
     }
     used.insert(name_key(&candidate));
     candidate
+}
+
+/// `id` without a trailing `-N` duplicate marker (`进度询问261111-2` → `进度询问261111`).
+fn without_suffix(id: &str) -> &str {
+    match id.rsplit_once('-') {
+        Some((head, tail)) if !tail.is_empty() && tail.bytes().all(|byte| byte.is_ascii_digit()) => head,
+        _ => id,
+    }
+}
+
+/// `id` without its trailing `YYMMDD`; the whole id when it has no date.
+fn without_date(id: &str) -> &str {
+    let id = without_suffix(id);
+    match id.char_indices().rev().nth(5) {
+        Some((at, _)) if id[at..].bytes().all(|byte| byte.is_ascii_digit()) => &id[..at],
+        _ => id,
+    }
+}
+
+/// True when `id` ends with `YYMMDD` and an optional `-N`, so a rename can keep the date.
+fn has_date(id: &str) -> bool {
+    without_date(id).len() < without_suffix(id).len()
+}
+
+/// The tag in a version id: everything before the trailing `YYMMDD` and any `-2`.
+fn tag_of(id: &str) -> String {
+    without_date(id).trim().to_string()
+}
+
+/// The file name of a new version: `<tag><YYMMDD>`, or `-2`, `-3`… when that day already has one.
+/// An empty tag gives the bare date.
+fn version_name(tag: &str, date: &str, used: &mut HashSet<String>) -> String {
+    let tag = tag.trim();
+    let stem = if tag.is_empty() { date.to_string() } else { format!("{}{date}", file_stem(tag, "练习")) };
+    unique_name(stem, used)
 }
 
 // ---------- Q/A parsing ----------
@@ -77,12 +111,12 @@ pub(crate) struct Turn {
     pub(crate) score: Option<TurnScore>,
 }
 
-/// A `Q：` or `A：` line, with the label and the text after it.
+/// A `C：`, `Q：` or `A：` line, with the label and the text after it.
 fn labeled(line: &str) -> Option<(&str, &str)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
     let (label, rest) = trimmed.split_once(['：', ':'])?;
-    (indent == 0 && (label == "Q" || label == "A")).then_some((label, rest.trim()))
+    (indent == 0 && (label == "C" || label == "Q" || label == "A")).then_some((label, rest.trim()))
 }
 
 /// A score line `> 7/10 · 点评`; anything else is ordinary text.
@@ -94,10 +128,11 @@ fn score_line(line: &str) -> Option<TurnScore> {
     Some(TurnScore { score, comment })
 }
 
-/// A version body: text before the first `Q：` (kept as is), the turns, and `## 评估`.
+/// A version body: text before the first `Q：` (kept as is), the `C：` context, the turns, and `## 评估`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Body {
     pub(crate) preamble: String,
+    pub(crate) context: String,
     pub(crate) turns: Vec<Turn>,
     pub(crate) evaluation: String,
 }
@@ -119,21 +154,32 @@ impl Draft {
     }
 }
 
-/// Flat turns: `Q：` starts a turn, `A：` answers it, `> 7/10 · 点评` after the answer scores it.
-/// Labels inside a fence or a bullet stay text; an `A：` without a question stays preamble text.
+/// Flat turns: `C：` opens the context, `Q：` starts a turn, `A：` answers it, `> 7/10 · 点评` after
+/// the answer scores it. Labels inside a fence or a bullet stay text; an `A：` without a question
+/// stays preamble text.
 pub(crate) fn parse_body(body: &str) -> Body {
     let lines = fenced_lines(body);
     let eval_at = lines.iter().rposition(|(line, fenced)| !fenced && line.trim_end() == EVALUATION);
     let mut preamble: Vec<&str> = Vec::new();
+    let mut context: Vec<&str> = Vec::new();
+    let mut in_context = false;
     let mut turns = Vec::new();
     let mut draft: Option<Draft> = None;
     for (line, fenced) in &lines[..eval_at.unwrap_or(lines.len())] {
         let label = if *fenced { None } else { labeled(line) };
         match (label, draft.as_mut()) {
+            (Some(("C", text)), _) => {
+                if let Some(done) = draft.take() {
+                    turns.push(done.finish());
+                }
+                context = vec![text];
+                in_context = true;
+            }
             (Some(("Q", text)), _) => {
                 if let Some(done) = draft.take() {
                     turns.push(done.finish());
                 }
+                in_context = false;
                 draft = Some(Draft { question: vec![text.to_string()], answer: None, score: None });
             }
             (Some(("A", text)), Some(current)) if current.answer.is_none() => {
@@ -151,6 +197,7 @@ pub(crate) fn parse_body(body: &str) -> Body {
                     None => current.question.push(line.to_string()),
                 }
             }
+            (_, None) if in_context => context.push(line),
             (_, None) => preamble.push(line),
         }
     }
@@ -160,14 +207,22 @@ pub(crate) fn parse_body(body: &str) -> Body {
     let evaluation = eval_at
         .map(|index| super::trim_blank_lines(&lines[index + 1..].iter().map(|(line, _)| *line).collect::<Vec<_>>().join("\n")))
         .unwrap_or_default();
-    Body { preamble: super::trim_blank_lines(&preamble.join("\n")), turns, evaluation }
+    Body { preamble: super::trim_blank_lines(&preamble.join("\n")), context: super::trim_blank_lines(&context.join("\n")), turns, evaluation }
 }
 
-/// Renders turns back; the first line of a question or answer stays on the label line.
+/// Renders turns back; the first line of a context, question or answer stays on the label line.
 fn render_body(body: &Body) -> String {
     let mut output = String::new();
     if !body.preamble.is_empty() {
         output.push_str(&body.preamble);
+        output.push('\n');
+    }
+    if !body.context.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str("C：");
+        output.push_str(&body.context);
         output.push('\n');
     }
     for turn in &body.turns {
@@ -241,6 +296,8 @@ pub(crate) struct Version {
     pub(crate) starred: bool,
     /// `open` or `done`.
     pub(crate) status: String,
+    /// The `C：` line before the first turn: the premise the questions grow out of.
+    pub(crate) context: String,
     pub(crate) turns: Vec<Turn>,
     pub(crate) evaluation: String,
     /// Text before the first `Q：`, written back unchanged.
@@ -257,13 +314,15 @@ fn status_of(value: Option<String>) -> String {
 
 pub(crate) fn parse_version(text: &str, id: &str) -> Result<Version, String> {
     let (front, body) = fm::parse(text)?;
-    let Body { preamble, turns, evaluation } = parse_body(&body);
+    let Body { preamble, context, turns, evaluation } = parse_body(&body);
     Ok(Version {
         id: id.to_string(),
         question: front.get("question").unwrap_or_default(),
-        topic: front.get("topic").unwrap_or_default(),
+        // The file name is the source of truth for the tag; frontmatter just mirrors it.
+        topic: tag_of(id),
         starred: matches!(front.get("starred").as_deref(), Some("true")),
         status: status_of(front.get("status")),
+        context,
         turns,
         evaluation,
         preamble,
@@ -278,7 +337,7 @@ pub(crate) fn serialize_version(version: &Version) -> String {
             ("starred", raw(version.starred)),
             ("status", s(&version.status)),
         ],
-        &render_body(&Body { preamble: version.preamble.clone(), turns: version.turns.clone(), evaluation: version.evaluation.clone() }),
+        &render_body(&Body { preamble: version.preamble.clone(), context: version.context.clone(), turns: version.turns.clone(), evaluation: version.evaluation.clone() }),
     )
 }
 
@@ -359,24 +418,6 @@ fn scene_of(text: &str) -> String {
         .to_string()
 }
 
-/// Bullets under `## 可能会问的问题`.
-fn bank_questions(text: &str) -> Vec<String> {
-    let (_, body) = split_front(text);
-    let lines = fenced_lines(body);
-    let Some(start) = lines.iter().position(|(line, fenced)| !fenced && line.trim_end() == QUESTIONS) else {
-        return Vec::new();
-    };
-    lines
-        .iter()
-        .skip(start + 1)
-        .take_while(|(line, fenced)| *fenced || !line.trim_end().starts_with("## "))
-        .filter(|(_, fenced)| !fenced)
-        .filter_map(|(line, _)| line.trim().strip_prefix(['-', '*', '+']).map(str::trim))
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
 /// The raw frontmatter block (with its closing line) and the body after it.
 fn split_front(text: &str) -> (&str, &str) {
     if let Some(rest) = text.strip_prefix("---\n") {
@@ -391,45 +432,6 @@ fn split_front(text: &str) -> (&str, &str) {
     ("", text)
 }
 
-/// Appends `question` to the bank unless it is already there; returns whether it changed.
-/// Everything outside the bank section is kept byte for byte.
-pub(crate) fn add_bank_question(text: &str, question: &str) -> (String, bool) {
-    let question = question.trim();
-    if question.is_empty() || bank_questions(text).iter().any(|item| item == question) {
-        return (text.to_string(), false);
-    }
-    let (front, body) = split_front(text);
-    let lines: Vec<&str> = body.split('\n').collect();
-    let fenced = fenced_lines(body);
-    let bullet = format!("- {question}");
-    let body = match fenced.iter().position(|(line, fenced)| !fenced && line.trim_end() == QUESTIONS) {
-        Some(index) => {
-            let end = fenced
-                .iter()
-                .skip(index + 1)
-                .position(|(line, fenced)| !fenced && line.trim_end().starts_with("## "))
-                .map_or(lines.len(), |offset| index + 1 + offset);
-            let mut head = lines[..end].to_vec();
-            let mut gap = 0;
-            while head.len() > index + 1 && head.last().is_some_and(|line| line.trim().is_empty()) {
-                head.pop();
-                gap += 1;
-            }
-            head.push(bullet.as_str());
-            let mut next = head.join("\n");
-            let tail = lines[end..].join("\n");
-            if end < lines.len() {
-                next.push_str(&"\n".repeat(gap.max(1) + 1));
-                next.push_str(&tail);
-            } else {
-                next.push('\n');
-            }
-            next
-        }
-        None => format!("{}\n\n{QUESTIONS}\n{bullet}\n", body.trim_end()),
-    };
-    (format!("{front}{body}"), true)
-}
 
 fn date_of(id: &str) -> String {
     id.chars()
@@ -466,23 +468,18 @@ fn summary_of(version: &Version) -> VersionSummary {
 pub(crate) fn role_summary(root: &Path, name: &str) -> Result<(RoleSummary, Vec<Issue>), String> {
     let dir = role_dir(root, name);
     let role_text = read_md(&dir.join(ROLE)).unwrap_or_default();
-    let bank = bank_questions(&role_text);
     let (versions, issues) = load_versions(root, name);
     let mut groups: Vec<QuestionGroup> = Vec::new();
     for (_, version) in &versions {
         let summary = summary_of(version);
-        match groups.iter_mut().find(|group| group.question == version.question) {
+        // Versions still waiting for a starting question stand alone, keyed by their own id.
+        match groups.iter_mut().find(|group| !version.question.is_empty() && group.question == version.question) {
             Some(group) => group.versions.push(summary),
             None => groups.push(QuestionGroup {
                 question: version.question.clone(),
                 topic: version.topic.clone(),
                 versions: vec![summary],
             }),
-        }
-    }
-    for question in bank {
-        if !groups.iter().any(|group| group.question == question) {
-            groups.push(QuestionGroup { question, topic: String::new(), versions: Vec::new() });
         }
     }
     let favorites = versions.iter().filter(|(_, version)| version.starred).map(|(_, version)| summary_of(version)).collect();
@@ -503,6 +500,12 @@ pub(crate) fn list_roles(root: &Path) -> Result<(Vec<RoleSummary>, Vec<Issue>), 
 // ---------- commands ----------
 
 use tauri::AppHandle;
+
+/// The folder of a role that must already exist.
+fn existing_role(root: &Path, role: &str) -> Result<PathBuf, String> {
+    let dir = role_dir(root, &checked_name(role)?);
+    if dir.is_dir() { Ok(dir) } else { Err(format!("角色「{}」已经不在了（改名或删除了）", role.trim())) }
+}
 
 fn checked_name(name: &str) -> Result<String, String> {
     let name = name.trim();
@@ -530,7 +533,7 @@ pub(crate) struct SocialFile {
 pub(crate) fn load_social_file(app: AppHandle, role: String, kind: String) -> Result<SocialFile, String> {
     let (_guard, root) = super::open(&app)?;
     let name = if kind == "playbook" { PLAYBOOK } else { ROLE };
-    let path = role_dir(&root, &role).join(name);
+    let path = role_dir(&root, &checked_name(&role)?).join(name);
     let body = if path.exists() { read_md(&path)? } else { String::new() };
     Ok(SocialFile { body })
 }
@@ -557,7 +560,7 @@ pub(crate) enum SaveFileOutcome {
 pub(crate) fn save_social_file(app: AppHandle, request: SaveFileRequest) -> Result<SaveFileOutcome, String> {
     let (_guard, root) = super::open(&app)?;
     let name = if request.kind == "playbook" { PLAYBOOK } else { ROLE };
-    let path = role_dir(&root, &checked_name(&request.role)?).join(name);
+    let path = existing_role(&root, &request.role)?.join(name);
     let current = if path.exists() { read_md(&path)? } else { String::new() };
     if !request.force && current != request.base {
         return Ok(SaveFileOutcome::Conflict { current });
@@ -569,7 +572,7 @@ pub(crate) fn save_social_file(app: AppHandle, request: SaveFileRequest) -> Resu
 #[tauri::command]
 pub(crate) fn load_social_version(app: AppHandle, role: String, id: String) -> Result<Version, String> {
     let (_guard, root) = super::open(&app)?;
-    Ok(find_version(&root, &role, &id)?.1)
+    Ok(find_version(&root, &checked_name(&role)?, &id)?.1)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -577,52 +580,65 @@ pub(crate) fn load_social_version(app: AppHandle, role: String, id: String) -> R
 pub(crate) struct SaveVersionRequest {
     role: String,
     id: String,
+    #[serde(default)]
+    context: String,
     turns: Vec<Turn>,
     evaluation: String,
     status: String,
+    starred: bool,
+}
+
+/// Writes the turns back, taking the group's question from the first turn.
+pub(crate) fn save_turns(root: &Path, role: &str, id: &str, context: String, turns: Vec<Turn>, evaluation: &str, status: &str, starred: bool) -> Result<Version, String> {
+    let (path, mut version) = find_version(root, role, id)?;
+    version.context = super::trim_blank_lines(&context);
+    version.turns = turns;
+    // The group a version sits under is its first question; a blank one keeps the old value.
+    let first = version.turns.first().map(|turn| turn.question.trim().to_string()).unwrap_or_default();
+    if !first.is_empty() {
+        version.question = first;
+    }
+    version.topic = tag_of(&version.id);
+    version.evaluation = evaluation.to_string();
+    version.status = status_of(Some(status.to_string()));
+    version.starred = starred;
+    write_version(&path, &version)?;
+    Ok(version)
 }
 
 #[tauri::command]
 pub(crate) fn save_social_version(app: AppHandle, request: SaveVersionRequest) -> Result<Version, String> {
     let (_guard, root) = super::open(&app)?;
-    let (path, mut version) = find_version(&root, &request.role, &request.id)?;
-    version.turns = request.turns;
-    version.evaluation = request.evaluation;
-    version.status = status_of(Some(request.status));
-    write_version(&path, &version)?;
-    Ok(version)
+    save_turns(&root, &checked_name(&request.role)?, &request.id, request.context, request.turns, &request.evaluation, &request.status, request.starred)
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct NewVersionRequest {
     role: String,
+    /// Empty starts a blank version: `<YYMMDD>` with one empty `Q：`/`A：` pair to fill in.
+    #[serde(default)]
     question: String,
+    /// The tag in the file name; empty gives the bare date.
+    #[serde(default)]
     topic: String,
 }
 
-#[tauri::command]
-pub(crate) fn new_social_version(app: AppHandle, request: NewVersionRequest) -> Result<Version, String> {
-    let (_guard, root) = super::open(&app)?;
-    let role = checked_name(&request.role)?;
-    let question = request.question.trim().to_string();
-    if question.is_empty() {
-        return Err("问题不能为空".into());
-    }
-    let topic = {
-        let trimmed = request.topic.trim();
-        if trimmed.is_empty() { file_stem(&question, "练习") } else { trimmed.to_string() }
-    };
-    let dir = records_dir(&root, &role);
-    let mut used = used_names(&dir);
-    let name = version_name(&topic, &today_code(), &mut used);
+/// A new version file named `<tag><YYMMDD>`, or `<YYMMDD>` when the tag is empty; an empty
+/// `question` leaves nothing but an empty `Q：`/`A：` pair to fill in.
+pub(crate) fn new_version(root: &Path, role: &str, question: &str, topic: &str) -> Result<Version, String> {
+    existing_role(root, role)?;
+    let question = question.trim().to_string();
+    let dir = records_dir(root, role);
+    let name = version_name(topic, &today_code(), &mut used_names(&dir));
     let version = Version {
         id: name.clone(),
-        question,
-        topic,
+        question: question.clone(),
+        topic: tag_of(&name),
         starred: false,
         status: "open".into(),
-        turns: vec![Turn { question: request.question.trim().to_string(), answer: String::new(), score: None }],
+        context: String::new(),
+        turns: vec![Turn { question: question.clone(), answer: String::new(), score: None }],
         evaluation: String::new(),
         preamble: String::new(),
     };
@@ -631,11 +647,9 @@ pub(crate) fn new_social_version(app: AppHandle, request: NewVersionRequest) -> 
 }
 
 #[tauri::command]
-pub(crate) fn set_social_star(app: AppHandle, role: String, id: String, starred: bool) -> Result<(), String> {
+pub(crate) fn new_social_version(app: AppHandle, request: NewVersionRequest) -> Result<Version, String> {
     let (_guard, root) = super::open(&app)?;
-    let (path, mut version) = find_version(&root, &role, &id)?;
-    version.starred = starred;
-    write_version(&path, &version)
+    new_version(&root, &checked_name(&request.role)?, &request.question, &request.topic)
 }
 
 #[tauri::command]
@@ -648,18 +662,6 @@ pub(crate) fn new_social_role(app: AppHandle, name: String) -> Result<String, St
     write_md(&dir.join(ROLE), &role_template())?;
     write_md(&dir.join(PLAYBOOK), &playbook_template())?;
     Ok(claimed)
-}
-
-#[tauri::command]
-pub(crate) fn add_social_question(app: AppHandle, role: String, question: String) -> Result<bool, String> {
-    let (_guard, root) = super::open(&app)?;
-    let path = role_dir(&root, &checked_name(&role)?).join(ROLE);
-    let current = if path.exists() { read_md(&path)? } else { role_template() };
-    let (next, added) = add_bank_question(&current, &question);
-    if added {
-        write_md(&path, &next)?;
-    }
-    Ok(added)
 }
 
 /// Moves a role folder or one version into `社交模拟器/.beta-life/trash/`.
@@ -682,6 +684,39 @@ pub(crate) fn trash_social(app: AppHandle, role: String, id: Option<String>) -> 
     }
 }
 
+/// Moves a version to `<name>.md` in the same folder, appending ` 2` when the name is taken.
+pub(crate) fn rename_version(root: &Path, role: &str, id: &str, name: &str) -> Result<String, String> {
+    let (path, mut version) = find_version(root, role, id)?;
+    let desired = file_stem(name, "");
+    if desired.is_empty() || desired.starts_with('.') {
+        return Err("版本名不能为空".into());
+    }
+    // A version name is `<tag><YYMMDD>`, so the date survives a rename; the tree reads it back.
+    if !has_date(&desired) {
+        return Err("版本名要以 YYMMDD 结尾，例如 进度询问261111".into());
+    }
+    if desired == version.id {
+        return Ok(desired);
+    }
+    if name_key(&desired) != name_key(&version.id) && used_names(&records_dir(root, role)).contains(&name_key(&desired)) {
+        return Err(format!("已经有同名文件：{desired}"));
+    }
+    version.id = desired.clone();
+    version.topic = tag_of(&desired);
+    write_version(&records_dir(root, role).join(format!("{desired}.md")), &version)?;
+    // A case-only rename on a case-insensitive disk wrote the same file; keep it.
+    if name_key(&desired) != name_key(id) {
+        super::remove(&path)?;
+    }
+    Ok(desired)
+}
+
+#[tauri::command]
+pub(crate) fn rename_social_version(app: AppHandle, role: String, id: String, name: String) -> Result<String, String> {
+    let (_guard, root) = super::open(&app)?;
+    rename_version(&root, &checked_name(&role)?, &id, &name)
+}
+
 /// Renames a role folder, appending ` 2` when the target name is taken.
 #[tauri::command]
 pub(crate) fn rename_social_role(app: AppHandle, role: String, name: String) -> Result<String, String> {
@@ -702,6 +737,14 @@ pub(crate) fn rename_social_role(app: AppHandle, role: String, name: String) -> 
 mod tests {
     use super::*;
     use crate::vault::test_root;
+
+    #[test]
+    fn role_names_cannot_leave_the_tab_folder() {
+        for name in ["../x", "a/b", "a\\b", ".beta-life", "  "] {
+            assert!(checked_name(name).is_err(), "{name}");
+        }
+        assert_eq!(checked_name(" 王老师 ").unwrap(), "王老师");
+    }
 
     const SAMPLE: &str = "\
 Q：这学期进展怎么样？
@@ -741,6 +784,23 @@ A：
     }
 
     #[test]
+    fn a_context_line_before_the_first_turn_round_trips() {
+        let body = parse_body("C：\n大三下，导师催进度。\n\nQ：进展怎么样？\nA：A 已投。\n");
+        assert_eq!(body.context, "大三下，导师催进度。");
+        assert_eq!(body.preamble, "");
+        assert_eq!(body.turns.len(), 1);
+        assert_eq!(body.turns[0].question, "进展怎么样？");
+        assert_eq!(parse_body(&render_body(&body)), body);
+        // Text before `C：` stays preamble, and both survive a round trip.
+        let both = parse_body("开头的笔记\n\nC：前提\n\nQ：问\nA：答\n");
+        assert_eq!(both.preamble, "开头的笔记");
+        assert_eq!(both.context, "前提");
+        assert_eq!(parse_body(&render_body(&both)), both);
+        // No context line: nothing invented.
+        assert_eq!(parse_body(SAMPLE).context, "");
+    }
+
+    #[test]
     fn turns_round_trip() {
         let body = parse_body(&format!("开头的笔记\n\n{SAMPLE}"));
         assert_eq!(body.preamble, "开头的笔记");
@@ -755,6 +815,38 @@ A：
     }
 
     #[test]
+    fn renaming_a_version_moves_its_file_and_refuses_a_taken_name() {
+        let root = test_root("social-rename");
+        let dir = records_dir(&root, "王老师");
+        let version = |id: &str| Version { id: id.into(), question: "问".into(), topic: "进度询问".into(), starred: true, status: "open".into(), context: String::new(), turns: parse_body(SAMPLE).turns, evaluation: String::new(), preamble: String::new() };
+        write_version(&dir.join("进度询问261111.md"), &version("进度询问261111")).unwrap();
+        write_version(&dir.join("重投版261111.md"), &version("重投版261111")).unwrap();
+        assert_eq!(rename_version(&root, "王老师", "进度询问261111", "进度询问261111").unwrap(), "进度询问261111");
+        assert!(rename_version(&root, "王老师", "进度询问261111", "重投版261111").is_err());
+        assert!(rename_version(&root, "王老师", "进度询问261111", "重投版").is_err());
+        assert_eq!(rename_version(&root, "王老师", "进度询问261111", " 换题261112 ").unwrap(), "换题261112");
+        assert!(!dir.join("进度询问261111.md").exists());
+        let moved = find_version(&root, "王老师", "换题261112").unwrap().1;
+        assert!(moved.starred);
+        assert_eq!(moved.topic, "换题");
+        assert_eq!(moved.turns, version("x").turns);
+        assert!(rename_version(&root, "王老师", "换题261112", "  ").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_tag_comes_from_the_file_name() {
+        assert_eq!(tag_of("进度询问261111"), "进度询问");
+        assert_eq!(tag_of("进度询问261111-2"), "进度询问");
+        assert_eq!(tag_of("261111"), "");
+        assert_eq!(tag_of("261111-2"), "");
+        assert_eq!(tag_of("没有日期"), "没有日期");
+        assert!(has_date("进度询问261111"));
+        assert!(has_date("进度询问261111-2"));
+        assert!(!has_date("进度询问"));
+    }
+
+    #[test]
     fn a_second_version_the_same_day_gets_a_suffix() {
         let root = test_root("social");
         let dir = records_dir(&root, "王老师");
@@ -765,6 +857,9 @@ A：
         let mut used = used_names(&dir);
         assert_eq!(first, "进度询问261123");
         assert_eq!(version_name("进度询问", "261123", &mut used), "进度询问261123-2");
+        // No tag: the bare date, still getting a suffix when the day is taken.
+        assert_eq!(version_name("", "261123", &mut used), "261123");
+        assert_eq!(version_name("", "261123", &mut used), "261123-2");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -778,6 +873,7 @@ A：
             topic: "进度询问".into(),
             starred: false,
             status: "open".into(),
+            context: String::new(),
             turns: parse_body(SAMPLE).turns,
             evaluation: String::new(),
             preamble: String::new(),
@@ -800,29 +896,17 @@ A：
     }
 
     #[test]
-    fn the_question_bank_grows_without_duplicates() {
-        let template = role_template();
-        let (once, added) = add_bank_question(&template, "这学期进展怎么样？");
-        assert!(added);
-        assert_eq!(bank_questions(&once), vec!["这学期进展怎么样？".to_string()]);
-        let (twice, added) = add_bank_question(&once, "这学期进展怎么样？");
-        assert!(!added);
-        assert_eq!(twice, once);
-        let (more, _) = add_bank_question(&once, "毕业后什么打算？");
-        assert_eq!(bank_questions(&more), vec!["这学期进展怎么样？".to_string(), "毕业后什么打算？".to_string()]);
-    }
-
-    #[test]
-    fn an_unpracticed_bank_question_shows_as_an_empty_group() {
+    fn the_question_bank_under_the_role_file_stays_out_of_the_tree() {
         let root = test_root("social-tree");
         let dir = role_dir(&root, "王老师");
-        write_md(&dir.join(ROLE), &add_bank_question(&role_template(), "你的工作和组里别人怎么区分？").0).unwrap();
+        write_md(&dir.join(ROLE), "## 身份与场景\n\n## 可能会问的问题\n- 你的工作和组里别人怎么区分？\n").unwrap();
         let version = Version {
             id: "进度询问261111".into(),
             question: "这学期进展怎么样？".into(),
             topic: "进度询问".into(),
             starred: true,
             status: "done".into(),
+            context: String::new(),
             turns: parse_body(SAMPLE).turns,
             evaluation: String::new(),
             preamble: String::new(),
@@ -831,8 +915,40 @@ A：
         let (summary, issues) = role_summary(&root, "王老师").unwrap();
         assert!(issues.is_empty());
         assert_eq!(summary.favorites.len(), 1);
-        assert_eq!(summary.questions.len(), 2);
-        assert!(summary.questions.iter().any(|group| group.question == "你的工作和组里别人怎么区分？" && group.versions.is_empty()));
+        assert_eq!(summary.questions.len(), 1);
+        assert_eq!(summary.questions[0].question, "这学期进展怎么样？");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_blank_version_is_named_by_its_date_and_takes_its_question_from_the_first_turn() {
+        let root = test_root("social-blank");
+        write_md(&role_dir(&root, "王老师").join(ROLE), &role_template()).unwrap();
+        let blank = new_version(&root, "王老师", "", "").unwrap();
+        assert_eq!(blank.id, today_code());
+        assert!(blank.question.is_empty());
+        assert_eq!(blank.turns.len(), 1);
+        assert!(blank.turns[0].question.is_empty());
+        assert!(blank.turns[0].answer.is_empty());
+        let second = new_version(&root, "王老师", "", "").unwrap();
+        assert_eq!(second.id, format!("{}-2", today_code()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn saving_takes_the_question_from_the_first_turn() {
+        let root = test_root("social-save");
+        write_md(&role_dir(&root, "王老师").join(ROLE), &role_template()).unwrap();
+        let blank = new_version(&root, "王老师", "", "").unwrap();
+        let turns = vec![Turn { question: "这学期进展怎么样？".into(), answer: "A 已投".into(), score: None }];
+        let saved = save_turns(&root, "王老师", &blank.id, String::new(), turns, "", "open", false).unwrap();
+        assert_eq!(saved.question, "这学期进展怎么样？");
+        assert_eq!(saved.topic, "");
+        let tagged = new_version(&root, "王老师", "", "进度询问").unwrap();
+        let turns = vec![Turn { question: "这学期进展怎么样？".into(), answer: "A 已投".into(), score: None }];
+        let saved = save_turns(&root, "王老师", &tagged.id, String::new(), turns, "", "open", false).unwrap();
+        assert_eq!(saved.topic, "进度询问");
+        assert_eq!(find_version(&root, "王老师", &tagged.id).unwrap().1.topic, "进度询问");
         std::fs::remove_dir_all(root).unwrap();
     }
 

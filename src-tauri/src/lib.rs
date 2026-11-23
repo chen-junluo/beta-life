@@ -302,6 +302,7 @@ struct TabSlogans {
     forest: String,
     memories: String,
     diary: String,
+    social: String,
 }
 
 impl Default for TabSlogans {
@@ -312,6 +313,7 @@ impl Default for TabSlogans {
             forest: "每一项能力都是一棵树，慢慢长，终会成林。".into(),
             memories: "记忆或许会模糊，但是只要有那么一个微小的记忆锚点，我们就能凭着那微弱的感觉回到当时的心境。".into(),
             diary: "日子会过去，写下来的会留下。".into(),
+            social: "先在心里排练一遍，真正开口时就不慌。".into(),
         }
     }
 }
@@ -2734,11 +2736,10 @@ pub fn run() {
             vault::social::load_social_version,
             vault::social::save_social_version,
             vault::social::new_social_version,
-            vault::social::set_social_star,
             vault::social::new_social_role,
-            vault::social::add_social_question,
             vault::social::trash_social,
             vault::social::rename_social_role,
+            vault::social::rename_social_version,
             activity::activity_status,
             activity::request_accessibility,
             activity::open_automation_settings,

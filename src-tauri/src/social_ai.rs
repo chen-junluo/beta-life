@@ -50,6 +50,9 @@ fn prompt_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SocialContext {
     role: String,
+    /// The `C：` premise before the first turn; empty when the version has none.
+    #[serde(default)]
+    context: String,
     /// The version's turns so far; the last one is the turn being worked on.
     turns: Vec<Turn>,
 }
@@ -81,12 +84,16 @@ fn transcript(turns: &[Turn]) -> String {
         .join("\n\n")
 }
 
-fn user_message(files: &Files, turns: &[Turn], task: &str) -> String {
+fn user_message(files: &Files, context: &str, turns: &[Turn], task: &str) -> String {
     format!(
         "角色设定.md：\n```\n{}\n```\n\n应对与正样本.md：\n```\n{}\n```\n\n这一轮练习：\n{}\n\n任务：{task}",
         files.role.trim(),
         files.playbook.trim(),
-        if turns.is_empty() { "（还没有）".to_string() } else { transcript(turns) },
+        {
+            let premise = if context.trim().is_empty() { String::new() } else { format!("前提（C：）：\n{}\n\n", context.trim()) };
+            let rounds = if turns.is_empty() { "（还没有）".to_string() } else { transcript(turns) };
+            format!("{premise}{rounds}")
+        },
     )
 }
 
@@ -154,7 +161,7 @@ pub(crate) async fn ai_social_questions(app: AppHandle, request: QuestionsReques
     };
     let exclude = if request.exclude.is_empty() { String::new() } else { format!("\n不要再给这些：\n- {}", request.exclude.join("\n- ")) };
     let system = format!("{prompt}\n\n{SHARED_RULES}格式：{{\"questions\": [\"一句话问题\"]}}，3–5 个。");
-    let value = call(&app, &settings, system, format!("{}{exclude}", user_message(&files, &request.context.turns, task))).await?;
+    let value = call(&app, &settings, system, format!("{}{exclude}", user_message(&files, &request.context.context, &request.context.turns, task))).await?;
     let reply: QuestionsReply = serde_json::from_value(value).map_err(|error| format!("AI 返回的候选问题格式不对：{error}"))?;
     validate_questions(reply.questions)
 }
@@ -190,7 +197,7 @@ pub(crate) async fn ai_social_answer(app: AppHandle, request: SocialContext) -> 
     let prompt = prompt_or(&settings.ai.social_answer_prompt, DEFAULT_ANSWER_PROMPT);
     let system = format!("{prompt}\n\n{SHARED_RULES}格式：{{\"answer\": \"Markdown 回答，不带 A： 标签，bullet 用两个空格缩进\"}}。");
     let task = "替用户回答最后一轮的问题；不要改前面的轮次。";
-    let value = call(&app, &settings, system, user_message(&files, &request.turns, task)).await?;
+    let value = call(&app, &settings, system, user_message(&files, &request.context, &request.turns, task)).await?;
     let reply: AnswerReply = serde_json::from_value(value).map_err(|error| format!("AI 返回的代答格式不对：{error}"))?;
     validate_answer(&reply.answer)
 }
@@ -244,7 +251,7 @@ pub(crate) async fn ai_social_score(app: AppHandle, request: ScoreRequest) -> Re
         "{prompt}\n\n{SHARED_RULES}格式：{{\"score\": 1–10 的整数, \"comment\": \"≤30 字点评\", \"better\": \"低于 7 分时的改进写法，否则省略\"}}。"
     );
     let task = format!("只评第 {} 轮的回答；前面的轮次是上下文。", request.index + 1);
-    let value = call(&app, &settings, system, user_message(&files, &request.context.turns[..=request.index], &task)).await?;
+    let value = call(&app, &settings, system, user_message(&files, &request.context.context, &request.context.turns[..=request.index], &task)).await?;
     let reply: Score = serde_json::from_value(value).map_err(|error| format!("AI 返回的评分格式不对：{error}"))?;
     validate_score(reply)
 }
@@ -308,7 +315,7 @@ pub(crate) async fn ai_social_evaluate(app: AppHandle, request: SocialContext) -
     let system = format!(
         "{prompt}\n\n{SHARED_RULES}格式：{{\"scores\": [{{\"score\": 1–10, \"comment\": \"≤30 字\", \"better\": \"低于 7 分时的改进写法\"}}]（每轮一个，按顺序）, \"directions\": [\"整体调整方向\"]（1–3 条）, \"proposals\": [{{\"kind\": \"sample | principle | trait\", \"text\": \"要写入的内容\"}}]}}。sample 的 text 写成两行：`Q：问题` 和 `A：回答`（好回答原样，差回答写改进示范）；principle 是一句原则；trait 是一句对方的性格特点。已经写在两份 md 里的不要重复提。"
     );
-    let value = call(&app, &settings, system, user_message(&files, &turns, "评估这一轮练习的每条回答，并给整体调整方向和写入提议。")).await?;
+    let value = call(&app, &settings, system, user_message(&files, &request.context, &turns, "评估这一轮练习的每条回答，并给整体调整方向和写入提议。")).await?;
     let reply: Evaluation = serde_json::from_value(value).map_err(|error| format!("AI 返回的评估格式不对：{error}"))?;
     validate_evaluation(reply, turns.len())
 }

@@ -1,20 +1,40 @@
 import type { SocialProposal, SocialEvaluation } from "./socialStorage";
 import type { SocialFileKind, SocialQuestionGroup, SocialTurn, SocialVersion } from "./types";
 
-/** The turn waiting for an answer (highlighted); null when every turn is answered. */
+/**
+ * The turn waiting for an answer (highlighted); null when every turn is answered. A turn whose
+ * question is still blank is not waiting for an answer yet — it is waiting for the question.
+ */
 export function pendingTurn(turns: SocialTurn[]): number | null {
-  const index = turns.findIndex((turn) => !turn.answer.trim());
+  const index = turns.findIndex((turn) => turn.question.trim() && !turn.answer.trim());
   return index === -1 ? null : index;
 }
+
+/**
+ * A question goes into the first turn while its question is still blank (the blank version a new
+ * version opens with), otherwise it appends a new turn.
+ */
+export function withQuestion(turns: SocialTurn[], question: string): SocialTurn[] {
+  if (turns.length > 0 && !turns[0].question.trim()) {
+    return [{ ...turns[0], question }, ...turns.slice(1)];
+  }
+  return [...turns, { question, answer: "", score: null }];
+}
+
+/**
+ * A version id is `<tag><YYMMDD>` with an optional `-2`. `进度询问261111-2` →
+ * `{ tag: "进度询问", suffix: "261111-2" }`; an id with no date is all tag, no suffix.
+ */
+export function splitId(id: string): { tag: string; suffix: string } {
+  const match = /^(.*?)(\d{6}(?:-\d+)?)$/.exec(id);
+  return match ? { tag: match[1].trim(), suffix: match[2] } : { tag: id.trim(), suffix: "" };
+}
+
+export const tagOf = (id: string) => splitId(id).tag;
 
 /** `6 → 7 → 8`: the averages of a question's scored versions, oldest first. */
 export function scoreTrend(group: SocialQuestionGroup): string {
   return group.versions.flatMap((version) => (version.average === null ? [] : [String(version.average)])).join(" → ");
-}
-
-/** `261111` → `11-11`. */
-export function shortDate(date: string): string {
-  return date.length === 6 ? `${date.slice(2, 4)}-${date.slice(4, 6)}` : date;
 }
 
 const PROPOSAL_HEADINGS: Record<SocialProposal["kind"], string> = { sample: "## 正样本", principle: "## 原则", trait: "## 性格" };
