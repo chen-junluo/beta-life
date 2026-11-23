@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>社交模拟器 · 最终方案</title>
+<style>
+:root{
+  --ink:#1e293b; --muted:#64748b; --line:rgba(148,163,184,.32);
+  --panel:#fff; --panel-soft:#f8fafc; --panel-muted:#f1f5f9;
+  --tab:#0d9488; --tab-soft:rgba(13,148,136,.1); --star:#d97706;
+  --shadow:0 24px 70px rgba(15,23,42,.12);
+  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#eceae4;color:var(--ink);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.page{max-width:1320px;margin:0 auto;padding:32px 28px 80px}
+.page>h1{margin:0 0 4px;font-size:20px;font-weight:720}
+.page>p{margin:0 0 18px;color:var(--muted);font-size:12px}
+.muted{color:var(--muted)}
+.mono{font:10px ui-monospace,SFMono-Regular,Menlo,monospace}
+.app{height:740px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow)}
+.topbar{flex:none;height:46px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--line)}
+.brand{font-weight:720}
+.tabs{display:flex;gap:4px;font-size:11px}
+.tabs span{padding:5px 9px;border-radius:8px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+.tabs span.on{background:var(--tab-soft);color:color-mix(in srgb,var(--tab) 82%,#000)}
+.tabs span.on i{width:7px;height:7px;border-radius:50%;background:var(--tab)}
+.body{flex:1;min-height:0;display:flex}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:11px;padding:6px 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:color-mix(in srgb,var(--tab) 40%,var(--line));color:var(--tab)}
+.btn.pri{background:var(--tab);border-color:var(--tab);color:#fff}
+.btn.sm{font-size:10px;padding:4px 7px}
+.btn.ghost{border-style:dashed;color:var(--muted)}
+.score{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap}
+.score.hi{background:rgba(22,163,74,.12);color:#15803d}
+.score.mid{background:rgba(217,119,6,.14);color:#b45309}
+.score.lo{background:rgba(225,29,72,.12);color:#be123c}
+.pill{font-size:10px;padding:2px 7px;border-radius:999px;background:var(--panel-muted);color:var(--muted);white-space:nowrap}
+.star{cursor:pointer;color:var(--line);font-size:12px;line-height:1;user-select:none}
+.star.on{color:var(--star)}
+/* left: roles tree (from V2) + question items with versions (from V6) */
+.side{flex:none;width:280px;border-right:1px solid var(--line);background:var(--panel-soft);padding:10px 8px;overflow:auto;font-size:12px}
+.side-h{display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px}
+.side-h b{font-size:11px}
+.row{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;cursor:pointer}
+.row:hover{background:var(--panel-muted)}
+.row.on{background:var(--tab-soft);color:color-mix(in srgb,var(--tab) 80%,#000)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.role{font-weight:650}
+.kids{margin-left:12px;padding-left:6px;border-left:1px solid var(--line)}
+.sec{margin:9px 8px 3px;font-size:10px;font-weight:720;color:var(--muted);display:flex;align-items:center;gap:6px}
+.sec span{flex:1}
+.sec.fold{cursor:pointer;border-radius:6px;padding:3px 4px;margin-left:4px;margin-right:4px}
+.sec.fold:hover{background:var(--panel-muted)}
+.caret{display:inline-block;width:10px;font-style:normal}
+#qs.closed{display:none}
+.q{margin:4px 0;padding:6px 7px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
+.q-h{display:flex;gap:6px;align-items:flex-start}
+.q-h .t{flex:1;font-weight:650;line-height:1.4}
+.q-h .lb{display:block;font-weight:400;color:var(--muted);font-size:10px}
+.ver{display:flex;align-items:center;gap:7px;padding:4px 6px;margin-top:2px;border-radius:7px;cursor:pointer}
+.ver:hover{background:var(--panel-muted)}
+.ver.on{background:var(--tab-soft)}
+.ver .mono{flex:1}
+.q.untried{border-style:dashed;background:transparent}
+/* right: open windows as tabs (from V10) */
+.work{flex:1;min-width:0;display:flex;flex-direction:column}
+.strip{flex:none;display:flex;align-items:flex-end;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line);background:var(--panel-soft);font-size:11px;overflow:hidden}
+.wt{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid transparent;border-radius:8px 8px 0 0;color:var(--muted);cursor:pointer;white-space:nowrap}
+.wt.on{background:var(--panel);border-color:var(--line);border-bottom-color:var(--panel);margin-bottom:-1px;color:var(--ink);font-weight:650}
+.wt .x{opacity:.5}
+.pane{flex:1;min-height:0;overflow:auto;padding:14px 22px;display:none}
+.pane.on{display:block}
+.pane-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.pane-h b{font-size:15px}
+/* flat Q/A: follow-ups are NOT indented */
+.turn{padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;position:relative}
+.turn.cur{border-color:color-mix(in srgb,var(--tab) 55%,var(--line));box-shadow:0 0 0 3px var(--tab-soft)}
+.lab{display:inline-block;min-width:22px;margin-right:6px;font-size:10px;font-weight:700;border-radius:5px;padding:1px 5px;text-align:center}
+.lab.qq{color:var(--tab);background:var(--tab-soft)}
+.lab.aa{color:var(--muted);background:var(--panel-muted)}
+.line+.line{margin-top:6px}
+.line.q-line{font-weight:650}
+.fb{margin-top:7px;display:flex;align-items:center;gap:7px;font-size:11px}
+.acts{position:absolute;top:8px;right:8px;display:none;gap:4px}
+.turn:hover .acts{display:flex}
+/* AI candidates (inline under current turn) */
+.cands{margin:2px 0 10px;padding:9px 10px;border:1px dashed color-mix(in srgb,var(--tab) 40%,var(--line));border-radius:10px;background:color-mix(in srgb,var(--tab) 4%,var(--panel))}
+.cands-h{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:720;color:var(--muted);margin-bottom:6px}
+.cands-h span{flex:1}
+.cand{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:7px;font-size:12px}
+.cand:hover{background:var(--panel-muted)}
+.cand .t{flex:1}
+/* evaluation card */
+.eval{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-soft)}
+.eval h4{margin:0 0 6px;font-size:12px}
+.eval ul{margin:4px 0 0;padding-left:16px;font-size:12px}
+.diff{margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--panel);border:1px solid var(--line);font-size:11px}
+.diff label{display:flex;gap:7px;align-items:flex-start;padding:3px 0}
+.diff .add{color:#15803d}
+/* md file pane */
+.md h3{margin:14px 0 4px;font-size:13px}
+.md ul{margin:0;padding-left:18px}
+/* dock (from V10) */
+.dock{flex:none;border-top:1px solid var(--line);padding:9px 14px 11px;background:var(--panel)}
+.dock-h{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{appearance:none;border:0;background:var(--panel);font:inherit;font-size:10px;padding:4px 9px;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--tab);color:#fff}
+.box{display:flex;align-items:flex-end;gap:6px;border:1px solid var(--line);border-radius:10px;padding:7px 8px 7px 12px}
+.box textarea{flex:1;border:0;outline:0;resize:none;font:inherit;font-size:12px;min-height:38px;background:transparent;color:var(--ink)}
+.notes{margin-top:26px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.note{padding:14px 16px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:12px}
+.note h3{margin:0 0 6px;font-size:13px}
+.note ul{margin:0;padding-left:16px}
+.note li{margin:2px 0}
+.note code,.page code{font-size:11px;background:var(--panel-muted);padding:0 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>社交模拟器 · 最终方案</h1>
+<p>左栏 = 方案 2 的角色树 + 方案 6 的「问题 → 多个版本」；右侧 = 方案 10 的窗口标签 + 底部 dock。★ 收藏针对单个版本。多轮 Q/A 平铺，不缩进。页面可以点：左栏切换版本或文件、★、窗口标签、dock 的「写问题 / 写回答」。</p>
+<div class="app">
+  <div class="topbar"><span class="brand">β life</span><div class="tabs"><span>时间板</span><span>回想</span><span>能力森林</span><span>记忆星云</span><span>日记</span><span class="on"><i></i>社交模拟器</span></div></div>
+  <div class="body">
+    <aside class="side">
+      <div class="side-h"><b>角色</b><button class="btn sm">+ 角色</button></div>
+      <div class="row role">▾ <span class="nm">王老师</span><span class="muted mono">组会汇报</span></div>
+      <div class="kids">
+        <div class="row" data-open="md-role">📄 <span class="nm">角色设定.md</span></div>
+        <div class="row" data-open="md-pos">📄 <span class="nm">应对与正样本.md</span></div>
+        <div class="sec"><span>★ 收藏</span></div>
+        <div id="fav"></div>
+        <div class="sec fold" id="qs-toggle"><span><i class="caret">▾</i> 问题 · 4</span><button class="btn sm">AI 出题</button></div>
+        <div id="qs">
+        <div class="q">
+          <div class="q-h"><span class="t">这学期进展怎么样？<span class="lb">进度询问 · 3 个版本 · 6 → 7 → 8</span></span><button class="btn sm">练</button></div>
+          <div class="ver" data-open="v-261222"><span class="star on" data-v="进度询问261222">★</span><span class="mono">261222</span><span class="score hi">8.0</span></div>
+          <div class="ver on" data-open="v-261111"><span class="star" data-v="进度询问261111">★</span><span class="mono">261111</span><span class="score mid">7.0</span></div>
+          <div class="ver" data-open="v-261020"><span class="star" data-v="进度询问261020">★</span><span class="mono">261020</span><span class="score mid">6.0</span></div>
+        </div>
+        <div class="q">
+          <div class="q-h"><span class="t">毕业后什么打算？<span class="lb">毕业去向 · 1 个版本</span></span><button class="btn sm">练</button></div>
+          <div class="ver" data-open="v-261130"><span class="star on" data-v="毕业去向261130">★</span><span class="mono">261130</span><span class="score mid">7.0</span></div>
+        </div>
+        <div class="q">
+          <div class="q-h"><span class="t">为什么换研究方向？<span class="lb">换方向 · 1 个版本 · 进行中</span></span><button class="btn sm">练</button></div>
+          <div class="ver"><span class="star" data-v="换方向261105">★</span><span class="mono">261105</span><span class="pill">进行中</span></div>
+        </div>
+        <div class="q untried">
+          <div class="q-h"><span class="t muted">你的工作和组里别人怎么区分？<span class="lb">未练</span></span><button class="btn sm">练</button></div>
+        </div>
+        </div>
+      </div>
+      <div class="row role" style="margin-top:6px">▸ <span class="nm">张主任</span><span class="muted mono">邮件请假</span></div>
+      <div class="row role">▸ <span class="nm">审稿人 R2</span><span class="muted mono">rebuttal</span></div>
+    </aside>
+    <section class="work">
+      <div class="strip">
+        <span class="wt" data-open="v-261222"><span class="star on" data-v="进度询问261222">★</span>进度询问261222 <span class="x">✕</span></span>
+        <span class="wt on" data-open="v-261111">进度询问261111 <span class="x">✕</span></span>
+        <span class="wt" data-open="md-pos">📄 应对与正样本 <span class="x">✕</span></span>
+        <span class="wt" data-open="md-role">📄 角色设定 <span class="x">✕</span></span>
+      </div>
+      <div class="pane on" id="v-261111">
+        <div class="pane-h"><span class="star" data-v="进度询问261111">★</span><b>进度询问261111</b><span class="pill">王老师 · 第 2 个版本</span><span style="flex:1"></span><button class="btn sm">和 261020 对比</button><button class="btn pri sm">结束本轮并评估</button></div>
+        <div class="turn">
+          <div class="acts"><button class="btn sm">AI 代答</button><button class="btn sm">评一下</button></div>
+          <div class="line q-line"><span class="lab qq">Q</span>这学期进展怎么样？</div>
+          <div class="line"><span class="lab aa">A</span>论文 A 已投；下一步补两组对照实验。</div>
+          <div class="fb"><span class="score hi">8/10</span><span class="muted">先给结论，有重点；可再点出一个亮点数据。</span></div>
+        </div>
+        <div class="turn">
+          <div class="acts"><button class="btn sm">AI 代答</button><button class="btn sm">评一下</button></div>
+          <div class="line q-line"><span class="lab qq">Q</span>那 B 为什么还没投？</div>
+          <div class="line"><span class="lab aa">A</span>数据有缺口，还在补，两周左右。</div>
+          <div class="fb"><span class="score mid">6/10</span><span class="muted">略被动，先说补到哪了，再给确定时间点。</span></div>
+        </div>
+        <div class="turn cur">
+          <div class="line q-line"><span class="lab qq">Q</span>两周？上次你也说两周。</div>
+          <div class="line muted"><span class="lab aa">A</span>在底部 dock 写回答，或点「AI 代答」…</div>
+        </div>
+        <div class="cands">
+          <div class="cands-h"><span>AI 出追问 · 点一条设为下一个 Q</span><button class="btn sm">换一批</button></div>
+          <div class="cand"><span class="t">缺的是哪部分数据？为什么之前没发现？</span><button class="btn sm">用</button><button class="btn sm">存进问题库</button></div>
+          <div class="cand"><span class="t">需要我帮你找人要数据吗？</span><button class="btn sm">用</button><button class="btn sm">存进问题库</button></div>
+          <div class="cand"><span class="t">如果两周还补不完，你的备选方案是什么？</span><button class="btn sm">用</button><button class="btn sm">存进问题库</button></div>
+        </div>
+      </div>
+      <div class="pane" id="v-261222">
+        <div class="pane-h"><span class="star on" data-v="进度询问261222">★</span><b>进度询问261222</b><span class="pill">已评估 · 均分 8.0</span><span style="flex:1"></span><button class="btn sm">重新评估</button></div>
+        <div class="turn"><div class="line q-line"><span class="lab qq">Q</span>这学期进展怎么样？</div><div class="line"><span class="lab aa">A</span>论文 A 已投，审稿意见下周回；对照实验做完一组，第二组周五出结果。</div><div class="fb"><span class="score hi">9/10</span><span class="muted">结论先行，进度可核对。</span></div></div>
+        <div class="turn"><div class="line q-line"><span class="lab qq">Q</span>那 B 为什么还没投？</div><div class="line"><span class="lab aa">A</span>
+          <ul style="margin:2px 0 0;padding-left:34px"><li>缺口：第三批样本没回来<ul><li>已催，供应方承诺 12/5 前</li></ul></li><li>兜底：先用已有两批写初稿</li></ul></div><div class="fb"><span class="score hi">8/10</span><span class="muted">承认缺口并给兜底，结构清晰。</span></div></div>
+        <div class="turn"><div class="line q-line"><span class="lab qq">Q</span>两周？上次你也说两周。</div><div class="line"><span class="lab aa">A</span>是，上次估短了。这次时间点挂在供应方回执上，12/5 没到我当天跟您说。</div><div class="fb"><span class="score mid">7/10</span><span class="muted">认错得体，可少一句解释。</span></div></div>
+        <div class="eval">
+          <h4>整体调整方向</h4>
+          <ul><li>被追问时先给可核对的事实，再给时间点</li><li>承诺挂在外部节点上，不空口给天数</li><li>认错一句即可，不要连续解释</li></ul>
+          <div class="diff"><b style="font-size:11px">建议写入 · 勾选后确认</b>
+            <label><input type="checkbox" checked><span><span class="add">+ 正样本</span> 「是，上次估短了……当天跟您说。」→ <code>应对与正样本.md</code></span></label>
+            <label><input type="checkbox" checked><span><span class="add">+ 原则</span> 被质疑时间点：认一句，换成可验证的节点 → <code>应对与正样本.md</code></span></label>
+            <label><input type="checkbox"><span><span class="add">+ 性格</span> 会记住你上次的承诺并回头核对 → <code>角色设定.md</code></span></label>
+            <div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="btn sm">取消</button><button class="btn pri sm">确认写入</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="pane md" id="md-pos">
+        <div class="pane-h"><b>应对与正样本.md</b><span class="pill">王老师</span><span style="flex:1"></span><span class="muted" style="font-size:10px">直接编辑，Obsidian 双向同步</span></div>
+        <h3>## 原则</h3><ul><li>先给结论，再补原因</li><li>被追问先承认缺口，再给时间点</li><li>被质疑时间点：认一句，换成可验证的节点</li></ul>
+        <h3>## 正样本</h3><ul><li><b>Q：</b>这学期进展怎么样？<ul><li><b>A：</b>论文 A 已投，审稿意见下周回；对照实验做完一组，第二组周五出结果。</li></ul></li></ul>
+      </div>
+      <div class="pane md" id="md-role">
+        <div class="pane-h"><b>角色设定.md</b><span class="pill">王老师</span><span style="flex:1"></span><span class="muted" style="font-size:10px">直接编辑，Obsidian 双向同步</span></div>
+        <h3>## 身份与场景</h3><ul><li>导师，每周组会听进度汇报</li></ul>
+        <h3>## 性格</h3><ul><li>严厉、重数据，不接受模糊表述</li><li>会记住你上次的承诺并回头核对</li></ul>
+        <h3>## 可能会问的问题</h3><ul><li>这学期进展怎么样？</li><li>毕业后什么打算？</li><li>为什么换研究方向？</li><li>你的工作和组里别人怎么区分？</li></ul>
+      </div>
+      <div class="dock" id="dock">
+        <div class="dock-h">
+          <div class="seg"><button data-mode="q">写问题</button><button data-mode="a" class="on">写回答</button></div>
+          <span class="muted" style="font-size:10px" id="dock-hint">正在回答：两周？上次你也说两周。</span>
+          <span style="flex:1"></span>
+          <button class="btn sm">AI 出新问题</button><button class="btn sm">AI 出追问</button>
+        </div>
+        <div class="box"><textarea id="dock-input" placeholder="写下你的回答…简短；复杂时最多两层 bullet"></textarea><button class="btn sm">AI 代答</button><button class="btn sm">评一下</button><button class="btn pri sm">放入</button></div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="notes">
+  <div class="note"><h3>左栏</h3><ul>
+    <li>角色树来自方案 2，每个角色下先放两份 md 文件</li>
+    <li>★ 收藏区汇总该角色所有收藏的版本，置顶</li>
+    <li>问题是 item（方案 6），下面列出各版本：日期 + 均分</li>
+    <li>点「练」= 新建 <code>主题+今天</code>，比如 <code>进度询问261123</code></li>
+    <li>「问题 · N」标题可点击折叠，折叠后只剩 md 文件和 ★ 收藏；「AI 出题」按钮不触发折叠</li>
+  </ul></div>
+  <div class="note"><h3>★ 针对版本</h3><ul>
+    <li>★ 标在单个版本上，问题本身不能 ★</li>
+    <li>同一问题可以只收藏 261222，不收藏 261111</li>
+    <li>左栏版本、收藏区、窗口标签、版本标题里的 ★ 状态同步</li>
+  </ul></div>
+  <div class="note"><h3>右侧窗口 + dock</h3><ul>
+    <li>窗口标签来自方案 10，可同时打开版本和 md</li>
+    <li>Q/A 平铺，追问不缩进；当前待答的那一轮高亮</li>
+    <li>dock 切「写问题 / 写回答」，「放入」写进当前轮</li>
+    <li>打开 md 窗口时 dock 隐藏，直接编辑文档</li>
+    <li>这里的 dock 是本 tab 自己的输入条，和全局 AI Dock（<code>@社交模拟器</code> scope）是两个东西</li>
+  </ul></div>
+</div>
+</div>
+<script>
+const panes=[...document.querySelectorAll('.pane')];
+function open(id){
+  panes.forEach(p=>p.classList.toggle('on',p.id===id));
+  document.querySelectorAll('.wt').forEach(t=>t.classList.toggle('on',t.dataset.open===id));
+  document.querySelectorAll('.side [data-open]').forEach(r=>r.classList.toggle('on',r.dataset.open===id));
+  document.getElementById('dock').style.display=id.startsWith('md-')?'none':'';
+}
+document.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click',e=>{
+  if(e.target.closest('.star,.x'))return;
+  open(el.dataset.open);
+}));
+function renderFav(){
+  const seen=new Set();
+  const box=document.getElementById('fav');
+  box.innerHTML='';
+  document.querySelectorAll('.ver .star.on').forEach(s=>{
+    const v=s.dataset.v; if(seen.has(v))return; seen.add(v);
+    const ver=s.closest('.ver');
+    const r=document.createElement('div');
+    r.className='row'; if(ver.dataset.open)r.dataset.open=ver.dataset.open;
+    r.innerHTML='<span class="star on">★</span><span class="nm">'+v+'</span>'+ver.querySelector('.score,.pill').outerHTML;
+    r.onclick=()=>ver.dataset.open&&open(ver.dataset.open);
+    box.appendChild(r);
+  });
+  if(!seen.size)box.innerHTML='<div class="muted" style="padding:2px 8px;font-size:11px">点版本旁的 ★ 收藏</div>';
+}
+document.addEventListener('click',e=>{
+  const s=e.target.closest('.star[data-v]'); if(!s)return;
+  e.stopPropagation();
+  const on=!s.classList.contains('on');
+  document.querySelectorAll('.star[data-v="'+s.dataset.v+'"]').forEach(x=>x.classList.toggle('on',on));
+  renderFav();
+});
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x===b));
+  const q=b.dataset.mode==='q';
+  document.getElementById('dock-hint').textContent=q?'写对方的下一个问题':'正在回答：两周？上次你也说两周。';
+  document.getElementById('dock-input').placeholder=q?'写下对方可能会追问什么…':'写下你的回答…简短；复杂时最多两层 bullet';
+});
+document.getElementById('qs-toggle').addEventListener('click',e=>{
+  if(e.target.closest('button'))return;
+  const closed=document.getElementById('qs').classList.toggle('closed');
+  e.currentTarget.classList.toggle('closed',closed);
+  e.currentTarget.querySelector('.caret').textContent=closed?'▸':'▾';
+});
+renderFav();
+</script>
+</body>
+</html>

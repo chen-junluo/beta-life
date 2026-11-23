@@ -10,6 +10,8 @@ import { AiDock } from "./components/AiDock";
 import { AiWorkbench } from "./components/AiWorkbench";
 import { TimelineView } from "./components/TimelineView";
 import { DiaryView } from "./components/DiaryView";
+import { SocialView } from "./components/SocialView";
+import { restoreSocialSnapshot, type SocialSnapshot } from "./socialStorage";
 import { appendDiarySummary, loadDiaryMonth, restoreDiarySnapshot, type DiarySnapshot } from "./diaryStorage";
 import { dayCode, newDayBody } from "./diaryLogic";
 import { addObstacles, checksIn, fewestDone, habitOn, habitRates, habitStatsText, isLowRate, RATE_DAYS, shiftDate, type HabitRate } from "./habitLogic";
@@ -104,6 +106,7 @@ const SECTION_LABELS: Record<WorkspaceSection, string> = {
   forest: "能力森林",
   memories: "记忆星云",
   diary: "日记",
+  social: "社交模拟器",
 };
 
 function withSettingDefaults(settings: AppSettings): AppSettings {
@@ -193,6 +196,7 @@ export default function App() {
   const [recallRevision, setRecallRevision] = useState(0);
   const [memoriesRevision, setMemoriesRevision] = useState(0);
   const [diaryRevision, setDiaryRevision] = useState(0);
+  const [socialRevision, setSocialRevision] = useState(0);
   const [viewMode, setViewMode] = useState<BoardViewMode>("global");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("board");
   const [activeAbilityMap, setActiveAbilityMap] = useState<AbilityMapKind>("vision");
@@ -383,6 +387,16 @@ export default function App() {
     },
   }), [recordHistory]);
 
+  /** Versions and md files of 社交模拟器 written back by undo or redo; the view re-reads them. */
+  const recordSocial = useCallback((before: SocialSnapshot[], after: SocialSnapshot[]) => recordHistory("social", {
+    before,
+    after,
+    restore: async (snapshots) => {
+      for (const snapshot of snapshots) await restoreSocialSnapshot(snapshot);
+      setSocialRevision((revision) => revision + 1);
+    },
+  }), [recordHistory]);
+
   /** Last 7 archived days per habit, shown on the cards. */
   const [habitRateMap, setHabitRateMap] = useState<Record<string, HabitRate>>({});
   const [suggestOffer, setSuggestOffer] = useState<HabitSuggestOffer | null>(readSuggestOffer);
@@ -543,6 +557,10 @@ export default function App() {
       recordDiary(before, after);
       setDiaryRevision((revision) => revision + 1);
     },
+    recordSocial: (before, after) => {
+      if (after.length > 0) recordSocial(before, after);
+      setSocialRevision((revision) => revision + 1);
+    },
     // Confirmed in a diff card; Settings → bebe is where they are changed back.
     commitPetSettings: (pet) => {
       const current = stateRef.current;
@@ -610,6 +628,10 @@ export default function App() {
         if (panels.has("diary")) {
           clearHistory("diary");
           setDiaryRevision((revision) => revision + 1);
+        }
+        if (panels.has("social")) {
+          clearHistory("social");
+          setSocialRevision((revision) => revision + 1);
         }
         if (panels.has("ai")) void assistantRef.current.refreshSummaries().catch(console.error);
       }),
@@ -1112,7 +1134,7 @@ export default function App() {
         onScopeChange={assistant.setScope}
         onOpen={(id) => void assistant.open(id)}
         onDelete={(id) => void assistant.remove(id)}
-        onNew={() => assistant.startNew(activeSection, null, {})}
+        onNew={() => assistant.startNew(dockPanel, null, {})}
         onResolveBatch={(batchId, selectedIds) => void assistant.resolveBatch(batchId, selectedIds)}
       >{dock}</AiWorkbench> : page === "timeline" ? <TimelineView onWriteDiary={(summary) => void writeSummaryToDiary(summaryDiaryEntry(summary))} writeDisabled={assistant.busy} /> : activeSection === "recall" ? <RecallView
         settings={state.settings}
@@ -1146,7 +1168,14 @@ export default function App() {
         template={state.settings.diary.template}
         revision={diaryRevision}
         onHistory={(before, after, key) => recordDiary([before], [after], key)}
-      /> : viewMode === "bebe" ? <BebeScheduleView
+      /> : (showWorkbench || activeSection === "social") ? (
+        activeSection === "social" ? (
+          <SocialView
+            revision={socialRevision}
+            onHistory={(before, after) => recordSocial([before], [after])}
+          />
+        ) : viewMode
+      ) : viewMode === "bebe" ? <BebeScheduleView
         settings={state.settings}
         plan={petPlan}
         onPlanChange={changePetPlan}

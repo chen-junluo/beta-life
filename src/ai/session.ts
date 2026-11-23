@@ -1,6 +1,7 @@
 import type { KnowledgeBundle } from "../recallStorage";
 import type { MemorySnapshot } from "../memoryStorage";
-import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata, PetSettings } from "../types";
+import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata, PetSettings, SocialRole } from "../types";
+import type { SocialSnapshot } from "../socialStorage";
 import { invoke } from "@tauri-apps/api/core";
 import { loadDiaryMonth, type DiarySnapshot } from "../diaryStorage";
 import { applyPetSettings, applyPreference, classifyTarget, commitBebeChanges, describeClassify, describePetSettings, describePreference, loadPetProfile, runInstant, type PetProfile } from "./bebeTools";
@@ -8,6 +9,7 @@ import { AI_TOOLS, applyBoardBatch, applyBoardChange, boardIndex, describeBoardC
 import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, diaryMonthIndex, findDay, loadDiaryData, monthOfDay, type DiaryData, type DiaryMonths } from "./diaryTools";
 import { applyForestChange, describeForestChange, forestIndex, forestMapIndex, readNode, type Forests } from "./forestTools";
 import { applyMemoryChange, asMemories, commitMemoryChanges, describeMemoryChange, loadMemoryData, memoryIndex, newMemoryId, readMemory } from "./memoryTools";
+import { applySocialChange, commitSocialChanges, describeSocialChange, loadSocialData, readSocialRole, readSocialVersions, socialIndex } from "./socialTools";
 import { applyRecallChange, commitRecallChanges, describeRecallChange, dueRecords, loadKnowledge, loadPoints, recallIndex } from "./recallTools";
 import { changePanel, type AiChange, type AiPanelId, type AiScope, type AiToolCall, type AiToolPanel, type AiToolSpec, type ChangeKind, type ToolOutcome } from "./types";
 
@@ -21,6 +23,8 @@ export interface AssistantData {
   lifeStages: LifeStage[];
   /** Loaded only when the scope can read the diary. */
   diary: DiaryData | null;
+  /** 社交模拟器 roles, only when the scope can read it. */
+  social: SocialRole[] | null;
   /** Today's activity digest as the model reads it (durations as text), only when the scope can read the timeline. */
   timeline: unknown;
 }
@@ -39,14 +43,15 @@ export function forestsOf(state: LoadedAppState): Forests {
 
 /** Loads the panels that live on disk (recall, memories, diary) only when the scope can read them. */
 export async function loadAssistantData(scope: AiScope, state: LoadedAppState): Promise<AssistantData> {
-  const [knowledge, memoryData, diary, timeline] = await Promise.all([
+  const [knowledge, memoryData, diary, social, timeline] = await Promise.all([
     scope.recall ? loadKnowledge() : Promise.resolve([]),
     scope.memories ? loadMemoryData() : Promise.resolve({ memories: [], lifeStages: [] }),
     scope.diary ? loadDiaryData() : Promise.resolve(null),
+    scope.social ? loadSocialData() : Promise.resolve(null),
     // Without today's digest the tools still work; a broken activity record must not block the chat.
     scope.timeline ? invoke<unknown>("ai_daily_summary", { date: null }).catch(() => null) : Promise.resolve(null),
   ]);
-  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary, timeline };
+  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary, social, timeline };
 }
 
 /** Everything the model sees without calling a tool: the index of each panel the scope can read. */
@@ -58,6 +63,7 @@ export function assistantContext(scope: AiScope, data: AssistantData): string {
     ...(scope.recall && { recall: recallIndex(data.knowledge) }),
     ...(scope.memories && { memories: memoryIndex(data.memories, data.lifeStages) }),
     ...(scope.diary && data.diary && { diary: diaryIndex(data.diary) }),
+    ...(scope.social && data.social && { social: socialIndex(data.social) }),
     ...(scope.timeline && data.timeline != null && {
       timeline: { today: data.timeline, readableDays: data.settings.activity.aiDays, windowTitles: data.settings.activity.aiTitles },
     }),
@@ -94,6 +100,7 @@ export function createToolSession(data: AssistantData, { summaryTask = false } =
   const diaryLoaded: DiaryMonths = { ...data.diary?.months };
   let diaryDraft: DiaryMonths = { ...diaryLoaded };
   // bebe's staged settings and preferences; the profile loads the first time a turn needs it.
+  let socialDraft = data.social ?? [];
   let pet = data.settings.pet;
   let profile: PetProfile | null = null;
 
@@ -162,6 +169,10 @@ export function createToolSession(data: AssistantData, { summaryTask = false } =
           })),
         };
       }
+      case "read_social_role":
+        return readSocialRole(data.social ?? [], args.role);
+      case "read_social_versions":
+        return readSocialVersions(data.social ?? [], args.role, args.ids);
       case "get_daily_summary":
         return invoke<unknown>("ai_daily_summary", { date: args.date ?? null });
       case "query_activity":
@@ -196,6 +207,11 @@ export function createToolSession(data: AssistantData, { summaryTask = false } =
       case "diary": {
         const display = describeDiaryChange(diaryDraft, input);
         diaryDraft = applyDiaryChange(diaryDraft, input, data.settings.diary.template);
+        return display;
+      }
+      case "social": {
+        const display = describeSocialChange(socialDraft, input);
+        socialDraft = applySocialChange(socialDraft, input);
         return display;
       }
       case "timeline":
@@ -278,6 +294,8 @@ export interface CommitTargets {
   recordRecall: (before: KnowledgeBundle[], after: KnowledgeBundle[]) => void;
   recordMemories: (before: MemorySnapshot[], after: MemorySnapshot[]) => void;
   recordDiary: (before: DiarySnapshot[], after: DiarySnapshot[]) => void;
+  /** `created`: a new role folder, which the tree must re-read even with nothing to undo. */
+  recordSocial: (before: SocialSnapshot[], after: SocialSnapshot[], created: boolean) => void;
   /** Confirmed bebe settings; Settings → bebe is where they are changed back. */
   commitPetSettings: (pet: PetSettings) => void;
 }
@@ -338,6 +356,13 @@ export async function commitChanges(changes: AiChange[], targets: CommitTargets)
   if (diaryChanges.length > 0) {
     const result = await commitDiaryChanges(diaryChanges, targets.getState()?.settings.diary.template ?? "");
     if (result.after.length > 0) targets.recordDiary(result.before, result.after);
+    failed.push(...result.failed);
+  }
+
+  const socialChanges = of("social");
+  if (socialChanges.length > 0) {
+    const result = await commitSocialChanges(socialChanges);
+    if (result.after.length > 0 || result.created) targets.recordSocial(result.before, result.after, result.created);
     failed.push(...result.failed);
   }
 

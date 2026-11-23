@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, Database, Flag, Gauge, KeyRound, NotebookPen, Orbit, Palette, PawPrint, Quote, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Target, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { validatePeriodStarts } from "../boardLogic";
-import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_DIARY_TODOS_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
+import { DEFAULT_ASSISTANT_PROMPT, DEFAULT_DAY_SUMMARY_PROMPT, DEFAULT_DIARY_TEMPLATE, DEFAULT_HABIT_REASONS_PROMPT, DEFAULT_HABIT_SUGGESTION_PROMPT, DEFAULT_HABIT_OFFER_PROMPT, DEFAULT_GOAL_STEP_PROMPT, DEFAULT_DIARY_TODOS_PROMPT, DEFAULT_SOCIAL_QUESTION_PROMPT, DEFAULT_SOCIAL_ANSWER_PROMPT, DEFAULT_SOCIAL_SCORE_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_KNOWLEDGE_IMPORT_PROMPT, DEFAULT_MEMORY_ANALYSIS_PROMPT, DEFAULT_RECALL_EVALUATION_PROMPT, DEFAULT_RECALL_POINTS_PROMPT } from "../defaults";
 import type { ActivityRules } from "../activity";
 import { validateLifeStages } from "../memoryLogic";
 import { ActivityRulesSettings } from "./ActivityRulesSettings";
@@ -11,7 +11,7 @@ import { SettingsSelect, type SelectOption } from "./SettingsSelect";
 import { loadPetProfile, quietHoursProblem, savePetProfile, type PetProfile } from "../ai/bebeTools";
 import type { AbilityMapKind, AppSettings, BoardFile, LifeStage, PeriodId, TabSlogans } from "../types";
 
-type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "goalStepPrompt" | "diaryTodosPrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
+type PromptKey = "assistantPrompt" | "daySummaryPrompt" | "habitReasonsPrompt" | "habitSuggestionPrompt" | "habitOfferPrompt" | "goalStepPrompt" | "diaryTodosPrompt" | "socialQuestionPrompt" | "socialAnswerPrompt" | "socialScorePrompt" | "extractionPrompt" | "knowledgeImportPrompt" | "recallPointsPrompt" | "recallEvaluationPrompt" | "memoryAnalysisPrompt";
 
 const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallback: string }> = [
   { key: "assistantPrompt", label: "AI 助手", help: "AI 助手的工作方式和语气。工具协议、@ 权限和「写入前先确认」由应用管理，这里改不掉。", fallback: DEFAULT_ASSISTANT_PROMPT },
@@ -21,6 +21,9 @@ const PROMPT_FIELDS: Array<{ key: PromptKey; label: string; help: string; fallba
   { key: "habitSuggestionPrompt", label: "助推建议", help: "0 点存档后，对 7 天完成率偏低的习惯，bebe 问要不要写建议；AI 读阻挠原因和最近的日记，写在日记【AI总结】下面，写入前先确认由应用管理。", fallback: DEFAULT_HABIT_SUGGESTION_PROMPT },
   { key: "diaryTodosPrompt", label: "昨天的 to-do", help: "早上第一次在电脑前时，AI 按这里的要求从上一天的日记里找出没做完的 to-do，bebe 列出来；点「聊一下」后逐条问你，做完的标 ✅、不做的标 ❎、还要做的挪到今天的日记，写入前先出确认卡。", fallback: DEFAULT_DIARY_TODOS_PROMPT },
   { key: "goalStepPrompt", label: "长期目标小步骤", help: "早上 bebe 提醒长期目标太久没推进，点「想个小步骤」后，AI 读目标笔记和最近的日记，按这里的要求给一个今天能做的小步骤，并排一个今天的一次性提醒（可撤销）。", fallback: DEFAULT_GOAL_STEP_PROMPT },
+  { key: "socialQuestionPrompt", label: "社交模拟器出题", help: "社交模拟器里点「AI 出新问题」或「AI 出追问」后，AI 读这个角色的两份 md 和这一轮练习，按这里的要求给 3–5 个候选问题；候选数和格式由应用检查。", fallback: DEFAULT_SOCIAL_QUESTION_PROMPT },
+  { key: "socialAnswerPrompt", label: "社交模拟器代答", help: "点「AI 代答」后，AI 按角色设定和应对与正样本替你写当前这一轮的回答；已有回答时作为备选显示，不覆盖。bullet 最多两层由应用检查。", fallback: DEFAULT_SOCIAL_ANSWER_PROMPT },
+  { key: "socialScorePrompt", label: "社交模拟器评分", help: "「评一下」给单条回答 1–10 分和 30 字以内的点评，低分附改进写法；「结束本轮并评估」另给最多 3 条整体调整方向和两份 md 的修改提议，勾选确认后才写入。", fallback: DEFAULT_SOCIAL_SCORE_PROMPT },
   { key: "extractionPrompt", label: "习惯提取", help: "点时间板的「AI 提取」后，AI 助手按这里的要求从文字或截图里提取习惯；工具协议和「写入前先确认」由应用管理。", fallback: DEFAULT_EXTRACTION_PROMPT },
   { key: "knowledgeImportPrompt", label: "知识识别与标签推荐", help: "粘贴 Markdown 后，AI 只建议标题、层级标签和来源字段；正文保留原文。", fallback: DEFAULT_KNOWLEDGE_IMPORT_PROMPT },
   { key: "recallPointsPrompt", label: "抽查点起草", help: "根据知识正文生成 framework、mechanism、relationship 抽查点。", fallback: DEFAULT_RECALL_POINTS_PROMPT },
@@ -42,6 +45,7 @@ const SLOGAN_FIELDS: Array<{ id: keyof TabSlogans; label: string }> = [
   { id: "forest", label: "能力森林" },
   { id: "memories", label: "记忆星云" },
   { id: "diary", label: "日记" },
+  { id: "social", label: "社交模拟器" },
 ];
 
 interface SettingsPanelProps {

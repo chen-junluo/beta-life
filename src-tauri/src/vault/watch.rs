@@ -96,6 +96,10 @@ mod tests {
         fs::write(root.join("记忆星云/新.md"), "外部新建").unwrap();
         assert_eq!(scan(&root, &mut stamps, false), BTreeSet::from(["memories", "recall"]));
 
+        fs::create_dir_all(root.join("社交模拟器/王老师/QA记录")).unwrap();
+        fs::write(root.join("社交模拟器/王老师/QA记录/进度询问261123.md"), "Q：问\nA：答\n").unwrap();
+        assert_eq!(scan(&root, &mut stamps, false), BTreeSet::from(["social"]));
+
         remove(&root.join("时间板/My Life/b.md")).unwrap();
         assert!(scan(&root, &mut stamps, false).is_empty());
         fs::remove_file(&note).unwrap();

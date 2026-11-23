@@ -1,7 +1,7 @@
 import type { PlanUndo } from "../pet/plan";
 
 /** `timeline` (the activity record) is read only. */
-export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary" | "timeline";
+export type AiPanelId = "board" | "recall" | "forest" | "memories" | "diary" | "social" | "timeline";
 /** The access a panel gets when a conversation starts from it: the timeline can only be read. */
 export const defaultAccess = (panel: AiPanelId): AiAccess => (panel === "timeline" ? "read" : "write");
 /** "write" includes "read". A panel missing from the scope is not accessible. */

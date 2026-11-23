@@ -1,7 +1,7 @@
-import { Bot, BrainCircuit, CalendarDays, ChartNoAxesGantt, NotebookPen, Sparkles, Sprout, X } from "lucide-react";
+import { Bot, BrainCircuit, CalendarDays, ChartNoAxesGantt, MessagesSquare, NotebookPen, Sparkles, Sprout, X } from "lucide-react";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-export type WorkspaceSection = "board" | "recall" | "forest" | "memories" | "diary";
+export type WorkspaceSection = "board" | "recall" | "forest" | "memories" | "diary" | "social";
 /** Full pages at the bottom of the drawer; they replace the panel until the user returns. */
 export type WorkspacePage = "timeline" | "workbench";
 
@@ -152,6 +152,16 @@ export function WorkspaceDrawer({
           >
             <NotebookPen size={18} aria-hidden="true" />
             <span>日记</span>
+          </button>
+          <button
+            type="button"
+            className={`workspace-drawer-item ${current === "social" ? "active" : ""}`}
+            data-section="social"
+            aria-current={current === "social" ? "page" : undefined}
+            onClick={() => selectSection("social")}
+          >
+            <MessagesSquare size={18} aria-hidden="true" />
+            <span>社交模拟器</span>
           </button>
         </nav>
 

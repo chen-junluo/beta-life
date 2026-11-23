@@ -12,9 +12,10 @@ export const AI_PANELS: Record<AiPanelId, { name: string; color: string }> = {
   forest: { name: "能力森林", color: "#16a34a" },
   memories: { name: "记忆星云", color: "#6366f1" },
   diary: { name: "日记", color: "#e11d48" },
+  social: { name: "社交模拟器", color: "#0d9488" },
   timeline: { name: "时间轴", color: "#0ea5e9" },
 };
-export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories", "diary", "timeline"];
+export const PANEL_ORDER: AiPanelId[] = ["board", "recall", "forest", "memories", "diary", "social", "timeline"];
 export type PickerAccess = AiAccess | "off";
 export const PICKER_LEVELS: PickerAccess[] = ["off", "read", "write"];
 /** The activity record can only be read; its 可改 is shown disabled so the rows line up. */

@@ -30,6 +30,7 @@ pub(crate) enum Panel {
     Forest,
     Memories,
     Diary,
+    Social,
     /// The activity record; read only.
     Timeline,
     /// bebe's own tools: always available, never in a scope.
@@ -44,6 +45,7 @@ impl Panel {
             Panel::Forest => "能力森林 (forest)",
             Panel::Memories => "记忆星云 (memories)",
             Panel::Diary => "日记 (diary)",
+            Panel::Social => "社交模拟器 (social)",
             Panel::Timeline => "时间轴 (timeline)",
             Panel::Bebe => "bebe",
         }
@@ -254,12 +256,13 @@ fn system_prompt(settings: &AppSettings, scope: &Scope, context: &str, bebe: &st
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        r#"You are the assistant inside Beta Life, a local-first desktop app with five panels and an activity timeline:
+        r#"You are the assistant inside Beta Life, a local-first desktop app with six panels and an activity timeline:
 - 时间板 (board): daily habits and to-dos placed in a period or at an hour.
 - 回想 (recall): knowledge records (Markdown notes with hierarchical tags) reviewed with spaced repetition.
 - 能力森林 (forest): two three-level ability maps, vision (Long-term Vision) and research (Research Agenda); levels are 领域 → 能力组 → 能力.
 - 记忆星云 (memories): personal memories tied to songs, dates, life stages, places and emotions.
 - 日记 (diary): the user's daily journal, one Markdown file per month. Each day is a section under a `## YYMMDD周X` heading; diary tools read and write only the body under the heading, which is free-form Markdown (nested bullets indented with tabs, paragraphs). Keep the user's own words and tab indentation; only touch the days a request is about. A day may end with a `=============================================【AI总结】=============================================` line: above it is what the user wrote, below it the summaries Beta Life and the AI added.
+- 社交模拟器 (social): rehearsal for conversations. Each role (a person in one scene; the same person in another scene is a new role) has 角色设定.md (身份与场景, 性格, `## 可能会问的问题` as background for you — it is not the tab's question list), 应对与正样本.md (原则, 正样本) and versions: one practice of one question on one day, flat Q/A turns, each answer optionally scored 1–10 with a ≤30-character comment, plus an overall 评估. The user writes the answers; answers you draft stay short, nested bullets at most two levels. Read before rewriting and keep what the user did not ask to change.
 - 时间轴 (timeline, read only): the activity record of what was in front on the Mac (app, website domain, window title) with away time left out. Each stretch is focus, neutral or slack by the user's own rules, or unclassified (not counted as slack). Durations are given as text (`1h 05m`, `6m 01s`, `40s`) and times as local `HH:MM`; quote them as given and never convert units yourself. Talk about slack time kindly and concretely, without lecturing.
 
 User-editable assistant preferences:
@@ -767,6 +770,7 @@ fn export_markdown(conversation: &Conversation) -> String {
         Panel::Forest => "forest",
         Panel::Memories => "memories",
         Panel::Diary => "diary",
+        Panel::Social => "social",
         Panel::Timeline => "timeline",
         Panel::Bebe => "bebe",
     };
