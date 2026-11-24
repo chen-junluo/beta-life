@@ -1,19 +1,44 @@
-import { Lock, Pause, Pencil, Plus, Trash2, X } from "lucide-react";
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { Lock, Pause, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { hourLabel, orderedPeriods } from "../boardLogic";
-import { clockText, isSnoozed, nextClock, type OneOffReminder, type PetPlan } from "../pet/plan";
+import {
+  DEFAULT_PERSONAL_TAG,
+  GREY_INK,
+  addDays,
+  addMonths,
+  eventAt,
+  eventColor,
+  iso,
+  md,
+  monthStart,
+  parseDate,
+  type BoardEvent,
+  type EventFile,
+  type Project,
+} from "../boardEvents";
+import { clockText, isSnoozed, type PetPlan } from "../pet/plan";
 import { WEEKDAYS } from "../pet/reminders";
 import { dayWindow, fixedBetween, fixedTimes, quietBetween, weekWindows, type FixedTime } from "../pet/schedule";
 import type { AppSettings, QuietHours } from "../types";
+import { BoardEventEditor } from "./BoardEventEditor";
+import { BoardGantt, type GanttScroll } from "./BoardGantt";
+import { BoardMilestone } from "./BoardMilestone";
+import { BoardProjectEditor } from "./BoardProjectEditor";
+import { BoardLegend, ProjectTray } from "./BoardTray";
+import { lookupAvailable } from "../ai/eventTools";
 import { QuietHoursEditor } from "./BebeSettings";
 
 const MINUTE = 60_000;
-/** Both views share one vertical scale, so a time sits at the same height in either. */
+/** Both the day and the week columns share one vertical scale. */
 const PX_PER_MINUTE = 0.56;
 const REMINDER_HEIGHT = 40;
 const FIXED_HEIGHT = 28;
+const UPCOMING_DAYS = 30;
 
-type Editing = { id: string | null; time: string; text: string };
+type Mode = "day" | "week" | "milestone" | "gantt";
+/** What the right column is editing: an event draft, or a project. */
+type Choice = { kind: "event" | "project"; id: string } | null;
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const clock = (at: number) => `${pad(new Date(at).getHours())}:${pad(new Date(at).getMinutes())}`;
@@ -21,6 +46,7 @@ const dateLabel = (at: number) => {
   const date = new Date(at);
   return `${date.getMonth() + 1}/${date.getDate()} ${WEEKDAYS[(date.getDay() + 6) % 7].label}`;
 };
+const shortLabel = (time: FixedTime) => (time.kind === "ask" ? time.label.slice(1, 3) : time.kind === "summary" ? "总结" : "存档");
 
 /** Fixed times closer than 20 minutes share one marker in the narrow week columns. */
 function merged<T extends { at: number }>(items: T[]): T[][] {
@@ -33,8 +59,6 @@ function merged<T extends { at: number }>(items: T[]): T[][] {
   return groups;
 }
 
-const shortLabel = (time: FixedTime) => (time.kind === "ask" ? time.label.slice(1, 3) : time.kind === "summary" ? "总结" : "存档");
-
 /** Tops for items sorted by time, pushed down so cards closer than their height do not overlap. */
 function stacked<T extends { at: number }>(items: T[], from: number, height: number): Array<T & { top: number }> {
   let next = -Infinity;
@@ -45,49 +69,184 @@ function stacked<T extends { at: number }>(items: T[], from: number, height: num
   });
 }
 
+function blankEvent(date: string, time: string | null = null): BoardEvent {
+  const ms = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    title: "",
+    note: "",
+    shape: "point",
+    date,
+    dateEst: false,
+    end: null,
+    endEst: false,
+    time,
+    tags: [DEFAULT_PERSONAL_TAG],
+    next: null,
+    remind: { onDay: true, daysBefore: [] },
+    done: false,
+    createdAt: ms,
+    updatedAt: ms,
+  };
+}
+
 /**
- * The time board's bebe tab: one-off reminders (editable), bebe's fixed times (read only), quiet
- * hours and the pause as bands. 今天 = a 24-hour line from the morning start, 本周 = Monday to Sunday;
- * everything is edited in the panel on the right.
+ * The time board's bebe tab: 今天 / 本周 read the events that carry a clock time, milestone is a month
+ * calendar and gantt draws the 30-month plan. Both new views share the month, the selection and which
+ * projects are folded; everything is edited in the right column.
  */
-export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursChange, quietError }: {
+export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursChange, quietError, file, onFileChange, knownTags, onLookup }: {
   settings: AppSettings;
   plan: PetPlan;
   onPlanChange: (plan: PetPlan) => void;
   onQuietHoursChange: (quietHours: QuietHours[]) => void;
   quietError: string | null;
+  file: EventFile;
+  onFileChange: (file: EventFile) => void;
+  knownTags: string[];
+  /** 「bebe 查官网」: the AI searches the venue's official dates and stages an update_event. */
+  onLookup: (event: BoardEvent) => void;
 }) {
-  const [mode, setMode] = useState<"day" | "week">("day");
+  const [mode, setMode] = useState<Mode>("day");
   const [now, setNow] = useState(() => Date.now());
-  const [editing, setEditing] = useState<Editing | null>(null);
+  const [viewMonth, setViewMonth] = useState(() => monthStart(new Date()));
+  const [choice, setChoice] = useState<Choice>(null);
+  const [openProject, setOpenProject] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const [draft, setDraft] = useState<BoardEvent | null>(null);
+  const [draftIsNew, setDraftIsNew] = useState(false);
   const [selectedQuiet, setSelectedQuiet] = useState<number | null>(null);
+  const [scroll, setScroll] = useState<GanttScroll>(() => ({ nonce: 1, month: monthStart(new Date()) }));
+  // 4px 才算拖，否则点一下 chip 就变成拖拽、选不中 project
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(interval);
   }, []);
 
+  const events = file.events;
+  const projects = file.projects;
+  const projectFamilies = settings.projectFamilies;
   const periods = useMemo(() => orderedPeriods(settings), [settings]);
   const times = useMemo(() => fixedTimes(settings.periods, settings.pet), [settings.periods, settings.pet]);
-  const reminders = useMemo(() => [...plan.reminders].sort((a, b) => a.at - b.at), [plan.reminders]);
   const snoozed = isSnoozed(plan, now);
   const day = dayWindow(now, settings.periods);
   const height = 24 * 60 * PX_PER_MINUTE;
   const y = (at: number, from: number) => (at - from) / MINUTE * PX_PER_MINUTE;
+  const dark = usePrefersDark();
+  const timed = events.filter((event) => event.shape === "point" && event.time);
+  const tagColors = new Map(events.map((event) => [event.id, eventColor(event, events, projects, projectFamilies, dark)]));
 
-  function edit(reminder: OneOffReminder) {
-    setEditing({ id: reminder.id, time: clock(reminder.at), text: reminder.text });
+  function go(next: Mode) {
+    setMode(next);
+    if (next === "gantt") setScroll((current) => ({ nonce: current.nonce + 1, month: viewMonth }));
   }
 
-  function saveEditing() {
-    if (!editing || !editing.text.trim() || !/^\d{2}:\d{2}$/.test(editing.time)) return;
-    const reminder = { id: editing.id ?? crypto.randomUUID(), at: nextClock(editing.time, Date.now()), text: editing.text.trim() };
-    onPlanChange({ ...plan, reminders: [...plan.reminders.filter((item) => item.id !== reminder.id), reminder] });
-    setEditing(null);
+  function selectEvent(event: BoardEvent, options: { fromCalendar?: boolean } = {}) {
+    setChoice({ kind: "event", id: event.id });
+    setDraft({ ...event });
+    setDraftIsNew(false);
+    const month = monthStart(parseDate(event.date));
+    setViewMonth(month);
+    if (options.fromCalendar) {
+      setMode("gantt");
+      setScroll((current) => ({ nonce: current.nonce + 1, month, eventId: event.id }));
+    }
   }
 
-  function remove(id: string) {
-    onPlanChange({ ...plan, reminders: plan.reminders.filter((item) => item.id !== id) });
-    if (editing?.id === id) setEditing(null);
+  function selectProject(id: string) {
+    setChoice({ kind: "project", id });
+    setOpenProject(id);
+    setDraft(null);
+    setDraftIsNew(false);
+  }
+
+  function selectById(id: string) {
+    if (projects.some((project) => project.id === id)) selectProject(id);
+    else {
+      const event = events.find((item) => item.id === id);
+      if (event) selectEvent(event);
+    }
+  }
+
+  function createOn(date: string) {
+    const at = new Date();
+    const soon = new Date(at.getTime() + 30 * MINUTE);
+    setChoice(null);
+    setDraft(blankEvent(date, date === iso(at) ? clock(soon.getTime()) : null));
+    setDraftIsNew(true);
+  }
+
+  function patch(patchValue: Partial<BoardEvent>) {
+    setDraft((current) => (current ? { ...current, ...patchValue } : current));
+  }
+
+  function saveDraft() {
+    if (!draft || !draft.title.trim()) return;
+    const event = { ...draft, updatedAt: Date.now() };
+    onFileChange({ ...file, events: [...file.events.filter((item) => item.id !== event.id), event] });
+    setDraft(event);
+    setDraftIsNew(false);
+    setChoice({ kind: "event", id: event.id });
+  }
+
+  /** 查官网 needs the event saved first: the AI answers with `update_event` on its id. */
+  function lookupDraft() {
+    if (!draft || !draft.title.trim()) return;
+    const event = { ...draft, title: draft.title.trim(), updatedAt: Date.now() };
+    onFileChange({ ...file, events: [...file.events.filter((item) => item.id !== event.id), event] });
+    setDraft(event);
+    setDraftIsNew(false);
+    setChoice({ kind: "event", id: event.id });
+    onLookup(event);
+  }
+
+  function deleteDraft() {
+    if (!draft) return;
+    onFileChange({ ...file, events: file.events.filter((item) => item.id !== draft.id) });
+    setDraft(null);
+    setChoice(null);
+  }
+
+  function saveProject(next: Project) {
+    const previous = file.projects.find((project) => project.id === next.id);
+    // 改名 / 换分类会改 tag，事件跟着换，不然整条 chain 会掉回灰色
+    const renamed = previous && previous.tag !== next.tag;
+    const events = renamed
+      ? file.events.map((event) => (event.tags[0] === previous.tag ? { ...event, tags: [next.tag, ...event.tags.slice(1)], updatedAt: Date.now() } : event))
+      : file.events;
+    onFileChange({ ...file, events, projects: [...file.projects.filter((project) => project.id !== next.id), next] });
+  }
+
+  function colorProject(id: string, color: string | null) {
+    onFileChange({
+      ...file,
+      projects: file.projects.map((project) => (project.id === id ? { ...project, color, updatedAt: Date.now() } : project)),
+    });
+  }
+
+  function deleteProject(id: string) {
+    onFileChange({ ...file, projects: file.projects.filter((project) => project.id !== id) });
+    setChoice(null);
+    setOpenProject(null);
+  }
+
+  /** Dropping a project on an event makes it that chain's head; dropping it back on the tray clears it. */
+  function dropProject({ active, over }: DragEndEvent) {
+    if (!over) return;
+    const projectId = String(active.id).replace(/^project:/, "");
+    const eventId = over.data.current?.eventId as string | undefined;
+    onFileChange({
+      ...file,
+      projects: file.projects.map((project) => (project.id === projectId ? { ...project, head: eventId ?? null, updatedAt: Date.now() } : project)),
+    });
+  }
+
+  function createProject(tag: string) {
+    const project: Project = { id: crypto.randomUUID(), tag, head: null, priority: 5, color: null, note: "", updatedAt: Date.now() };
+    onFileChange({ ...file, projects: [...file.projects, project] });
+    selectProject(project.id);
   }
 
   /** Hour ticks and period strips for a window starting at `from`. */
@@ -126,7 +285,7 @@ export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursCha
         className={`bebe-band is-quiet ${selectedQuiet === range.index ? "is-selected" : ""}`}
         style={{ top: y(range.start, from), height: Math.max(14, y(range.end, from) - y(range.start, from)) }}
         onClick={() => setSelectedQuiet(range.index)}
-        title={`安静 ${clock(range.start)}–${clock(range.end)}：不弹摸鱼提醒、分类询问和习惯提醒。点一下在右边改`}
+        title={`安静 ${clock(range.start)}–${clock(range.end)}：只挡摸鱼提醒、分类询问和习惯提醒。点一下在右边改`}
       >
         {compact ? "安静" : `安静 ${clock(range.start)}–${clock(range.end)}`}
       </button>
@@ -163,10 +322,17 @@ export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursCha
       <div className="bebe-gutter">{axis(day.from, true)}{periodStrips(day.from)}</div>
       <div className="bebe-lane">
         {axis(day.from, false)}
-        {stacked(reminders.filter((item) => item.at >= day.from && item.at < day.to), day.from, REMINDER_HEIGHT).map((item) => (
-          <button key={item.id} type="button" className={`bebe-reminder ${editing?.id === item.id ? "is-selected" : ""}`} style={{ top: item.top }} onClick={() => edit(item)} title="点一下在右边改时间或内容">
-            <time>{clock(item.at)}</time>
-            <span>{item.text}</span>
+        {stacked(timed.map((event) => ({ at: eventAt(event), event })).filter((item) => item.at >= day.from && item.at < day.to), day.from, REMINDER_HEIGHT).map(({ top, event }) => (
+          <button
+            key={event.id}
+            type="button"
+            className={`bebe-reminder ${choice?.kind === "event" && choice.id === event.id ? "is-selected" : ""}`}
+            style={{ top, borderLeftColor: tagColors.get(event.id) }}
+            onClick={() => selectEvent(event)}
+            title="点一下在右边改"
+          >
+            <time>{event.time}</time>
+            <span>{event.title}</span>
           </button>
         ))}
       </div>
@@ -204,9 +370,16 @@ export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursCha
                 {group.map(shortLabel).join("·")}
               </div>
             ))}
-            {reminders.filter((item) => item.at >= window.from && item.at < window.to).map((item) => (
-              <button key={item.id} type="button" className={`bebe-dot is-reminder ${editing?.id === item.id ? "is-selected" : ""}`} style={{ top: y(item.at, window.from) }} onClick={() => edit(item)} title={`${clock(item.at)} ${item.text}`}>
-                {clock(item.at)} {item.text}
+            {timed.filter((event) => eventAt(event) >= window.from && eventAt(event) < window.to).map((event) => (
+              <button
+                key={event.id}
+                type="button"
+                className={`bebe-dot is-reminder ${choice?.kind === "event" && choice.id === event.id ? "is-selected" : ""}`}
+                style={{ top: y(eventAt(event), window.from) }}
+                onClick={() => selectEvent(event)}
+                title={`${event.time} ${event.title}`}
+              >
+                {event.time} {event.title}
               </button>
             ))}
             {today && nowLine(window.from, window.to)}
@@ -216,97 +389,237 @@ export function BebeScheduleView({ settings, plan, onPlanChange, onQuietHoursCha
     </div>
   );
 
-  const editor = editing && (
-    <form className="bebe-edit" onSubmit={(event) => { event.preventDefault(); saveEditing(); }}>
-      <div className="bebe-edit-row">
-        <input type="time" value={editing.time} onChange={(event) => setEditing({ ...editing, time: event.target.value })} aria-label="提醒时间" required />
-        <input value={editing.text} onChange={(event) => setEditing({ ...editing, text: event.target.value })} placeholder="提醒什么，例如：给导师回邮件" aria-label="提醒内容" autoFocus />
-      </div>
-      <p className="rule-help">只能设在未来 24 小时内；早于现在的时间算明天。</p>
-      <div className="bebe-edit-actions">
-        {editing.id && <button type="button" className="danger-button" onClick={() => remove(editing.id!)}><Trash2 size={14} /> 删除</button>}
-        <span />
-        <button type="button" className="secondary-button" onClick={() => setEditing(null)}>取消</button>
-        <button type="submit" className="primary-button" disabled={!editing.text.trim()}>保存</button>
-      </div>
-    </form>
+  const editor = choice?.kind === "project" ? (
+    <BoardProjectEditor
+      projects={projects}
+      events={events}
+      projectFamilies={projectFamilies}
+      dark={dark}
+      selected={choice?.kind === "project" ? choice.id : null}
+      openId={openProject}
+      onOpen={setOpenProject}
+      onSelect={(id) => { setChoice({ kind: "project", id }); setDraft(null); }}
+      onSave={saveProject}
+      onDelete={deleteProject}
+      onCreate={createProject}
+      onColor={colorProject}
+    />
+  ) : draft ? (
+    <BoardEventEditor
+      draft={draft}
+      isNew={draftIsNew}
+      events={events}
+      projects={projects}
+      settings={settings}
+      knownTags={knownTags}
+      lookup={lookupAvailable(settings.ai)}
+      onPatch={patch}
+      onSave={saveDraft}
+      onDelete={deleteDraft}
+      onLookup={lookupDraft}
+      onCancel={() => { setDraft(null); setChoice(null); }}
+    />
+  ) : (
+    <>
+      <div className="ms-eyebrow">事项 · 新建</div>
+      <p className="ms-empty">点月历格子新建，或在甘特上点事项编辑。</p>
+      <button type="button" className="primary-button" onClick={() => createOn(iso(new Date()))}><Plus size={14} /> 新事项</button>
+    </>
   );
+
+  const monthTitle = `${viewMonth.getFullYear()} 年 ${viewMonth.getMonth() + 1} 月`;
+  const isEventsView = mode === "milestone" || mode === "gantt";
 
   return (
-    <main className="workspace-scroll bebe-schedule">
-      <div className="bebe-schedule-grid">
-        <section className="bebe-timeline" aria-label={mode === "day" ? "今天的 bebe 安排" : "本周的 bebe 安排"}>
-          <header className="bebe-timeline-head">
-            <strong>{mode === "day" ? `今天 · ${dateLabel(day.from)}` : `本周 · ${dateLabel(week[0].from)} – ${dateLabel(week[6].from)}`}</strong>
-            <div className="bebe-mode" role="group" aria-label="视图">
-              <button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => setMode("day")}>今天</button>
-              <button type="button" className={mode === "week" ? "active" : ""} aria-pressed={mode === "week"} onClick={() => setMode("week")}>本周</button>
-            </div>
-          </header>
-          {mode === "day" ? (
-            <div className="bebe-lanes-head"><span /><span>一次性提醒</span><span>bebe 固定日程</span><span>安静 · 暂停</span></div>
-          ) : (
-            <div className="bebe-lanes-head is-week">
-              <span />
-              {week.map((window) => <span key={window.from} className={now >= window.from && now < window.to ? "is-today" : ""}>{dateLabel(window.from)}</span>)}
-            </div>
-          )}
-          <div className="bebe-timeline-body">{mode === "day" ? dayView : weekView}</div>
-        </section>
-
-        <aside className="bebe-side">
-          <section className="bebe-card">
-            <h3>
-              接下来 · {reminders.length}
-              <button type="button" className="text-button" onClick={() => setEditing({ id: null, time: clock(now + 30 * MINUTE), text: "" })}><Plus size={14} /> 新提醒</button>
-            </h3>
-            {editing?.id === null && editor}
-            {reminders.length === 0 && editing?.id !== null && <p className="settings-note">没有一次性提醒。在对话里说「三点提醒我…」，或点「新提醒」。</p>}
-            <ul className="bebe-reminder-list">
-              {reminders.map((item) => (
-                <li key={item.id} className={editing?.id === item.id ? "is-editing" : ""}>
-                  {editing?.id === item.id ? editor : (
-                    <>
-                      <time>{clockText(item.at, now)}</time>
-                      <span title={item.text}>{item.text}</span>
-                      <button type="button" className="icon-button" onClick={() => edit(item)} aria-label={`改 ${item.text}`} title="改"><Pencil size={14} /></button>
-                      <button type="button" className="icon-button" onClick={() => remove(item.id)} aria-label={`删除 ${item.text}`} title="删除"><X size={14} /></button>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="bebe-card">
-            <h3>暂停</h3>
-            {snoozed && plan.snoozeUntil !== null ? (
-              <div className="bebe-snooze">
-                <Pause size={14} aria-hidden="true" />
-                <span>暂停到 {clockText(plan.snoozeUntil, now)}</span>
-                <button type="button" className="secondary-button" onClick={() => onPlanChange({ ...plan, snoozeUntil: null })}>取消暂停</button>
+    <DndContext sensors={sensors} onDragEnd={dropProject}>
+      <main className={`workspace-scroll bebe-schedule ${isEventsView ? "is-events" : ""}`}>
+        <div className="bebe-schedule-grid">
+          <section className="bebe-timeline" aria-label="bebe 的安排与事项">
+            <header className="bebe-timeline-head">
+              <strong>
+                {mode === "day" ? `今天 · ${dateLabel(day.from)}`
+                  : mode === "week" ? `本周 · ${dateLabel(week[0].from)} – ${dateLabel(week[6].from)}`
+                    : mode === "milestone" ? monthTitle
+                      : "甘特"}
+              </strong>
+              <div className="bebe-mode" role="group" aria-label="视图">
+                <button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => go("day")}>今天</button>
+                <button type="button" className={mode === "week" ? "active" : ""} aria-pressed={mode === "week"} onClick={() => go("week")}>本周</button>
+                <button type="button" className={mode === "milestone" ? "active" : ""} aria-pressed={mode === "milestone"} onClick={() => go("milestone")}>milestone</button>
+                <button type="button" className={mode === "gantt" ? "active" : ""} aria-pressed={mode === "gantt"} onClick={() => go("gantt")}>gantt</button>
               </div>
+            </header>
+
+            {mode === "day" || mode === "week" ? (
+              <>
+                {mode === "day" ? (
+                  <div className="bebe-lanes-head"><span /><span>事项</span><span>bebe 固定日程</span><span>安静 · 暂停</span></div>
+                ) : (
+                  <div className="bebe-lanes-head is-week">
+                    <span />
+                    {week.map((window) => <span key={window.from} className={now >= window.from && now < window.to ? "is-today" : ""}>{dateLabel(window.from)}</span>)}
+                  </div>
+                )}
+                <div className="bebe-timeline-body">{mode === "day" ? dayView : weekView}</div>
+              </>
             ) : (
-              <p className="settings-note">没有暂停。在对话里说「安静一小时」就会暂停。</p>
+              <>
+                {mode === "milestone" ? (
+                  <BoardMilestone
+                    events={events}
+                    projects={projects}
+                    projectFamilies={projectFamilies}
+                    dark={dark}
+                    viewMonth={viewMonth}
+                    selected={choice?.id ?? null}
+                    onSelectEvent={(id) => {
+                      const event = events.find((item) => item.id === id);
+                      if (event) selectEvent(event, { fromCalendar: true });
+                    }}
+                    onSelectDate={createOn}
+                    onShiftMonth={(months) => {
+                      if (months === 0) setViewMonth(monthStart(new Date()));
+                      else setViewMonth((current) => addMonths(current, months));
+                    }}
+                  />
+                ) : null}
+                {mode === "gantt" && (
+                  <BoardGantt
+                    events={events}
+                    projects={projects}
+                    projectFamilies={projectFamilies}
+                    dark={dark}
+                    selected={choice?.id ?? null}
+                    collapsed={collapsed}
+                    onSelect={selectById}
+                    onToggle={(id) => setCollapsed((current) => {
+                      const next = new Set(current);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    })}
+                    scroll={scroll}
+                  />
+                )}
+                <ProjectTray
+                  projects={projects}
+                  projectFamilies={projectFamilies}
+                  dark={dark}
+                  selected={choice?.kind === "project" ? choice.id : null}
+                  hint={mode === "gantt" ? "拖到某个事项上 = 它做 chain 起点，沿实线往后整条染色" : "点 project 打开编辑 · 切到 gantt 可以拖到事项上"}
+                  onSelect={selectProject}
+                />
+                <BoardLegend />
+              </>
             )}
-            <p className="rule-help">暂停和安静时段只挡摸鱼提醒、分类询问、习惯提醒和「为什么没完成」；一次性提醒和晚间总结照常。</p>
           </section>
 
-          <section className="bebe-card">
-            <h3>安静时段 · {settings.pet.quietHours.length}</h3>
-            <QuietHoursEditor quietHours={settings.pet.quietHours} onChange={onQuietHoursChange} selected={selectedQuiet} />
-            {quietError && <p className="inline-error" role="alert">{quietError}</p>}
-          </section>
+          <aside className="bebe-side">
+            <section className="bebe-card">{editor}</section>
 
-          <section className="bebe-card">
-            <h3>bebe 固定日程 <Lock size={12} aria-label="只读" /></h3>
-            <ul className="bebe-fixed-list">
-              {times.map((time) => <li key={`${time.kind}-${time.minute}`}><time>{pad(Math.floor(time.minute / 60))}:{pad(time.minute % 60)}</time><span>{time.label}</span></li>)}
-            </ul>
-            <p className="rule-help">跟着时段和 Settings「bebe」走：询问在时段结束前 15 分钟，晚间总结在睡眠前 {settings.pet.summaryLeadMinutes} 分钟。</p>
-          </section>
-        </aside>
-      </div>
-    </main>
+            <section className="bebe-card">
+              <h3>接下来 · {UPCOMING_DAYS} 天</h3>
+              {snoozed && plan.snoozeUntil !== null && (
+                <div className="bebe-snooze">
+                  <Pause size={14} aria-hidden="true" />
+                  <span>暂停到 {clockText(plan.snoozeUntil, now)}</span>
+                  <button type="button" className="secondary-button" onClick={() => onPlanChange({ ...plan, snoozeUntil: null })}>取消暂停</button>
+                </div>
+              )}
+              <Upcoming
+                events={events}
+                projects={projects}
+                projectFamilies={projectFamilies}
+                dark={dark}
+                now={now}
+                times={times}
+                selected={choice?.kind === "event" ? choice.id : null}
+                onSelect={(event) => selectEvent(event)}
+              />
+            </section>
+
+            {!isEventsView && (
+              <>
+                <section className="bebe-card">
+                  <h3>安静时段 · {settings.pet.quietHours.length}</h3>
+                  <QuietHoursEditor quietHours={settings.pet.quietHours} onChange={onQuietHoursChange} selected={selectedQuiet} />
+                  {quietError && <p className="inline-error" role="alert">{quietError}</p>}
+                  <p className="rule-help">暂停和安静时段只挡摸鱼提醒、分类询问和习惯提醒；事项提醒和晚间总结照常。</p>
+                </section>
+                <section className="bebe-card">
+                  <details className="ms-fixed">
+                    <summary><h3>bebe 固定日程 <Lock size={12} aria-label="只读" /></h3></summary>
+                    <ul className="bebe-fixed-list">
+                      {times.map((time) => <li key={`${time.kind}-${time.minute}`}><time>{pad(Math.floor(time.minute / 60))}:{pad(time.minute % 60)}</time><span>{time.label}</span></li>)}
+                    </ul>
+                    <p className="rule-help">跟着时段和 Settings「bebe」走：询问在时段结束前 15 分钟，晚间总结在睡眠前 {settings.pet.summaryLeadMinutes} 分钟。</p>
+                  </details>
+                </section>
+              </>
+            )}
+          </aside>
+        </div>
+      </main>
+    </DndContext>
   );
+}
+
+/** The next 30 days' events, with today's fixed times folded in (they are read only). */
+function Upcoming({ events, projects, projectFamilies, dark, now, times, selected, onSelect }: {
+  events: BoardEvent[];
+  projects: Project[];
+  projectFamilies: string[];
+  dark: boolean;
+  now: number;
+  times: FixedTime[];
+  selected: string | null;
+  onSelect: (event: BoardEvent) => void;
+}) {
+  const today = new Date(now);
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const until = addDays(new Date(from), UPCOMING_DAYS).getTime();
+  const tomorrow = addDays(new Date(from), 1).getTime();
+  const rows: Array<{ key: string; when: string; label: string; color: string | null; at: number; event?: BoardEvent }> = [];
+
+  for (const event of events) {
+    if (event.done) continue;
+    const at = eventAt(event);
+    if (at < from || at > until) continue;
+    rows.push({ key: event.id, when: `${event.date === iso(today) ? "今天" : md(event.date, event.dateEst)}${event.time ? ` ${event.time}` : ""}`, label: event.title, color: eventColor(event, events, projects, projectFamilies, dark), at, event });
+  }
+  for (const time of fixedBetween(times, from, tomorrow)) {
+    rows.push({ key: `${time.kind}-${time.at}`, when: clock(time.at), label: time.label, color: null, at: time.at });
+  }
+  rows.sort((a, b) => a.at - b.at);
+
+  if (rows.length === 0) return <p className="ms-empty">接下来 {UPCOMING_DAYS} 天没有事项。</p>;
+  return (
+    <div className="ms-up-list">
+      {rows.map(({ event, ...row }) => event ? (
+        <button key={row.key} type="button" className="ms-up" aria-pressed={selected === event.id} onClick={() => onSelect(event)}>
+          <span className="ms-when">{row.when}</span>
+          <span className="ms-t"><i className="ms-tagdot" style={{ background: row.color ?? GREY_INK }} />{row.label}</span>
+        </button>
+      ) : (
+        <div key={row.key} className="ms-up is-fixed" title="固定日程，只读">
+          <span className="ms-when">{row.when}</span>
+          <span className="ms-t"><Lock size={10} className="ms-lock" />{row.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** `prefers-color-scheme` decides which set of family colours the board uses. */
+function usePrefersDark() {
+  const query = "(prefers-color-scheme: dark)";
+  const [dark, setDark] = useState(() => window.matchMedia?.(query).matches ?? false);
+  useEffect(() => {
+    const list = window.matchMedia?.(query);
+    if (!list) return;
+    const listener = () => setDark(list.matches);
+    list.addEventListener("change", listener);
+    return () => list.removeEventListener("change", listener);
+  }, []);
+  return dark;
 }

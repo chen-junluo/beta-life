@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Plus, Quote, Redo2, Settings, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { containerForPlacement, hourLabel, orderedPeriods, reindexItems } from "./boardLogic";
+import { BOARD_EVENTS, EMPTY_EVENTS, loadEvents, saveEvents, withFamily, type BoardEvent, type EventFile, type EventsState } from "./boardEvents";
 import { collectTags } from "./simpleMarkdown";
 import { assignTagIcons } from "./tagIcons";
 import { AiDock } from "./components/AiDock";
@@ -107,7 +108,7 @@ const SECTION_LABELS: Record<WorkspaceSection, string> = {
 };
 
 function withSettingDefaults(settings: AppSettings): AppSettings {
-  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary }, pet: { ...DEFAULT_SETTINGS.pet, ...settings.pet }, goals: settings.goals ?? DEFAULT_SETTINGS.goals };
+  return { ...settings, slogans: { ...DEFAULT_TAB_SLOGANS, ...settings.slogans }, diary: { ...DEFAULT_SETTINGS.diary, ...settings.diary }, pet: { ...DEFAULT_SETTINGS.pet, ...settings.pet }, goals: settings.goals ?? DEFAULT_SETTINGS.goals, projectFamilies: settings.projectFamilies ?? [] };
 }
 
 function shortPeriodLabel(period: AppSettings["periods"][number]): string {
@@ -470,7 +471,7 @@ export default function App() {
     commitBoard(withActiveItems(latest.board, addObstacles(activeItems(latest.board), date, reasons, new Date().toISOString())));
   }, [commitBoard]);
 
-  /** bebe's pause and one-off reminders (Rust keeps them on this Mac and tells every window). */
+  /** bebe's pause (Rust keeps it on this Mac and tells every window); 事项 live in events.json. */
   const [petPlan, setPetPlan] = useState<PetPlan>(EMPTY_PLAN);
   const [quietError, setQuietError] = useState<string | null>(null);
   useEffect(() => {
@@ -487,6 +488,58 @@ export default function App() {
       void loadPetPlan().then(setPetPlan).catch(console.error);
     });
   }
+
+  /** 时间板的事项 (P9): `时间板/.beta-life/events.json`, shared by every window through `board://events`. */
+  const [eventsState, setEventsState] = useState<EventsState>({ file: EMPTY_EVENTS, mtime: 0 });
+  const eventsRef = useRef(eventsState);
+  const eventsSaveTimer = useRef<number | null>(null);
+  const applyEvents = useCallback((loaded: EventsState) => {
+    eventsRef.current = loaded;
+    setEventsState(loaded);
+  }, []);
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    void loadEvents().then(applyEvents).catch(console.error);
+    const unlisten = listen<EventsState>(BOARD_EVENTS, ({ payload }) => {
+      // 本地还有没写回去的编辑时，等它自己保存完再同步
+      if (eventsSaveTimer.current === null) applyEvents(payload);
+    });
+    // 坚果云从另一台 Mac 改了文件：`board://events` 不会发，回到窗口时按 mtime 补一次
+    const onFocus = () => {
+      if (eventsSaveTimer.current !== null) return;
+      void loadEvents().then((loaded) => {
+        if (loaded.mtime !== eventsRef.current.mtime) applyEvents(loaded);
+      }).catch(console.error);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      void unlisten.then((stop) => stop());
+    };
+  }, [applyEvents]);
+
+  /** Event edits are debounced whole-file saves; Rust merges with what another Mac wrote. */
+  const changeEvents = useCallback((file: EventFile) => {
+    const saving = { ...eventsRef.current, file };
+    applyEvents(saving);
+    if (eventsSaveTimer.current !== null) window.clearTimeout(eventsSaveTimer.current);
+    eventsSaveTimer.current = window.setTimeout(() => {
+      eventsSaveTimer.current = null;
+      void saveEvents(saving).then((saved) => {
+        if (eventsRef.current.file === saving.file) applyEvents(saved);
+      }).catch(console.error);
+    }, 300);
+    // 新分类排进 `projectFamilies` 的色系顺序，Setting 里还能再拖
+    const current = stateRef.current;
+    if (!current) return;
+    const families = file.projects.reduce((list, project) => withFamily(list, project.tag.split("/")[0]), current.settings.projectFamilies);
+    if (families.length === current.settings.projectFamilies.length) return;
+    const settings = { ...current.settings, projectFamilies: families };
+    const nextState = { ...current, settings };
+    stateRef.current = nextState;
+    setState(nextState);
+    void queueSettingsSave(settings).catch(console.error);
+  }, [applyEvents, queueSettingsSave]);
 
   /** Quiet hours edited on the bebe tab are saved at once; an unfinished range waits with its error. */
   function changeQuietHours(quietHours: QuietHours[]) {
@@ -543,6 +596,9 @@ export default function App() {
       recordDiary(before, after);
       setDiaryRevision((revision) => revision + 1);
     },
+    // 事项：AI 的 add/update/delete 在 diff card 里确认后写回 events.json
+    getEvents: () => eventsRef.current.file,
+    commitEvents: changeEvents,
     // Confirmed in a diff card; Settings → bebe is where they are changed back.
     commitPetSettings: (pet) => {
       const current = stateRef.current;
@@ -738,6 +794,16 @@ export default function App() {
   function stageGoalStep(goals: StaleGoal[]) {
     const list = goals.map((goal) => `- [[${goal.link}]]（${goal.path.join(" › ")}）：${goal.label}`).join("\n");
     return assistantRef.current.startTask("goal_step", PET_GOAL_SCOPE, `这几个长期目标好一阵没推进了，帮我想一个今天能做的小步骤：\n${list}`, "长期目标小步骤");
+  }
+
+  /** 「bebe 查官网」 on an event: DeepSeek's web search finds the venue's official dates; diff card first. */
+  function lookupEvent(event: BoardEvent) {
+    setDockHidden(false);
+    setDockFlight(null);
+    setDockExpand((count) => count + 1);
+    setDockFocus((count) => count + 1);
+    const recorded = event.shape === "span" ? `截止 ${event.date}，通知 ${event.end ?? "未定"}` : `${event.date}${event.time ? ` ${event.time}` : ""}`;
+    void assistantRef.current.startTask("lookup_dates", { board: "write" }, `查「${event.title}」（tag ${event.tags[0] ?? "无"}，事项 id ${event.id}）的官方日期。现在记的是 ${recorded}。`, "查会议官网");
   }
 
   /**
@@ -1152,6 +1218,10 @@ export default function App() {
         onPlanChange={changePetPlan}
         onQuietHoursChange={changeQuietHours}
         quietError={quietError}
+        file={eventsState.file}
+        onFileChange={changeEvents}
+        knownTags={collectTags(activeItems(state.board).map((item) => item.tags))}
+        onLookup={lookupEvent}
       /> : <main className="workspace-scroll">
         <BoardView
           items={board?.items ?? []}
