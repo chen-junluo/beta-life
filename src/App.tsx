@@ -541,6 +541,15 @@ export default function App() {
     void queueSettingsSave(settings).catch(console.error);
   }, [applyEvents, queueSettingsSave]);
 
+  /** Writes a pending event edit now instead of after the debounce (查官网 reads the file). */
+  const flushEvents = useCallback(async () => {
+    if (eventsSaveTimer.current === null) return;
+    window.clearTimeout(eventsSaveTimer.current);
+    eventsSaveTimer.current = null;
+    const saved = await saveEvents(eventsRef.current).catch(console.error);
+    if (saved && eventsRef.current.file === saved.file) applyEvents(saved);
+  }, [applyEvents]);
+
   /** Quiet hours edited on the bebe tab are saved at once; an unfinished range waits with its error. */
   function changeQuietHours(quietHours: QuietHours[]) {
     const current = stateRef.current;
@@ -797,11 +806,13 @@ export default function App() {
   }
 
   /** 「bebe 查官网」 on an event: DeepSeek's web search finds the venue's official dates; diff card first. */
-  function lookupEvent(event: BoardEvent) {
+  async function lookupEvent(event: BoardEvent) {
     setDockHidden(false);
     setDockFlight(null);
     setDockExpand((count) => count + 1);
     setDockFocus((count) => count + 1);
+    // 刚填好的新事项得先落盘：这一轮读的是磁盘上的 events.json，`update_event` 才认得到它
+    await flushEvents();
     const recorded = event.shape === "span" ? `截止 ${event.date}，通知 ${event.end ?? "未定"}` : `${event.date}${event.time ? ` ${event.time}` : ""}`;
     void assistantRef.current.startTask("lookup_dates", { board: "write" }, `查「${event.title}」（tag ${event.tags[0] ?? "无"}，事项 id ${event.id}）的官方日期。现在记的是 ${recorded}。`, "查会议官网");
   }
