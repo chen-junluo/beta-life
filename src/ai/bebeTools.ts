@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { CATEGORIES, dayKey, setActivityRule, type ActivityCategory, type ActivityDay, type ActivityRules, type RuleTarget } from "../activity";
-import { loadPetPlan, planCancel, planReminder, planSnooze, savePetPlan, undoPlan, type PlanUndo } from "../pet/plan";
+import { loadPetPlan, planSnooze, savePetPlan, undoPlan, type PlanUndo } from "../pet/plan";
 import { quietHoursText, WEEKDAYS } from "../pet/reminders";
 import type { PetSettings, QuietHours } from "../types";
 import type { AiChange, ChangeKind, InstantAction, ToolArguments } from "./types";
@@ -23,14 +23,10 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 // ---------- instant: bebe's plan ----------
 
-/** snooze / schedule_reminder / cancel_reminder: saved right away; the chat offers an undo. */
+/** snooze: saved right away; the chat offers an undo. */
 export async function runInstant(name: string, args: ToolArguments, now = Date.now()): Promise<InstantAction> {
-  const plan = await loadPetPlan();
-  const step = name === "snooze"
-    ? planSnooze(plan, args, now)
-    : name === "schedule_reminder"
-      ? planReminder(plan, args, now, crypto.randomUUID().slice(0, 8))
-      : planCancel(plan, args, now);
+  if (name !== "snooze") throw new Error(`Unknown instant tool ${name}`);
+  const step = planSnooze(await loadPetPlan(), args, now);
   await savePetPlan(step.plan);
   return { label: step.label, undo: step.undo };
 }

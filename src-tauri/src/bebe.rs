@@ -1,6 +1,6 @@
 //! bebe's preferences (P5). The numbers live in `AppSettings.pet`; the words the user asked bebe to
 //! remember live in `bebe/偏好.md` in the data folder (synced, editable in Obsidian); the short-lived
-//! plan (pause, one-off reminders) stays on this Mac. All three go into the assistant's system prompt.
+//! plan (pause) stays on this Mac. All three go into the assistant's system prompt.
 
 use super::{app_data_dir, atomic_write, read_json, vault, AppSettings, PeriodId};
 use chrono::{Local, TimeZone};
@@ -14,7 +14,6 @@ const STYLE: &str = "说话风格";
 const ABOUT: &str = "我说过的";
 const MAX_ITEMS: usize = 100;
 const MAX_ITEM_CHARS: usize = 500;
-const MAX_REMINDERS: usize = 50;
 /// Emitted to every window after the plan changed.
 const PLAN_EVENT: &str = "pet://plan";
 
@@ -344,24 +343,14 @@ pub(crate) fn save_pet_profile(app: AppHandle, profile: Profile) -> Result<Profi
 
 // ---------- plan (this Mac only) ----------
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OneOffReminder {
-    id: String,
-    /// Unix milliseconds.
-    at: i64,
-    text: String,
-}
-
-/// Short-lived and instant (no diff card): undone from the chat.
+/// Short-lived and instant (no diff card): undone from the chat. One-off reminders are 事项
+/// (`vault::events`) now; an old plan's `reminders` list is migrated there on load.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PetPlan {
     /// No slack reminders, questions or habit reminders before this (Unix milliseconds).
     #[serde(default)]
     snooze_until: Option<i64>,
-    #[serde(default)]
-    reminders: Vec<OneOffReminder>,
 }
 
 fn plan_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -384,12 +373,6 @@ pub(crate) fn load_pet_plan(app: AppHandle) -> Result<PetPlan, String> {
 
 #[tauri::command]
 pub(crate) fn save_pet_plan(app: AppHandle, plan: PetPlan) -> Result<(), String> {
-    if plan.reminders.len() > MAX_REMINDERS {
-        return Err(format!("一次性提醒最多 {MAX_REMINDERS} 个"));
-    }
-    if plan.reminders.iter().any(|reminder| reminder.id.is_empty() || reminder.text.trim().is_empty() || reminder.text.chars().count() > 200) {
-        return Err("提醒内容不能为空，最多 200 个字".into());
-    }
     atomic_write(&plan_path(&app)?, &plan)?;
     app.emit(PLAN_EVENT, &plan).map_err(|error| format!("无法通知 bebe：{error}"))
 }
@@ -408,7 +391,7 @@ fn list(items: &[String]) -> String {
 }
 
 /// What the assistant knows about bebe: its settings, the plan and the remembered preferences.
-fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now_ms: i64) -> String {
+fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, upcoming: &str, now_ms: i64) -> String {
     let pet = &settings.pet;
     let sleep = settings.periods.iter().find(|period| period.id == PeriodId::Sleep).map(|period| period.start_hour).unwrap_or(23);
     let summary_at = (u32::from(sleep) * 60 + 1440 - u32::from(pet.summary_lead_minutes)) % 1440;
@@ -420,15 +403,6 @@ fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now
     let paused = match plan.snooze_until {
         Some(until) if until > now_ms => format!("paused until {}", local_time(until, "%m-%d %H:%M")),
         _ => "not paused".into(),
-    };
-    let reminders = if plan.reminders.is_empty() {
-        "- (none)".to_string()
-    } else {
-        plan.reminders
-            .iter()
-            .map(|reminder| format!("- id `{}`: {} {}", reminder.id, local_time(reminder.at, "%m-%d %H:%M"), reminder.text))
-            .collect::<Vec<_>>()
-            .join("\n")
     };
     let nudge = match pet.habit_nudge {
         HabitNudge::Off => "Habit nudges are off in Settings: bebe does not ask why habits were not done and offers no suggestions.".to_string(),
@@ -447,8 +421,8 @@ fn prompt_section(settings: &AppSettings, profile: &Profile, plan: &PetPlan, now
         r#"bebe (the desk pet) settings, changed with set_bebe_settings: a slack reminder when slack fills more than {share}% of the last {window} min and the current slack streak is at least {streak} min, at most one every {cooldown} min; its 「再说」 button waits {snooze} min. The evening summary shows {lead} min before the sleep period, at {summary_hour:02}:{summary_minute:02}. A habit reminder's 「稍后提醒」 waits {habit} min. At 0:00 the day's habit checks are archived and cleared. {weekends} {nudge}
 Quiet hours (no slack reminders, questions or habit reminders): {quiet}.
 Right now bebe is {paused}.
-One-off reminders:
-{reminders}
+The user's 事项 due in the next 30 days (from 时间板/, with ids for update_event / delete_event):
+{upcoming}
 
 What the user asked to remember (remember_preference / forget_preference):
 Speaking style, follow it in every reply:
@@ -476,7 +450,13 @@ pub(crate) fn prompt_for(app: &AppHandle, settings: &AppSettings) -> String {
         .map(|text| parse(&text))
         .unwrap_or_default();
     let plan = read_plan(app).unwrap_or_default();
-    prompt_section(settings, &profile, &plan, Local::now().timestamp_millis())
+    let upcoming = vault::open(app)
+        .map(|(_guard, root)| {
+            let today = Local::now().format("%Y-%m-%d").to_string();
+            vault::events::upcoming_lines(&vault::events::load(&root), &today, 30)
+        })
+        .unwrap_or_else(|_| "- (none)".into());
+    prompt_section(settings, &profile, &plan, &upcoming, Local::now().timestamp_millis())
 }
 
 #[cfg(test)]
@@ -491,7 +471,7 @@ mod tests {
         assert_eq!(old.habit_nudge, HabitNudge::Light);
         let mut settings = super::super::default_settings();
         settings.pet = serde_json::from_str(r#"{"habitNudge":"off"}"#).unwrap();
-        let text = prompt_section(&settings, &Profile { style: vec![], about: vec![] }, &PetPlan::default(), 0);
+        let text = prompt_section(&settings, &Profile { style: vec![], about: vec![] }, &PetPlan::default(), "- (none)", 0);
         assert!(text.contains("Habit nudges are off"), "{text}");
         assert!(!text.contains("bebe asks why"), "{text}");
     }
@@ -566,20 +546,17 @@ mod tests {
         let mut settings = super::super::default_settings();
         settings.pet.quiet_hours = vec![QuietHours { days: vec![Weekday::Fri, Weekday::Mon], start: "14:00".into(), end: "16:00".into() }];
         let now = Local.with_ymd_and_hms(2026, 11, 12, 15, 0, 0).unwrap().timestamp_millis();
-        let plan = PetPlan {
-            snooze_until: Some(now + 30 * 60_000),
-            reminders: vec![OneOffReminder { id: "r1".into(), at: now + 20 * 60_000, text: "喝水".into() }],
-        };
+        let plan = PetPlan { snooze_until: Some(now + 30 * 60_000) };
         let profile = Profile { style: vec!["少用感叹号".into()], about: vec![] };
-        let text = prompt_section(&settings, &profile, &plan, now);
+        let text = prompt_section(&settings, &profile, &plan, "- id `e1`: 11-25 投稿", now);
         assert!(text.contains("more than 60% of the last 10 min"));
         // Sleep starts at 23:00 by default.
         assert!(text.contains("at 22:50"));
         assert!(text.contains("周一、周五 14:00–16:00"));
         assert!(text.contains("paused until 11-12 15:30"));
-        assert!(text.contains("- id `r1`: 11-12 15:20 喝水"));
+        assert!(text.contains("- id `e1`: 11-25 投稿"));
         assert!(text.contains("- 少用感叹号"));
-        let expired = PetPlan { snooze_until: Some(now - 1), reminders: vec![] };
-        assert!(prompt_section(&settings, &profile, &expired, now).contains("not paused"));
+        let expired = PetPlan { snooze_until: Some(now - 1) };
+        assert!(prompt_section(&settings, &profile, &expired, "- (none)", now).contains("not paused"));
     }
 }

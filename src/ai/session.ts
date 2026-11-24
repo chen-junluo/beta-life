@@ -3,7 +3,9 @@ import type { MemorySnapshot } from "../memoryStorage";
 import type { AbilityForest, AbilityMapKind, AppSettings, BoardFile, KnowledgeRecord, LifeStage, LoadedAppState, MemoryMetadata, PetSettings } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { loadDiaryMonth, type DiarySnapshot } from "../diaryStorage";
+import { EMPTY_EVENTS, loadEvents, type EventFile } from "../boardEvents";
 import { applyPetSettings, applyPreference, classifyTarget, commitBebeChanges, describeClassify, describePetSettings, describePreference, loadPetProfile, runInstant, type PetProfile } from "./bebeTools";
+import { applyEventBatch, eventIndex, isEventTool, reviewEventChange } from "./eventTools";
 import { AI_TOOLS, applyBoardBatch, applyBoardChange, boardIndex, describeBoardChange } from "./boardTools";
 import { applyDiaryChange, commitDiaryChanges, describeDiaryChange, diaryIndex, diaryMonthIndex, findDay, loadDiaryData, monthOfDay, type DiaryData, type DiaryMonths } from "./diaryTools";
 import { applyForestChange, describeForestChange, forestIndex, forestMapIndex, readNode, type Forests } from "./forestTools";
@@ -14,6 +16,8 @@ import { changePanel, type AiChange, type AiPanelId, type AiScope, type AiToolCa
 /** Everything the assistant may read during one turn, captured when the turn starts. */
 export interface AssistantData {
   board: BoardFile;
+  /** 时间板的 事项 (P9), read and written with the board scope. */
+  events: EventFile;
   settings: AppSettings;
   forests: Forests;
   knowledge: KnowledgeRecord[];
@@ -39,21 +43,23 @@ export function forestsOf(state: LoadedAppState): Forests {
 
 /** Loads the panels that live on disk (recall, memories, diary) only when the scope can read them. */
 export async function loadAssistantData(scope: AiScope, state: LoadedAppState): Promise<AssistantData> {
-  const [knowledge, memoryData, diary, timeline] = await Promise.all([
+  const [knowledge, memoryData, diary, timeline, events] = await Promise.all([
     scope.recall ? loadKnowledge() : Promise.resolve([]),
     scope.memories ? loadMemoryData() : Promise.resolve({ memories: [], lifeStages: [] }),
     scope.diary ? loadDiaryData() : Promise.resolve(null),
     // Without today's digest the tools still work; a broken activity record must not block the chat.
     scope.timeline ? invoke<unknown>("ai_daily_summary", { date: null }).catch(() => null) : Promise.resolve(null),
+    // A missing or unreadable events file must not block the chat either.
+    scope.board ? loadEvents().then((loaded) => loaded.file).catch(() => EMPTY_EVENTS) : Promise.resolve(EMPTY_EVENTS),
   ]);
-  return { board: state.board, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary, timeline };
+  return { board: state.board, events, settings: state.settings, forests: forestsOf(state), knowledge, ...memoryData, diary, timeline };
 }
 
 /** Everything the model sees without calling a tool: the index of each panel the scope can read. */
 export function assistantContext(scope: AiScope, data: AssistantData): string {
   return JSON.stringify({
     now: localNow(),
-    ...(scope.board && { board: boardIndex(data.board, data.settings) }),
+    ...(scope.board && { board: boardIndex(data.board, data.settings), events: eventIndex(data.events) }),
     ...(scope.forest && { forest: forestIndex(data.forests) }),
     ...(scope.recall && { recall: recallIndex(data.knowledge) }),
     ...(scope.memories && { memories: memoryIndex(data.memories, data.lifeStages) }),
@@ -87,6 +93,7 @@ const createdIdFor = (name: string) => (name === "add_memory" ? newMemoryId() : 
 /** `summaryTask`: 写日记总结 / 助推建议, whose append_diary goes under the day's 【AI总结】 line. */
 export function createToolSession(data: AssistantData, { summaryTask = false } = {}) {
   let board = data.board;
+  let events = data.events;
   let forests = data.forests;
   let knowledge = data.knowledge;
   let memories = asMemories(data.memories);
@@ -110,6 +117,8 @@ export function createToolSession(data: AssistantData, { summaryTask = false } =
         return { activeBoardId: data.board.activeBoardId, boards: data.board.boards.map((item) => ({ id: item.id, name: item.name, habits: item.items.length })) };
       case "list_habits":
         return boardIndex(data.board, data.settings);
+      case "list_events":
+        return eventIndex(events);
       case "list_nodes": {
         const map = args.map as AbilityMapKind;
         return forestMapIndex(data.forests[map], map);
@@ -174,6 +183,12 @@ export function createToolSession(data: AssistantData, { summaryTask = false } =
   function stage(panel: AiPanelId, input: Pick<AiChange, "name" | "arguments" | "createdId">): { kind: ChangeKind; title: string; detail: string } {
     switch (panel) {
       case "board": {
+        // 事项 ride on the board scope but live in their own file.
+        if (isEventTool(input.name)) {
+          const reviewed = reviewEventChange(events, input);
+          events = reviewed.file;
+          return reviewed.display;
+        }
         const display = describeBoardChange(board, input, data.settings);
         board = applyBoardChange(board, input);
         return display;
@@ -280,6 +295,9 @@ export interface CommitTargets {
   recordDiary: (before: DiarySnapshot[], after: DiarySnapshot[]) => void;
   /** Confirmed bebe settings; Settings → bebe is where they are changed back. */
   commitPetSettings: (pet: PetSettings) => void;
+  /** The live events file the confirmed 事项 changes replay against. */
+  getEvents: () => EventFile | null;
+  commitEvents: (file: EventFile) => void;
 }
 
 /** Writes the confirmed changes panel by panel: one undo step per touched panel (and forest map). */
@@ -289,7 +307,18 @@ export async function commitChanges(changes: AiChange[], targets: CommitTargets)
   const of = (panel: AiToolPanel) => changes.filter((change) => changePanel(change) === panel);
   const failed: Failure[] = [];
 
-  const boardChanges = of("board");
+  const eventChanges = of("board").filter((change) => isEventTool(change.name));
+  if (eventChanges.length > 0) {
+    const live = targets.getEvents();
+    if (!live) failed.push(...eventChanges.map((change) => ({ changeId: change.id, reason: "事项文件还没有加载" })));
+    else {
+      const result = applyEventBatch(live, eventChanges);
+      if (result.applied > 0) targets.commitEvents(result.file);
+      failed.push(...result.failed);
+    }
+  }
+
+  const boardChanges = of("board").filter((change) => !isEventTool(change.name));
   if (boardChanges.length > 0) {
     const result = applyBoardBatch(state.board, boardChanges);
     if (result.applied > 0) targets.commitBoard(result.board);

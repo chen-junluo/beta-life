@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EMPTY_EVENTS } from "../boardEvents";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_BOARD, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS } from "../defaults";
 import { AI_DIVIDER, dayLabel } from "../diaryLogic";
 import type { DiaryDay } from "../types";
@@ -29,7 +30,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const day = (id: string, body: string): DiaryDay => ({ id, date: id.slice(0, 6), title: dayLabel(id), body });
 const change = (name: string, args: Record<string, unknown>) => ({ name, arguments: args });
-const data = (diary: Parameters<typeof diaryIndex>[0]) => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary, timeline: null });
+const data = (diary: Parameters<typeof diaryIndex>[0]) => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], events: EMPTY_EVENTS, diary, timeline: null });
 
 describe("diary tools", () => {
   const months: DiaryMonths = { "2611": [day("261110", "- 读书"), day("261111", "- ")] };

@@ -33,8 +33,8 @@ export const PET_HABIT_REASONS = "pet://habit-reasons";
 export const PET_HABIT_SUGGEST = "pet://habit-suggest";
 /** Pet → main: 想个小步骤 on the morning reminder about stale long-term goals (`StaleGoal[]`). */
 export const PET_GOAL_STEP = "pet://goal-step";
-/** The 长期目标小步骤 task reads the goals' notes and the week's diary; it only schedules a reminder (a bebe tool). */
-export const PET_GOAL_SCOPE: AiScope = { forest: "read", diary: "read" };
+/** The 长期目标小步骤 task reads the goals' notes and the week's diary, and adds today's step as a 事项 on the board. */
+export const PET_GOAL_SCOPE: AiScope = { forest: "read", diary: "read", board: "write" };
 /** Pet → main: 聊一下 on the morning list of the last diary day's to-dos (`TodoOffer`). */
 export const PET_CARRY_TODOS = "pet://carry-todos";
 /** The 昨天的 to-do task rewrites that day and today in the diary. */

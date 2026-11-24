@@ -42,7 +42,9 @@ import {
   type PetMarkDone,
   type PetSummaryDiary,
 } from "./bridge";
-import { clockText, dueReminder, EMPTY_PLAN, isSnoozed, loadPetPlan, PET_PLAN, savePetPlan, type OneOffReminder, type PetPlan } from "./plan";
+import { BOARD_EVENTS, EMPTY_EVENTS, loadEvents, loadEventsFired, md, saveEventsFired, type BoardEvent, type EventsState } from "../boardEvents";
+import { dueEventReminders, morningDigest, pruneFired } from "./eventReminders";
+import { EMPTY_PLAN, isSnoozed, loadPetPlan, PET_PLAN, type PetPlan } from "./plan";
 import { inQuietHours, isSleepPeriod, localDateKey, reminderSlot, summaryDay } from "./reminders";
 import {
   afterNudge,
@@ -59,13 +61,13 @@ import {
   type NudgeLevel,
   type NudgeMemory,
 } from "./slack";
+import { dayWindow } from "./schedule";
 import { SpritePlayer, preloadStrips, type PetManifest } from "./sprite";
 
 const ASSET_BASE = "/assets/bebe/";
 const TICK_MS = 30_000;
 const FOCUS_MS = 5 * 60_000;
 /** 「10 分钟后」 on a one-off reminder. */
-const REMIND_AGAIN_MS = 10 * 60_000;
 /** The light (level 1) slack reminder goes away by itself. */
 const LIGHT_NUDGE_MS = 15_000;
 const DRAG_THRESHOLD = 4;
@@ -93,8 +95,10 @@ type Bubble =
   | { kind: "nudge"; level: NudgeLevel; label: string; minutes: number; target: RuleTarget | null }
   | { kind: "ask"; target: RuleTarget; minutes: number }
   | { kind: "summary"; summary: DaySummary }
-  /** A one-off reminder the user asked bebe for. */
-  | { kind: "remind"; reminder: OneOffReminder }
+  /** An event's reminder: on its day, or `ahead` days before. */
+  | { kind: "matter"; event: BoardEvent; ahead: number }
+  /** The morning digest of the next 7 days' events (its own bubble, not the P8 to-do one). */
+  | { kind: "digest"; items: BoardEvent[] }
   /** 「为什么没完成呢？」 15 min before a period ends. */
   | { kind: "why"; date: string; period: PeriodSetting; habits: Habit[] }
   /** After 0:00: offer to write suggestions for habits with a low rate. */
@@ -184,7 +188,18 @@ function devPreview(): { state: string | null; bubble: Bubble | null; chat: PetC
         nudges: { count: 3, back: 2 },
       },
     },
-    remind: { kind: "remind", reminder: { id: "preview", at: Date.now(), text: "站起来喝水，顺便看看窗外" } },
+    matter: {
+      kind: "matter",
+      ahead: 0,
+      event: { id: "preview", title: "ISR 投稿截止", note: "", shape: "point", date: localDateKey(new Date()), dateEst: false, end: null, endEst: false, time: "17:00", tags: ["个人事项/工作"], next: null, remind: { onDay: true, daysBefore: [] }, done: false, createdAt: 0, updatedAt: 0 },
+    },
+    digest: {
+      kind: "digest",
+      items: [
+        { id: "a", title: "组会", note: "", shape: "point", date: localDateKey(new Date()), dateEst: false, end: null, endEst: false, time: "14:00", tags: ["个人事项/工作"], next: null, remind: { onDay: true, daysBefore: [] }, done: false, createdAt: 0, updatedAt: 0 },
+        { id: "b", title: "ISR 投稿截止", note: "", shape: "span", date: localDateKey(new Date()), dateEst: false, end: null, endEst: false, time: null, tags: ["期刊/ISR"], next: null, remind: { onDay: true, daysBefore: [3] }, done: false, createdAt: 0, updatedAt: 0 },
+      ],
+    },
     why: {
       kind: "why",
       date: "2026-11-12",
@@ -508,7 +523,7 @@ export function PetApp() {
   const [goalNudge, setGoalNudge] = useState<PetGoalNudge | null>(null);
   const rules = useMemo(() => slackRules(pet), [pet]);
   const windowMs = rules.windowMs;
-  /** Pause and one-off reminders, set from a chat (Rust keeps them on this Mac). */
+  /** The pause set from a chat (Rust keeps it on this Mac); 事项 reminders come from events.json. */
   const [plan, setPlan] = useState<PetPlan>(EMPTY_PLAN);
   const [bubble, setBubble] = useState<Bubble | null>(preview.bubble);
   // Both the hourly reminders and the activity pulse raise bubbles; the ref stops one from
@@ -597,6 +612,30 @@ export function PetApp() {
     return () => void unlisten.then((stop) => stop());
   }, []);
 
+  /** 事项提醒盯着的 events.json，和这台 Mac 已经提醒过的 key。 */
+  const [events, setEvents] = useState(EMPTY_EVENTS);
+  const [fired, setFired] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isTauri) return;
+    void loadEvents().then((state) => setEvents(state.file)).catch(console.error);
+    void loadEventsFired().then((state) => setFired(state.keys)).catch(console.error);
+    const unlisten = listen<EventsState>(BOARD_EVENTS, ({ payload }) => setEvents(payload.file));
+    return () => void unlisten.then((stop) => stop());
+  }, []);
+  // 坚果云改了文件不会发 `board://events`：最多每分钟重读一次
+  const eventsSeen = useRef(0);
+  useEffect(() => {
+    if (!isTauri || now - eventsSeen.current < 60_000) return;
+    eventsSeen.current = now;
+    void loadEvents().then((state) => setEvents(state.file)).catch(console.error);
+  }, [now]);
+
+  function rememberFired(keys: string[], today: string) {
+    const next = pruneFired([...fired, ...keys], today);
+    setFired(next);
+    void saveEventsFired({ keys: next }).catch(console.error);
+  }
+
   // Think while the assistant works, wherever the message was sent from.
   useEffect(() => {
     const player = playerRef.current;
@@ -654,17 +693,23 @@ export function PetApp() {
     play("alert");
   }, [now, items, periods, pet.habitWeekends, bubble, sleeping, away, quiet, snoozed, pendingOnly, play, raise, preview.bubble]);
 
-  // One-off reminders the user asked for show even while asleep or quiet; they wait for a free bubble.
+  // 事项提醒：暂停、安静时段和睡眠都不挡，只有大窗口在前台时让路，也等一个空气泡
   useEffect(() => {
-    if (!isTauri || preview.bubble || away || bubbleRef.current) return;
-    const due = dueReminder(plan, now);
-    if (!due) return;
-    const next = { ...plan, reminders: plan.reminders.filter((item) => item.id !== due.id) };
-    setPlan(next);
-    void savePetPlan(next).catch(console.error);
-    raise({ kind: "remind", reminder: due });
+    if (!isTauri || preview.bubble || away || bubbleRef.current || pulse?.inBetaLife) return;
+    const today = localDateKey(new Date(now));
+    const due = dueEventReminders(events.events, fired, today, now);
+    if (due.length > 0) {
+      rememberFired(due.map((item) => item.key), today);
+      raise({ kind: "matter", event: due[0].event, ahead: due[0].ahead });
+      play("alert");
+      return;
+    }
+    const digest = morningDigest(events.events, fired, today, dayWindow(now, periods).from, now);
+    if (!digest) return;
+    rememberFired([digest.key], today);
+    raise({ kind: "digest", items: digest.items });
     play("alert");
-  }, [now, plan, away, raise, play, preview.bubble]);
+  }, [now, events, fired, away, periods, raise, play, pulse?.inBetaLife, preview.bubble]);
 
   // The activity pulse: what is in front, the slack streak, unclassified apps used long enough.
   useEffect(() => {
@@ -851,11 +896,6 @@ export function PetApp() {
   function snoozeSlack() {
     setNudges((memory) => ({ ...memory, quietUntil: Date.now() + rules.snoozeMs }));
     setBubble(null);
-  }
-
-  function remindLater(reminder: OneOffReminder) {
-    setBubble(null);
-    if (isTauri) void savePetPlan({ ...plan, reminders: [...plan.reminders, { ...reminder, at: Date.now() + REMIND_AGAIN_MS }] }).catch(console.error);
   }
 
   async function classify(target: RuleTarget, category: ActivityCategory) {
@@ -1055,13 +1095,32 @@ export function PetApp() {
               </div>
             </>
           )}
-          {bubble.kind === "remind" && (
+          {bubble.kind === "matter" && (
             <>
-              <span className="pet-bubble-meta">提醒 · {clockText(bubble.reminder.at, Date.now())}</span>
-              <p className="pet-bubble-text is-full">{bubble.reminder.text}</p>
+              <span className="pet-bubble-meta">
+                {bubble.ahead === 0 ? "今天" : `还有 ${bubble.ahead} 天`} · {md(bubble.event.date, bubble.event.dateEst)}{bubble.event.time ? ` ${bubble.event.time}` : ""}
+              </span>
+              <p className="pet-bubble-text is-full">{bubble.event.title}</p>
               <div className="pet-bubble-actions">
                 <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>知道啦</button>
-                <button type="button" className="secondary-button" onClick={() => remindLater(bubble.reminder)}>10 分钟后</button>
+                <button type="button" className="secondary-button" onClick={openTimeline}>看时间轴</button>
+              </div>
+            </>
+          )}
+          {bubble.kind === "digest" && (
+            <>
+              <span className="pet-bubble-meta">接下来 7 天</span>
+              <ul className="pet-bubble-list">
+                {bubble.items.map((item) => (
+                  <li key={item.id}>
+                    <span>{item.title}</span>
+                    <small>{md(item.date, item.dateEst)}{item.time ? ` ${item.time}` : ""}</small>
+                  </li>
+                ))}
+              </ul>
+              <div className="pet-bubble-actions">
+                <button type="button" className="primary-button" onClick={() => { play("happy"); setBubble(null); }}>知道啦</button>
+                <button type="button" className="secondary-button" onClick={openTimeline}>看时间轴</button>
               </div>
             </>
           )}

@@ -924,7 +924,7 @@
     "panel": "bebe",
     "access": "write",
     "effect": "instant",
-    "description": "Pause bebe's slack reminders, its questions about unclassified apps and its habit reminders for a while; one-off reminders still show. Give minutes from now, or until as local HH:MM (the next time that clock time comes, e.g. the sleep period start for 今晚). minutes 0 ends a pause now. Acts at once; the user can undo it.",
+    "description": "Pause bebe's slack reminders, its questions about unclassified apps and its habit reminders for a while; 事项 reminders and the evening summary still show. Give minutes from now, or until as local HH:MM (the next time that clock time comes, e.g. the sleep period start for 今晚). minutes 0 ends a pause now. Acts at once; the user can undo it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -945,45 +945,200 @@
     }
   },
   {
-    "name": "schedule_reminder",
-    "panel": "bebe",
+    "name": "list_events",
+    "panel": "board",
+    "access": "read",
+    "description": "List the 事项 (events) on the time board with id, title, point/span, date, time, 通知 end, tags, 下一站 next, reminders and done state, plus the projects (tag, chain head). Use these ids for update_event and delete_event.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_event",
+    "panel": "board",
     "access": "write",
-    "effect": "instant",
-    "description": "bebe shows a one-off reminder bubble once, within the next 24 hours. Give minutes from now, or at as local HH:MM (the next time that clock time comes). For something every day, add a habit on the board instead. Acts at once; the user can undo it.",
+    "description": "Add a 事项 to the time board. A point happens on one date (optionally with a clock time); a span runs from 截止 (date) to 通知 (end), and leaving end out means 通知未定. tags[0] decides the gantt row and its project colour; when the user does not say, use the default 个人事项/工作 (other kinds: 生活, 学习, 关系, 行政). The user confirms it in the diff card before it is saved.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "text": {
+        "title": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 80,
-          "description": "What to remind, short, in the user's words."
+          "maxLength": 80
         },
-        "minutes": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 1440,
-          "description": "From now."
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "YYYY-MM-DD; for a span this is 截止."
         },
-        "at": {
+        "shape": {
+          "enum": [
+            "point",
+            "span"
+          ],
+          "description": "Default point."
+        },
+        "time": {
           "type": "string",
           "minLength": 5,
           "maxLength": 5,
-          "description": "Local HH:MM."
+          "description": "Local HH:MM, point only; omit for an all-day point."
+        },
+        "end": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "YYYY-MM-DD 通知, span only; omit when 通知未定."
+        },
+        "dateEst": {
+          "type": "boolean",
+          "description": "The 截止 date is an estimate (an official date is not out yet)."
+        },
+        "endEst": {
+          "type": "boolean",
+          "description": "The 通知 date is an estimate."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "description": "Default [\"个人事项/工作\"]; tags[0] is the track/venue."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Markdown notes: requirements, what to prepare."
+        },
+        "remind": {
+          "type": "object",
+          "properties": {
+            "onDay": {
+              "type": "boolean",
+              "description": "Bubble on the day itself (default true)."
+            },
+            "daysBefore": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30
+              },
+              "maxItems": 5,
+              "description": "Bubbles this many days before."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
-        "text"
+        "title",
+        "date"
       ],
       "additionalProperties": false
     }
   },
   {
-    "name": "cancel_reminder",
-    "panel": "bebe",
+    "name": "update_event",
+    "panel": "board",
     "access": "write",
-    "effect": "instant",
-    "description": "Cancel a one-off reminder by its id from the list of one-off reminders. Acts at once; the user can undo it.",
+    "description": "Change one 事项 by its id from list_events: any of title, shape, date, time, end, tags, note, remind, done, or next (下一站, the single forward link of a chain; null clears it). Only the fields you give change. The user confirms it in the diff card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "shape": {
+          "enum": [
+            "point",
+            "span"
+          ]
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "YYYY-MM-DD."
+        },
+        "time": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "description": "Local HH:MM, point only; null clears it."
+        },
+        "end": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "description": "YYYY-MM-DD 通知, span only; null = 通知未定."
+        },
+        "dateEst": {
+          "type": "boolean",
+          "description": "The 截止 date is an estimate."
+        },
+        "endEst": {
+          "type": "boolean",
+          "description": "The 通知 date is an estimate."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "remind": {
+          "type": "object",
+          "properties": {
+            "onDay": {
+              "type": "boolean"
+            },
+            "daysBefore": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30
+              },
+              "maxItems": 5
+            }
+          },
+          "additionalProperties": false
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "next": {
+          "type": "string",
+          "description": "Id of the 下一站 event, or null."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_event",
+    "panel": "board",
+    "access": "write",
+    "description": "Delete one 事项 by its id. The events that point at it lose their 下一站 and a project that starts there goes back to the tray. The user confirms it in the diff card.",
     "inputSchema": {
       "type": "object",
       "properties": {

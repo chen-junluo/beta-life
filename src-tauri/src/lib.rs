@@ -240,6 +240,9 @@ struct AppSettings {
     pet: bebe::PetSettings,
     #[serde(default)]
     goals: GoalSettings,
+    /// 时间板 project 分类 → 色系顺序 (P9); new categories append, a removed one does not reshuffle.
+    #[serde(default)]
+    project_families: Vec<String>,
 }
 
 /// 长期目标 (P7): the maps whose 在推进 nodes the evening summary compares against the diary.
@@ -854,6 +857,7 @@ fn default_settings() -> AppSettings {
         activity: ActivitySettings::default(),
         pet: bebe::PetSettings::default(),
         goals: GoalSettings::default(),
+        project_families: Vec::new(),
     }
 }
 
@@ -2736,6 +2740,10 @@ pub fn run() {
             bebe::save_pet_profile,
             bebe::load_pet_plan,
             bebe::save_pet_plan,
+            vault::events::load_events,
+            vault::events::save_events,
+            vault::events::load_events_fired,
+            vault::events::save_events_fired,
             ai::ai_chat_step,
             ai::ai_generate_title,
             ai::list_ai_conversations,

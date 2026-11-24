@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY_EVENTS } from "../boardEvents";
 import { itemsInContainer } from "../boardLogic";
 import { DEFAULT_ABILITY_FOREST, DEFAULT_RESEARCH_AGENDA, DEFAULT_SETTINGS } from "../defaults";
 import type { BoardFile, Habit } from "../types";
@@ -6,7 +7,7 @@ import { AI_TOOLS, applyBoardBatch, boardIndex } from "./boardTools";
 import { createToolSession } from "./session";
 
 const createBoardSession = (board: BoardFile, settings = DEFAULT_SETTINGS) =>
-  createToolSession({ board, settings, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary: null, timeline: null });
+  createToolSession({ board, events: EMPTY_EVENTS, settings, forests: { vision: DEFAULT_ABILITY_FOREST, research: DEFAULT_RESEARCH_AGENDA }, knowledge: [], memories: [], lifeStages: [], diary: null, timeline: null });
 
 function habit(id: string, title: string, placement: Habit["placement"], order: number, extra: Partial<Habit> = {}): Habit {
   return { id, title, description: "", tags: "", placement, order, createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z", ...extra };

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EMPTY_EVENTS } from "../boardEvents";
 import { DEFAULT_BOARD, DEFAULT_SETTINGS } from "../defaults";
 import { EMPTY_PLAN, type PetPlan } from "../pet/plan";
 import type { LoadedAppState } from "../types";
 import { applyPetSettings, describePetSettings } from "./bebeTools";
+import { lookupAvailable } from "./eventTools";
 import { commitChanges, createToolSession, type AssistantData } from "./session";
 import { runTurn, toWire } from "./turn";
 import type { AiChange, ConversationMessage } from "./types";
@@ -31,7 +33,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
-const data = (): AssistantData => ({ board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, forests: {} as AssistantData["forests"], knowledge: [], memories: [], lifeStages: [], diary: null, timeline: null });
+const data = (): AssistantData => ({ board: DEFAULT_BOARD, events: EMPTY_EVENTS, settings: DEFAULT_SETTINGS, forests: {} as AssistantData["forests"], knowledge: [], memories: [], lifeStages: [], diary: null, timeline: null });
 
 beforeEach(() => {
   store.plan = EMPTY_PLAN;
@@ -40,13 +42,13 @@ beforeEach(() => {
 });
 
 describe("bebe tools", () => {
-  it("applies plan tools at once and records how to undo them", async () => {
+  it("applies a pause at once and records how to undo it", async () => {
     const session = createToolSession(data());
-    const outcome = await session.run({ id: "1", name: "schedule_reminder", arguments: { text: "喝水", minutes: 10 } });
+    const outcome = await session.run({ id: "1", name: "snooze", arguments: { minutes: 30 } });
     expect(outcome.change).toBeUndefined();
-    expect(outcome.action?.label).toMatch(/提醒：喝水$/);
-    expect(store.plan.reminders).toHaveLength(1);
-    expect(outcome.action?.undo).toEqual({ kind: "unschedule", id: store.plan.reminders[0].id });
+    expect(outcome.action?.label).toMatch(/^暂停提醒到 /);
+    expect(Math.abs(store.plan.snoozeUntil! - (Date.now() + 30 * 60_000))).toBeLessThan(60_000);
+    expect(outcome.action?.undo).toEqual({ kind: "snooze", previous: null });
     const bad = await session.run({ id: "2", name: "snooze", arguments: {} });
     expect(JSON.parse(bad.content).error).toContain("either");
   });
@@ -78,12 +80,18 @@ describe("bebe tools", () => {
       (await session.run({ id: "5", name: "classify_activity", arguments: { kind: "app", name: "Steam", category: "none" } })).change!,
     ] as AiChange[];
     const state = { board: DEFAULT_BOARD, settings: DEFAULT_SETTINGS, hasApiKey: true } as LoadedAppState;
-    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn(), recordDiary: vi.fn(), commitPetSettings: vi.fn() };
+    const targets = { getState: () => state, commitBoard: vi.fn(), commitForest: vi.fn(), recordRecall: vi.fn(), recordMemories: vi.fn(), recordDiary: vi.fn(), commitPetSettings: vi.fn(), getEvents: () => null, commitEvents: vi.fn() };
     expect(await commitChanges(changes, targets)).toEqual([]);
     expect(targets.commitPetSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS.pet, summaryLeadMinutes: 60 });
     expect(store.profile).toEqual({ style: ["叫我小陈"], about: [] });
     expect(store.rules.keywords).toEqual([{ keyword: "课程", category: "focus" }]);
     expect(store.calls).toContainEqual(["set_activity_rule", { request: { kind: "app", key: "com.valvesoftware.steam", name: "Steam", category: null } }]);
+  });
+
+  it("offers bebe 查官网 only where DeepSeek's web search runs", () => {
+    expect(lookupAvailable({ provider: "deepseek", model: "deepseek-flash" })).toBe(true);
+    expect(lookupAvailable({ provider: "deepseek", model: "deepseek-chat" })).toBe(false);
+    expect(lookupAvailable({ provider: "custom", model: "deepseek-flash" })).toBe(false);
   });
 
   it("sorts quiet-hour days and rejects bad clock times", () => {

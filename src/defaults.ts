@@ -187,6 +187,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   activity: { aiDays: 30, aiTitles: true },
   pet: DEFAULT_PET_SETTINGS,
   goals: { maps: ["vision"], staleDays: 7, remindEveryDays: 3 },
+  projectFamilies: [],
 };
 
 export const DEFAULT_BOARD: BoardFile = {

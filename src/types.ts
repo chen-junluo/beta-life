@@ -195,6 +195,8 @@ export interface AppSettings {
   activity: ActivitySettings;
   pet: PetSettings;
   goals: GoalSettings;
+  /** 时间板 project 分类 → 色系顺序 (P9)；新分类追加末尾，删分类不让其他分类换色。 */
+  projectFamilies: string[];
 }
 
 /** 长期目标 (P7): the maps whose 在推进 nodes the evening summary compares against the diary. */

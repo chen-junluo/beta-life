@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter};
 
 pub(crate) mod board;
 pub(crate) mod diary;
+pub(crate) mod events;
 pub(crate) mod fm;
 pub(crate) mod forest;
 pub(crate) mod location;
